@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+/* ── Figma Design Tokens ──────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg-1: #ffffff;
+  --bg-2: #fefefe;
+  --bg-3: #f8f8f8;
+  --bg-4: #f2f2f2;
+
+  /* Text */
+  --text-title:    #1a1a1a;
+  --text-p:        #2a2a2a;
+  --text-subtitle: #757575;
+
+  /* Border */
+  --border:       #f2f2f2;
+  --border-hover: #e0e0e0;
+}
+
+/* ── Dark Mode ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg-1: #111111;
+  --bg-2: #181818;
+  --bg-3: #1e1e1e;
+  --bg-4: #2a2a2a;
+
+  --text-title:    #f5f5f5;
+  --text-p:        #d5d5d5;
+  --text-subtitle: #8a8a8a;
+
+  --border:       #2a2a2a;
+  --border-hover: #3a3a3a;
+}
+
+/* ── Tailwind Custom Theme ─────────────────────────────────── */
+@theme inline {
+  --color-bg-1:      var(--bg-1);
+  --color-bg-2:      var(--bg-2);
+  --color-bg-3:      var(--bg-3);
+  --color-bg-4:      var(--bg-4);
+
+  --color-text-title:    var(--text-title);
+  --color-text-p:        var(--text-p);
+  --color-text-subtitle: var(--text-subtitle);
+
+  --color-border:       var(--border);
+  --color-border-hover: var(--border-hover);
+
+  --font-matter: "Matter", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-matter);
+  background-color: var(--bg-1);
+  color: var(--text-p);
+  transition: background-color 200ms ease, color 200ms ease;
+}
