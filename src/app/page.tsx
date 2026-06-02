@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import TextScrollingEffect from "@/components/TextScrollingEffect";
 
 export const metadata = {
   title: "Burak Koç",
@@ -15,10 +16,12 @@ export default function Home() {
       </div>
 
       <main className="flex flex-col justify-center min-h-[80vh] px-6 max-w-[720px] mx-auto">
-        <h1 className="text-base font-medium text-[var(--text-title)] mb-1">Burak Koç</h1>
-        <p className="text-base font-light text-[var(--text-subtitle)] mb-8">
-          Product designer &amp; developer.
-        </p>
+        <TextScrollingEffect>
+          <h1 className="text-base font-medium text-[var(--text-title)] mb-1">Burak Koç</h1>
+          <p className="text-base font-light text-[var(--text-subtitle)] mb-8">
+            Product designer &amp; developer.
+          </p>
+        </TextScrollingEffect>
 
         <nav className="flex flex-col gap-0">
           <Link

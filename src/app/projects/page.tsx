@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { listProjects } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
+import TextScrollingEffect from "@/components/TextScrollingEffect";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectData[]>([]);
@@ -33,7 +34,9 @@ export default function ProjectsPage() {
       </div>
 
       <main className="max-w-[720px] mx-auto px-6 pt-16 pb-24">
-        <h1 className="text-base font-medium text-[var(--text-title)] mb-8">Projeler</h1>
+        <TextScrollingEffect>
+          <h1 className="text-base font-medium text-[var(--text-title)] mb-8">Projeler</h1>
+        </TextScrollingEffect>
 
         {loading && (
           <div className="flex flex-col gap-4">

@@ -7,6 +7,8 @@ import { Segmented } from "@/components/Segmented";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
 import { loadProject, listProjects } from "@/lib/firestore";
 import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem } from "@/types/project";
+import TextScrollingEffect from "@/components/TextScrollingEffect";
+import ScrollReveal from "@/components/ScrollReveal";
 
 // ── SVG Icons ──────────────────────────────────────────────────
 
@@ -166,27 +168,33 @@ function BadgeRenderer({
 function DetailHeading({ block }: { block: Block }) {
   if (!block.content) return null;
   return (
-    <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-      {block.content}
-    </h2>
+    <TextScrollingEffect>
+      <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+        {block.content}
+      </h2>
+    </TextScrollingEffect>
   );
 }
 
 function DetailSubheading({ block }: { block: Block }) {
   if (!block.content) return null;
   return (
-    <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
-      {block.content}
-    </p>
+    <TextScrollingEffect>
+      <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
+        {block.content}
+      </p>
+    </TextScrollingEffect>
   );
 }
 
 function DetailText({ block }: { block: Block }) {
   if (!block.content) return null;
   return (
-    <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-      {block.content}
-    </p>
+    <TextScrollingEffect>
+      <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
+        {block.content}
+      </p>
+    </TextScrollingEffect>
   );
 }
 
@@ -206,38 +214,40 @@ function DetailImage({ block }: { block: Block }) {
   const isTab2 = segBadge && activeTab === (segBadge.tab2Label ?? "Code");
 
   return (
-    <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div
-        className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
-        style={{ aspectRatio: aspectValue }}
-      >
-        {!isTab2 ? (
-          block.src ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={block.src} alt={block.alt ?? ""} className="w-full h-full object-cover" />
+    <ScrollReveal>
+      <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
+        <div
+          className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
+          style={{ aspectRatio: aspectValue }}
+        >
+          {!isTab2 ? (
+            block.src ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={block.src} alt={block.alt ?? ""} className="w-full h-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">
+                Görsel bulunamadı
+              </div>
+            )
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">
-              Görsel bulunamadı
-            </div>
-          )
-        ) : (
-          tab2 ? <SecondTabContent tab2={tab2} /> : null
-        )}
+            tab2 ? <SecondTabContent tab2={tab2} /> : null
+          )}
 
-        {block.badges?.length ? (
-          <BadgeRenderer
-            badges={block.badges}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
-        ) : null}
+          {block.badges?.length ? (
+            <BadgeRenderer
+              badges={block.badges}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+            />
+          ) : null}
+        </div>
+        {block.caption && (
+          <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">
+            {block.caption}
+          </p>
+        )}
       </div>
-      {block.caption && (
-        <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">
-          {block.caption}
-        </p>
-      )}
-    </div>
+    </ScrollReveal>
   );
 }
 
@@ -251,30 +261,32 @@ function DetailVideo({ block }: { block: Block }) {
   const isRaw = block.src?.endsWith(".mp4") || block.src?.endsWith(".webm");
 
   return (
-    <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden aspect-video">
-        {!isTab2 ? (
-          embedUrl ? (
-            isRaw ? (
-              <video src={embedUrl} controls className="w-full h-full object-cover" />
+    <ScrollReveal>
+      <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
+        <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden aspect-video">
+          {!isTab2 ? (
+            embedUrl ? (
+              isRaw ? (
+                <video src={embedUrl} controls className="w-full h-full object-cover" />
+              ) : (
+                <iframe src={embedUrl} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={block.caption ?? "Video"} />
+              )
             ) : (
-              <iframe src={embedUrl} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={block.caption ?? "Video"} />
+              <div className="absolute inset-0 flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">Video bulunamadı</div>
             )
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">Video bulunamadı</div>
-          )
-        ) : (
-          segBadge?.tab2 ? <SecondTabContent tab2={segBadge.tab2} /> : null
-        )}
+            segBadge?.tab2 ? <SecondTabContent tab2={segBadge.tab2} /> : null
+          )}
 
-        {block.badges?.length ? (
-          <BadgeRenderer badges={block.badges} activeTab={activeTab} onTabChange={setActiveTab} />
-        ) : null}
+          {block.badges?.length ? (
+            <BadgeRenderer badges={block.badges} activeTab={activeTab} onTabChange={setActiveTab} />
+          ) : null}
+        </div>
+        {block.caption && (
+          <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">{block.caption}</p>
+        )}
       </div>
-      {block.caption && (
-        <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">{block.caption}</p>
-      )}
-    </div>
+    </ScrollReveal>
   );
 }
 
@@ -293,54 +305,56 @@ function DetailCode({ block }: { block: Block }) {
   const hasPreview = Boolean(block.codePreview?.trim());
 
   return (
-    <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden min-h-[200px]">
-        {!segBadge && (
-          <div className="absolute top-[14px] right-[14px] z-10">
-            <Segmented
-              options={["Preview", "Code"]}
-              defaultValue="Code"
-              onChange={setBuiltInTab}
-            />
-          </div>
-        )}
-
-        {usedTab === "Code" || usedTab === "tab1" ? (
-          <div className="bg-[var(--bg-2)]">
-            <div className="flex items-center gap-1.5 px-4 pt-[52px] pb-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-              <span className="ml-2 text-xs text-[var(--text-subtitle)] font-mono select-none">{block.language ?? "code"}</span>
+    <ScrollReveal>
+      <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
+        <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden min-h-[200px]">
+          {!segBadge && (
+            <div className="absolute top-[14px] right-[14px] z-10">
+              <Segmented
+                options={["Preview", "Code"]}
+                defaultValue="Code"
+                onChange={setBuiltInTab}
+              />
             </div>
-            <pre className="px-4 pb-6 font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre">
-              {hasCode ? block.content : <span className="opacity-30 italic">// kod girilmedi</span>}
-            </pre>
-          </div>
-        ) : usedTab === "Preview" ? (
-          <div className="bg-[var(--bg-3)] pt-[52px]">
-            {hasPreview ? (
-              <div className="px-4 pb-6" dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
-            ) : (
-              <div className="flex items-center justify-center h-24 text-sm text-[var(--text-subtitle)] opacity-30 italic font-light select-none">
-                HTML önizlemesi girilmedi
-              </div>
-            )}
-          </div>
-        ) : usedTab === "tab2" && segBadge?.tab2 ? (
-          <div className="pt-[52px] px-4 pb-6">
-            <SecondTabContent tab2={segBadge.tab2} />
-          </div>
-        ) : null}
+          )}
 
-        {block.badges?.length ? (
-          <BadgeRenderer badges={block.badges} activeTab={activeTab} onTabChange={setActiveTab} />
-        ) : null}
+          {usedTab === "Code" || usedTab === "tab1" ? (
+            <div className="bg-[var(--bg-2)]">
+              <div className="flex items-center gap-1.5 px-4 pt-[52px] pb-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
+                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
+                <span className="ml-2 text-xs text-[var(--text-subtitle)] font-mono select-none">{block.language ?? "code"}</span>
+              </div>
+              <pre className="px-4 pb-6 font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre">
+                {hasCode ? block.content : <span className="opacity-30 italic">// kod girilmedi</span>}
+              </pre>
+            </div>
+          ) : usedTab === "Preview" ? (
+            <div className="bg-[var(--bg-3)] pt-[52px]">
+              {hasPreview ? (
+                <div className="px-4 pb-6" dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
+              ) : (
+                <div className="flex items-center justify-center h-24 text-sm text-[var(--text-subtitle)] opacity-30 italic font-light select-none">
+                  HTML önizlemesi girilmedi
+                </div>
+              )}
+            </div>
+          ) : usedTab === "tab2" && segBadge?.tab2 ? (
+            <div className="pt-[52px] px-4 pb-6">
+              <SecondTabContent tab2={segBadge.tab2} />
+            </div>
+          ) : null}
+
+          {block.badges?.length ? (
+            <BadgeRenderer badges={block.badges} activeTab={activeTab} onTabChange={setActiveTab} />
+          ) : null}
+        </div>
+        {block.caption && (
+          <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">{block.caption}</p>
+        )}
       </div>
-      {block.caption && (
-        <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">{block.caption}</p>
-      )}
-    </div>
+    </ScrollReveal>
   );
 }
 
