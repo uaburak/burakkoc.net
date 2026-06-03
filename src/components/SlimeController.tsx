@@ -56,13 +56,21 @@ const PHYSICS = {
   
   mouseRunDistance: 150,   // Fare ile karakter arasındaki mesafe bu değerden büyükse koşar
   mouseWalkDistance: 40,   // Fare ile karakter arasındaki mesafe bu değerden büyükse yürür (değilse durur)
+  
+  // Sprite ayak ofseti: Sprite'ın alt kısmındaki şeffaf pikselleri telafi eder
+  // Pozitif değer = sprite yukarı çekilir (ayaklar zemine oturur)
+  footOffsetY: 0,
 };
+
+// ── Kutu Yükseklik Ayarları (Hızlı Ayar) ──
+const BOX_DEFAULT_HEIGHT = 200;  // Kutunun normal yüksekliği
+const BOX_ACTIVE_HEIGHT = 175;   // Karakter üstündeyken yükseklik (yaylanma sonrası)
 
 // Yönlendirme Platformları (Kutular)
 const BOXES = [
-  { id: "about", label: "About me", width: 140, height: 100, xOffset: -240, href: "/about" },
-  { id: "projects", label: "Projects", width: 140, height: 100, xOffset: 0, href: "/projects" },
-  { id: "cv", label: "e-cv", width: 140, height: 100, xOffset: 240, href: "/cv" }
+  { id: "about", label: "About me", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: -240, href: "/about" },
+  { id: "projects", label: "Projects", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: 0, href: "/projects" },
+  { id: "cv", label: "e-cv", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: 240, href: "/cv" }
 ];
 
 export default function SlimeController() {
@@ -72,6 +80,7 @@ export default function SlimeController() {
   const router = useRouter();
   
   const [activeBox, setActiveBox] = useState<string | null>(null);
+  const [squishValues, setSquishValues] = useState<Record<string, number>>({ about: 0, projects: 0, cv: 0 });
 
   const engineRef = useRef({
     images: {} as Record<string, HTMLImageElement>,
@@ -96,13 +105,20 @@ export default function SlimeController() {
     landingGraceTimer: 0, // Yere indikten sonra hızlı zıplama penceresi (saniye)
     isAttacking: false,
     activeBox: null as string | null,
+    prevActiveBox: null as string | null, // Önceki aktif kutu (renk değişimi tetiklemek için)
     autoPilotTarget: null as string | null,
     autoPilotRoute: null as string | null,
-    boxHeights: {
-      about: 100,
-      projects: 100,
-      cv: 100
+    boxSquish: {
+      about: 0,
+      projects: 0,
+      cv: 0
+    } as Record<string, number>, // 0 = normal, pozitif = aşağı kayma miktarı (piksel)
+    boxSquishVelocity: {
+      about: 0,
+      projects: 0,
+      cv: 0
     } as Record<string, number>,
+    lastLandingVy: 0, // İniş anındaki dikey hız (squish hesabı için)
     attackCombo: 0,
     comboResetTimer: 0,
   });
@@ -139,6 +155,7 @@ export default function SlimeController() {
     const state = engineRef.current;
     let animationFrameId: number;
     let lastTime = performance.now();
+    let hadSquishLastFrame = false;
 
     const changeState = (newState: ActionState) => {
       if (state.currentState === newState) return;
@@ -209,7 +226,7 @@ export default function SlimeController() {
                // Hıza göre dinamik algılama mesafesi (ne kadar hızlıysa o kadar erken zıpla)
                const lookAheadDist = Math.max(70, Math.abs(state.vx) * 0.3);
                for (const box of BOXES) {
-                  const boxTop = -state.boxHeights[box.id];
+                  const boxTop = -box.height + state.boxSquish[box.id];
                   const boxLeft = box.xOffset - box.width / 2;
                   const boxRight = box.xOffset + box.width / 2;
                   
@@ -233,6 +250,20 @@ export default function SlimeController() {
                // Hedefe yatayda ulaştı ama kutunun üstünde değilse → zıpla
                if (Math.abs(dx) <= 10 && state.activeBox !== state.autoPilotTarget && !state.isJumping && !state.isPreparingJump) {
                   autoPilotJumpRequested = true;
+               }
+
+               // Otopilot Double Jump: Havadayken ve hedef kutuya yeterli yükseklikte değilse
+               if (state.isJumping && state.canDoubleJump && state.vy > -100) {
+                  // Zirveye yaklaştığında (vy ~0) double jump at
+                  const targetBoxTop = -targetBox.height + (state.boxSquish[targetBox.id] || 0);
+                  if (state.y > targetBoxTop + 20) {
+                     // Hâlâ kutunun altındayız, double jump gerek
+                     state.canDoubleJump = false;
+                     state.jumpOriginY = state.y;
+                     state.vy = PHYSICS.jumpForce;
+                     state.frameIndex = 2;
+                     state.frameTimer = 0;
+                  }
                }
              }
          }
@@ -336,37 +367,66 @@ export default function SlimeController() {
       const charHalfWidth = 15; // Karakterin fiziksel genişliğinin yarısı (Duvar çarpışmaları için)
 
       for (const box of BOXES) {
-        // Fiziksel kutu yüksekliğini yumuşak geçişle (CSS'e uygun hızda) ayarla
-        const targetHeight = (state.activeBox === box.id) ? 150 : 100;
-        let currentHeight = state.boxHeights[box.id];
-        if (currentHeight < targetHeight) {
-           currentHeight = Math.min(targetHeight, currentHeight + 170 * dt);
-        } else if (currentHeight > targetHeight) {
-           currentHeight = Math.max(targetHeight, currentHeight - 170 * dt);
-        }
-        state.boxHeights[box.id] = currentHeight;
-
-        const boxTop = -currentHeight;
+        // Squish offset dahil: kutu aşağı kaydığında hitbox da kayar
+        const boxTop = -box.height + state.boxSquish[box.id];
         const boxLeft = box.xOffset - box.width / 2;
         const boxRight = box.xOffset + box.width / 2;
         
         // Karakter kutunun yatay hizasında mı?
         if (state.x + charHalfWidth > boxLeft && state.x - charHalfWidth < boxRight) {
-          // Üstüne İnme Kontrolü:
-          // Eğer önceki karede kutunun üstündeyse (veya kutu büyürken onu yukarı itiyorsa +10px tolerans)
-          if (prevCharBottom <= boxTop + 10) {
-            if (state.y >= boxTop) { // Kutu yüzeyine çarptıysa
+          // Zaten bu kutunun üstündeyse → squish değişse bile kutuda tut
+          if (state.activeBox === box.id && !state.isJumping && !state.isPreparingJump) {
+            currentGroundY = boxTop;
+            newActiveBox = box.id;
+          }
+          // Yeni iniş: sıkı kontrol (sadece ilk temas için)
+          else if (prevCharBottom <= boxTop + 3) {
+            if (state.y >= boxTop) {
               currentGroundY = boxTop;
               newActiveBox = box.id;
             }
           }
         }
       }
+
+      // Squish fiziği: Tüm kutular için yay simülasyonu
+      // Her kutunun hedef konumu: karakter üstündeyse biraz aşağıda, değilse 0
+      for (const box of BOXES) {
+        const isOnThisBox = (newActiveBox === box.id);
+        const targetSquish = isOnThisBox ? (BOX_DEFAULT_HEIGHT - BOX_ACTIVE_HEIGHT) : 0;
+        
+        const squish = state.boxSquish[box.id];
+        const squishVel = state.boxSquishVelocity[box.id];
+        
+        // Yay sabitleri (yüksek sönümleme = hızlı oturma, az salınım)
+        const springStiffness = 300;
+        const springDamping = 30;
+        
+        // Hedefe doğru yay kuvveti: F = -k*(x - target) - c*v
+        const displacement = squish - targetSquish;
+        const springForce = -springStiffness * displacement - springDamping * squishVel;
+        state.boxSquishVelocity[box.id] += springForce * dt;
+        state.boxSquish[box.id] += state.boxSquishVelocity[box.id] * dt;
+        
+        // Hedefe yaklaştığında kilitle (1-2 saniye içinde oturur)
+        if (Math.abs(state.boxSquish[box.id] - targetSquish) < 0.5 && Math.abs(state.boxSquishVelocity[box.id]) < 1) {
+          state.boxSquish[box.id] = targetSquish;
+          state.boxSquishVelocity[box.id] = 0;
+        }
+      }
       
-      // State değiştiyse React tarafını tetikle (Kutunun rengi sadece ayakları değdiğinde değişecek)
+      // State değiştiyse React tarafını tetikle
       if (newActiveBox !== state.activeBox) {
+        state.prevActiveBox = state.activeBox;
         state.activeBox = newActiveBox;
         setActiveBox(newActiveBox);
+        
+        // Yeni bir kutunun üzerine indiysek → iniş etkisi (impact) ekle
+        if (newActiveBox !== null) {
+          // İniş anındaki hız ile orantılı darbe (vy henüz sıfırlanmadı)
+          const impactVelocity = Math.min(Math.abs(state.vy) * 0.35, 300);
+          state.boxSquishVelocity[newActiveBox] = impactVelocity;
+        }
       }
 
       if (state.y >= currentGroundY) {
@@ -404,20 +464,19 @@ export default function SlimeController() {
       state.x += state.vx * dt;
 
       for (const box of BOXES) {
-        const boxTop = -state.boxHeights[box.id];
+        const boxTop = -box.height + state.boxSquish[box.id];
         const boxLeft = box.xOffset - box.width / 2;
         const boxRight = box.xOffset + box.width / 2;
         
         // Karakter kutunun yatay sınırlarına girdi mi?
         if (state.x + charHalfWidth > boxLeft && state.x - charHalfWidth < boxRight) {
            // Havadayken ve kutunun üstünden geçebilecek yükseklikteyse duvar çarpışmasını atla
-           // (Kutu yüzeyine yakınsa veya üstündeyse engel değil, geçiş serbest)
-           if ((state.isJumping || state.isPreparingJump) && state.y <= boxTop + 15) {
+           if ((state.isJumping || state.isPreparingJump) && state.y <= boxTop + 3) {
               continue; // Zıplama sırasında kutuyu temizliyoruz, duvar olarak sayma
            }
            
            // Ayakları kutunun üstünden daha aşağıdaysa (yani kutunun yanındaysa)
-           if (state.y > boxTop + 2) { 
+           if (state.y > boxTop + 3) { 
               // Duvara çarptı! Geri ittir.
               if (state.vx > 0) { // Sağa giderken sol duvara çarptı
                  state.x = boxLeft - charHalfWidth;
@@ -549,8 +608,9 @@ export default function SlimeController() {
       const dh = baseSpriteSize * SCALE;
       
       // Çizim koordinatları (Karakterin alt merkezi origin olacak şekilde)
+      // footOffsetY: Sprite'taki şeffaf alt bölgeyi telafi ederek ayakları zemine oturtur
       const dx = (canvas.width / 2) + state.x - (dw / 2);
-      const dy = canvas.height - dh + state.y; // En alta hizala
+      const dy = canvas.height - dh + state.y + PHYSICS.footOffsetY;
 
       ctx.save();
       
@@ -608,6 +668,14 @@ export default function SlimeController() {
       updateAnimation(safeDt);
       render();
 
+      // Squish değerlerini React state'e sync et (her karede)
+      const sq = state.boxSquish;
+      const hasSquish = sq.about !== 0 || sq.projects !== 0 || sq.cv !== 0;
+      if (hasSquish || hadSquishLastFrame) {
+        setSquishValues({ about: sq.about, projects: sq.projects, cv: sq.cv });
+      }
+      hadSquishLastFrame = hasSquish;
+
       animationFrameId = requestAnimationFrame(loop);
     };
 
@@ -631,6 +699,29 @@ export default function SlimeController() {
       const target = e.target as HTMLElement;
       // Eğer tıklanan şey bir platform kutusu veya link/buton değilse zıpla
       if (!target.closest('.platform-box') && !target.closest('a') && !target.closest('button')) {
+        // Double jump kontrolü (Klavye ile aynı mantık)
+        if (!state.keys.jump) {
+          const currentHeight = state.jumpOriginY - state.y;
+          const maxJumpHeight = (PHYSICS.jumpForce * PHYSICS.jumpForce) / (2 * PHYSICS.gravity);
+          const minDoubleJumpHeight = (PHYSICS.doubleJumpThreshold / Math.abs(PHYSICS.jumpForce)) * maxJumpHeight;
+          
+          if (
+            state.isJumping &&
+            state.canDoubleJump &&
+            state.currentState === "jump" &&
+            currentHeight >= minDoubleJumpHeight
+          ) {
+            state.canDoubleJump = false;
+            state.jumpBuffered = false;
+            state.jumpOriginY = state.y;
+            state.vy = PHYSICS.jumpForce;
+            state.frameIndex = 2;
+            state.frameTimer = 0;
+          }
+          else if (state.isJumping || state.isLanding) {
+            state.jumpBuffered = true;
+          }
+        }
         state.keys.jump = true;
       }
     };
@@ -717,6 +808,16 @@ export default function SlimeController() {
       <div className="absolute top-0 left-0 w-full h-full pointer-events-auto">
         {BOXES.map((box) => {
           const isActive = activeBox === box.id;
+          const squishAmount = squishValues[box.id] || 0;
+
+          // Sadece üstündeyken teal, değilse dark/light mode renkleri
+          const bgColor = isActive
+            ? '#a8e6cf'
+            : (theme === 'dark' ? '#374151' : '#e5e7eb');
+          const textColor = isActive
+            ? '#134e4a'
+            : (theme === 'dark' ? '#d1d5db' : '#1f2937');
+
           return (
             <div
               key={box.id}
@@ -732,11 +833,12 @@ export default function SlimeController() {
                 left: "50%",
                 transform: `translateX(calc(-50% + ${box.xOffset}px))`,
                 width: `${box.width}px`,
-                height: `${isActive ? 150 : 100}px`
+                height: `${box.height - squishAmount}px`,
+                backgroundColor: bgColor,
+                color: textColor,
+                transition: 'background-color 0.3s ease, color 0.3s ease',
               }}
-              className={`platform-box absolute bottom-0 transition-all duration-300 flex items-center justify-center cursor-pointer font-medium
-                ${isActive ? "bg-[#a8e6cf] text-teal-900 shadow-[0_0_20px_rgba(168,230,207,0.5)]" : "bg-gray-200 text-gray-800"}
-              `}
+              className="platform-box absolute bottom-0 flex items-center justify-center cursor-pointer font-medium"
             >
               {box.label}
             </div>
