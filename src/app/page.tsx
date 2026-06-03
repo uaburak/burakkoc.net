@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
-import ScrollReveal from "@/components/ScrollReveal";
+import SlimeController from "@/components/SlimeController";
 
 export const metadata = {
   title: "Burak Koç",
@@ -10,7 +9,7 @@ export const metadata = {
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative">
+    <div className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative pb-[160px]">
 
       {/* ── Left sidebar (xl+) ── */}
       <div className="fixed top-[160px] left-[calc(50%-468px)] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex">
@@ -41,41 +40,10 @@ export default function Home() {
           </TextScrollingEffect>
         </div>
 
-        {/* ─── Bento Navigation Grid ─── */}
-        <ScrollReveal className="w-full">
-          <div className="grid grid-cols-2 gap-3 w-full">
-
-            {/* About me — left top */}
-            <Link
-              id="nav-about"
-              href="/cv"
-              className="group rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] min-h-[220px] p-5 flex flex-col transition-all duration-200 hover:bg-[var(--bg-3)]"
-            >
-              <span className="text-base font-medium text-[var(--text-title)]">About me</span>
-            </Link>
-
-            {/* Projects — right column, spans both rows */}
-            <Link
-              id="nav-projects"
-              href="/projects"
-              className="group rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] row-span-2 p-5 flex flex-col transition-all duration-200 hover:bg-[var(--bg-3)]"
-            >
-              <span className="text-base font-medium text-[var(--text-title)]">Projects</span>
-            </Link>
-
-            {/* Contact — left bottom */}
-            <a
-              id="nav-contact"
-              href="mailto:info@burakkoc.net"
-              className="group rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] min-h-[220px] p-5 flex flex-col transition-all duration-200 hover:bg-[var(--bg-3)]"
-            >
-              <span className="text-base font-medium text-[var(--text-title)]">Contact</span>
-            </a>
-
-          </div>
-        </ScrollReveal>
-
       </main>
+
+      {/* 2D Slime İnteraktif Mikro Etkileşimi - Ekranın En Altında (Tam Genişlik) */}
+      <SlimeController />
     </div>
   );
 }
