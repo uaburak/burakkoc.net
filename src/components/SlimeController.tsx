@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
 
 const SPRITE_SIZE = 128;
-const SCALE = 1.25; // Karakteri küçülttük (Pixel Art estetiği)
+const SCALE = 0.8; // Karakteri 64px boyutuna küçülttük
 
 type ActionState =
   | "idle"
@@ -20,16 +20,39 @@ type ActionState =
 
 // Her animasyonun kaç kareden oluştuğu bilgisi
 const ANIMATIONS: Record<ActionState, { src: string; frames: number; frameRate: number; loop: boolean }> = {
-  idle: { src: "/Blue_Slime/Idle.png", frames: 8, frameRate: 10, loop: true },
-  walk: { src: "/Blue_Slime/walk.png", frames: 8, frameRate: 12, loop: true },
-  run: { src: "/Blue_Slime/Run.png", frames: 7, frameRate: 15, loop: true },
-  jump: { src: "/Blue_Slime/Jump.png", frames: 13, frameRate: 15, loop: false },
+  idle: { src: "/Blue_Slime/Idle.png", frames: 7, frameRate: 12, loop: true },
+  walk: { src: "/Blue_Slime/walk.png", frames: 7, frameRate: 17, loop: true },
+  run: { src: "/Blue_Slime/Run.png", frames: 7, frameRate: 25, loop: true },
+  jump: { src: "/Blue_Slime/Jump.png", frames: 10, frameRate: 15, loop: false },
   attack1: { src: "/Blue_Slime/Attack_1.png", frames: 4, frameRate: 12, loop: false },
   attack2: { src: "/Blue_Slime/Attack_2.png", frames: 4, frameRate: 12, loop: false },
   attack3: { src: "/Blue_Slime/Attack_3.png", frames: 5, frameRate: 12, loop: false },
   run_attack: { src: "/Blue_Slime/Run+Attack.png", frames: 10, frameRate: 15, loop: false },
   hurt: { src: "/Blue_Slime/Hurt.png", frames: 6, frameRate: 12, loop: false },
   dead: { src: "/Blue_Slime/Dead.png", frames: 3, frameRate: 8, loop: false },
+};
+
+// Fizik ve Hareket Ayarları (Değerleri buradan kolayca değiştirebilirsin)
+const PHYSICS = {
+  // --- Mod Seçimi ---
+  // true: Hızı animasyon karesine göre hesaplar (Ayak kaymasını önler, ultra gerçekçi)
+  useFrameBasedDistance: true,
+
+  // Mod: FALSE iken kullanılacak sabit hızlar (px/s)
+  walkSpeed: 80,          
+  runSpeed: 250,           
+  
+  // Mod: TRUE iken kullanılacak kare başına mesafe (px/frame)
+  walkDistancePerFrame: 5,  // Her yürüme karesinde 5 piksel
+  runDistancePerFrame: 12,  // Her koşma karesinde 12 piksel
+
+  acceleration: 2500,      // Hızlanma ivmesi (Çok daha tepkisel, anında hızlanır)
+  friction: 2000,          // Yavaşlama/Sürtünme (Buzda kayma hissini yok eder, anında durur)
+  gravity: 2400,           // Yerçekimi kuvveti (Daha tok ve gerçekçi düşüş)
+  jumpForce: -850,         // Zıplama gücü (Tok yerçekimini yenecek tatlı bir zıplama)
+  
+  mouseRunDistance: 150,   // Fare ile karakter arasındaki mesafe bu değerden büyükse koşar
+  mouseWalkDistance: 40,   // Fare ile karakter arasındaki mesafe bu değerden büyükse yürür (değilse durur)
 };
 
 export default function SlimeController() {
@@ -50,8 +73,10 @@ export default function SlimeController() {
     frameTimer: 0,
     keys: { left: false, right: false, shift: false, jump: false },
     mouseX: 0,
-    hasMouseMoved: false,
+    inputType: "none" as "keyboard" | "mouse" | "none",
     isJumping: false,
+    isPreparingJump: false,
+    isLanding: false,
     isAttacking: false,
     attackCombo: 0,
     comboResetTimer: 0,
@@ -98,11 +123,20 @@ export default function SlimeController() {
     };
 
     const updatePhysics = (dt: number) => {
-      const moveSpeed = state.keys.shift ? 400 : 150; // px/s
-      const acceleration = 1500; // px/s^2
-      const friction = 1000; // px/s^2
-      const gravity = 2000; // px/s^2
-      const jumpForce = -700; // px/s
+      // Seçilen moda göre hızları belirle
+      const computedWalkSpeed = PHYSICS.useFrameBasedDistance 
+        ? PHYSICS.walkDistancePerFrame * ANIMATIONS.walk.frameRate 
+        : PHYSICS.walkSpeed;
+        
+      const computedRunSpeed = PHYSICS.useFrameBasedDistance 
+        ? PHYSICS.runDistancePerFrame * ANIMATIONS.run.frameRate 
+        : PHYSICS.runSpeed;
+
+      const moveSpeed = state.keys.shift ? computedRunSpeed : computedWalkSpeed;
+      const acceleration = PHYSICS.acceleration;
+      const friction = PHYSICS.friction;
+      const gravity = PHYSICS.gravity;
+      const jumpForce = PHYSICS.jumpForce;
 
       // Combo Reset Timer
       if (state.comboResetTimer > 0) {
@@ -112,17 +146,17 @@ export default function SlimeController() {
         }
       }
 
-      // Mouse Takip Mantığı (Eğer mouse hareket ettiyse sanal tuşlara bas)
-      if (state.hasMouseMoved) {
+      // Mouse Takip Mantığı (Sadece Mouse Modundaysa)
+      if (state.inputType === "mouse") {
         const characterScreenX = (canvas.width / 2) + state.x;
         const diffX = state.mouseX - characterScreenX;
         
         // Uzaklığa göre yürüme veya koşma belirle
-        if (Math.abs(diffX) > 150) {
+        if (Math.abs(diffX) > PHYSICS.mouseRunDistance) {
           state.keys.left = diffX < 0;
           state.keys.right = diffX > 0;
           state.keys.shift = true; // Hızlı koş
-        } else if (Math.abs(diffX) > 40) {
+        } else if (Math.abs(diffX) > PHYSICS.mouseWalkDistance) {
           state.keys.left = diffX < 0;
           state.keys.right = diffX > 0;
           state.keys.shift = false; // Yavaş yürü
@@ -140,7 +174,7 @@ export default function SlimeController() {
       if (state.keys.left) moveDir -= 1;
 
       // Saldırı veya hasar alırken hareket engellensin (eğer run_attack değilse)
-      const isLocked = state.isAttacking && state.currentState !== "run_attack";
+      const isLocked = (state.isAttacking && state.currentState !== "run_attack") || state.isLanding;
       
       if (!isLocked) {
         if (moveDir !== 0) {
@@ -168,10 +202,9 @@ export default function SlimeController() {
       // Y ekseni (Yerçekimi ve Zıplama)
       state.vy += gravity * dt;
 
-      if (state.keys.jump && !state.isJumping && !isLocked) {
-        state.vy = jumpForce;
-        state.isJumping = true;
-        changeState("jump");
+      if (state.keys.jump && !state.isJumping && !state.isPreparingJump && !isLocked) {
+        state.isPreparingJump = true;
+        changeState("jump"); // Zıplama animasyonunu başlat, ancak gücü sonra uygulayacağız
       }
 
       // Pozisyon Güncelleme
@@ -186,6 +219,12 @@ export default function SlimeController() {
         
         if (state.isJumping) {
           state.isJumping = false;
+          state.isLanding = true;
+          // Yere inme başladı, zıplama animasyonunun son 4 karesine geç (index 6'dan 9'a)
+          if (state.currentState === "jump") {
+            state.frameIndex = 6;
+            state.frameTimer = 0;
+          }
         }
       }
 
@@ -194,8 +233,8 @@ export default function SlimeController() {
       if (state.x < -halfWidth) state.x = -halfWidth;
       if (state.x > halfWidth) state.x = halfWidth;
 
-      // Animasyon Durumu Belirleme (Saldırı yoksa)
-      if (!state.isAttacking) {
+      // Animasyon Durumu Belirleme (Saldırı yoksa ve yere inme/zıplama hazırlığı bitmişse)
+      if (!state.isAttacking && !state.isLanding && !state.isPreparingJump) {
         if (state.isJumping) {
           changeState("jump");
         } else if (Math.abs(state.vx) > 10) {
@@ -219,19 +258,46 @@ export default function SlimeController() {
 
       if (state.frameTimer >= frameDuration) {
         state.frameTimer = 0;
-        state.frameIndex++;
+        
+        if (state.currentState === "jump") {
+          if (state.isPreparingJump) {
+            // Yerdeki hazırlık evresi: ilk 3 kareyi oynat
+            state.frameIndex++;
+            if (state.frameIndex === 3) {
+              // 3. kareye geldiğinde tam zıplama gücünü uygula ve havaya kalk!
+              state.isPreparingJump = false;
+              state.isJumping = true;
+              state.vy = PHYSICS.jumpForce;
+            }
+          } else if (state.isJumping) {
+            // Havadayız: 3'ten 5'e kadar ilerle ve 5'te havada asılı kal
+            if (state.frameIndex < 5) {
+              state.frameIndex++;
+            }
+          } else if (state.isLanding) {
+            // Yere değdik: 6'dan 9'a kadar ilerle (Son 4 frame)
+            if (state.frameIndex < 9) {
+              state.frameIndex++;
+            } else {
+              state.isLanding = false; // İniş animasyonu bitti
+            }
+          }
+        } else {
+          // Diğer animasyonlar için standart oynatma
+          state.frameIndex++;
 
-        // Animasyon bitişi kontrolü
-        if (state.frameIndex >= config.frames) {
-          if (config.loop) {
-            state.frameIndex = 0;
-          } else {
-            state.frameIndex = config.frames - 1; // Son karede kal
-            
-            // Tek seferlik aksiyon bittiyse (saldırı vs.) normale dön
-            if (state.isAttacking) {
-              state.isAttacking = false;
-              state.comboResetTimer = 0.5; // 0.5 saniye içinde tekrar tıklarsa kombo devam eder
+          // Animasyon bitişi kontrolü
+          if (state.frameIndex >= config.frames) {
+            if (config.loop) {
+              state.frameIndex = 0;
+            } else {
+              state.frameIndex = config.frames - 1; // Son karede kal
+              
+              // Tek seferlik aksiyon bittiyse (saldırı vs.) normale dön
+              if (state.isAttacking) {
+                state.isAttacking = false;
+                state.comboResetTimer = 0.5; // 0.5 saniye içinde tekrar tıklarsa kombo devam eder
+              }
             }
           }
         }
@@ -302,19 +368,50 @@ export default function SlimeController() {
     return () => cancelAnimationFrame(animationFrameId);
   }, []);
 
-  // Mouse Event Listeners
+  // Keyboard and Mouse Event Listeners
   useEffect(() => {
     const state = engineRef.current;
 
     const handleMouseMove = (e: MouseEvent) => {
+      // Sadece fareyi gerçekten oynattığında mouse moduna geç (ufak titremeleri yoksay)
+      if (Math.abs(state.mouseX - e.clientX) > 2) {
+        state.inputType = "mouse";
+      }
       state.mouseX = e.clientX;
-      state.hasMouseMoved = true;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.code;
+      // Tuşa basıldığında klavye moduna geç
+      if (["ArrowLeft", "KeyA", "ArrowRight", "KeyD", "ShiftLeft", "ShiftRight", "Space", "ArrowUp", "KeyW"].includes(key)) {
+        state.inputType = "keyboard";
+      }
+
+      if (["ArrowLeft", "KeyA"].includes(key)) state.keys.left = true;
+      if (["ArrowRight", "KeyD"].includes(key)) state.keys.right = true;
+      if (["ShiftLeft", "ShiftRight"].includes(key)) state.keys.shift = true;
+      if (["Space", "ArrowUp", "KeyW"].includes(key)) {
+        state.keys.jump = true;
+        if (!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+          e.preventDefault(); // Sayfa kaymasını engelle
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const key = e.code;
+      if (["ArrowLeft", "KeyA"].includes(key)) state.keys.left = false;
+      if (["ArrowRight", "KeyD"].includes(key)) state.keys.right = false;
+      if (["ShiftLeft", "ShiftRight"].includes(key)) state.keys.shift = false;
+      if (["Space", "ArrowUp", "KeyW"].includes(key)) state.keys.jump = false;
     };
 
     const handleAttack = () => {
       if (!state.loaded) return;
       if (state.currentState === "dead" || state.currentState === "hurt") return;
 
+      state.isLanding = false; // İniş animasyonunu saldırı ile iptal et
+      state.isPreparingJump = false; // Zıplama hazırlığını iptal et
       state.isAttacking = true;
 
       // Koşarken saldırı yapılıyorsa
@@ -339,10 +436,14 @@ export default function SlimeController() {
       handleAttack();
     };
 
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mousedown", handleMouseClick);
 
     return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mousedown", handleMouseClick);
     };
