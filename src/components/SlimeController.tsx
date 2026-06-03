@@ -68,9 +68,9 @@ const BOX_ACTIVE_HEIGHT = 175;   // Karakter üstündeyken yükseklik (yaylanma 
 
 // Yönlendirme Platformları (Kutular)
 const BOXES = [
-  { id: "about", label: "About me", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: -240, href: "/about" },
+  { id: "about", label: "About me", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: -270, href: "/about" },
   { id: "projects", label: "Projects", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: 0, href: "/projects" },
-  { id: "cv", label: "e-cv", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: 240, href: "/cv" }
+  { id: "cv", label: "e-cv", width: 140, height: BOX_DEFAULT_HEIGHT, xOffset: 270, href: "/cv" }
 ];
 
 export default function SlimeController() {
@@ -82,21 +82,31 @@ export default function SlimeController() {
   const [activeBox, setActiveBox] = useState<string | null>(null);
   const [squishValues, setSquishValues] = useState<Record<string, number>>({ about: 0, projects: 0, cv: 0 });
 
+  // Kaydedilmiş pozisyonu yükle (sayfa değişimlerinde karakterın konumunu koru)
+  const savedPos = typeof window !== 'undefined' 
+    ? (() => {
+        try {
+          const raw = sessionStorage.getItem('slime_pos');
+          return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+      })()
+    : null;
+
   const engineRef = useRef({
     images: {} as Record<string, HTMLImageElement>,
     loaded: false,
-    x: 0,
-    y: -1200, // Ekranın tamamen dışından düşerek gelsin
+    x: savedPos?.x ?? 0,
+    y: savedPos ? savedPos.y : -1200, // Kayıtlı pozisyon varsa oradan, yoksa yukarıdan düşsün
     vx: 0,
     vy: 0,
-    direction: 1, // 1 = right, -1 = left
-    currentState: "jump" as ActionState,
-    frameIndex: 6, // Düşüş karesi
+    direction: savedPos?.dir ?? 1,
+    currentState: (savedPos ? "idle" : "jump") as ActionState,
+    frameIndex: savedPos ? 0 : 6,
     frameTimer: 0,
     keys: { left: false, right: false, shift: false, jump: false },
     mouseX: 0,
     inputType: "none" as "keyboard" | "mouse" | "none",
-    isJumping: true, // Başlangıçta düşüyor
+    isJumping: savedPos ? false : true,
     canDoubleJump: false,
     isPreparingJump: false,
     isLanding: false,
@@ -108,6 +118,7 @@ export default function SlimeController() {
     prevActiveBox: null as string | null, // Önceki aktif kutu (renk değişimi tetiklemek için)
     autoPilotTarget: null as string | null,
     autoPilotRoute: null as string | null,
+    autoPilotLocked: false, // Hedefe ulaşınca karakter kilitlenir
     boxSquish: {
       about: 0,
       projects: 0,
@@ -196,18 +207,38 @@ export default function SlimeController() {
       let autoPilotJumpRequested = false;
 
       // OTOPİLOT KONTROLÜ
-      if (state.autoPilotTarget) {
+      if (state.autoPilotTarget || state.autoPilotLocked) {
          isAutoPilotActive = true;
-         if (state.activeBox === state.autoPilotTarget) {
+         
+         // Hedefe ulaştı ve kilitlendi → tamamen sabit kal
+         if (state.autoPilotLocked) {
+            state.vx = 0;
+            state.vy = Math.max(state.vy, 0); // Yerçekimi uygulanmaya devam etsin (yere insin)
+            moveDir = 0;
+         }
+         else if (state.activeBox === state.autoPilotTarget) {
+            // Hedefe ulaştı! Karakteri 1000ms kilitle
+            state.autoPilotLocked = true;
+            state.vx = 0;
+            state.inputType = "none";
             const route = state.autoPilotRoute;
             state.autoPilotTarget = null;
             state.autoPilotRoute = null;
             if (route) {
-               // Hedefe ulaştığında anında sayfa değişip karakter yok olmasın diye bekletiyoruz
+               // Pozisyonu kaydet (geri gelince aynı yerden devam)
+               sessionStorage.setItem('slime_pos', JSON.stringify({
+                 x: state.x,
+                 y: state.y,
+                 dir: state.direction
+               }));
                setTimeout(() => {
                   router.push(route);
                }, 800);
             }
+            // 1000ms sonra kilidi aç (geri gelirse kontrol kullanıcıda)
+            setTimeout(() => {
+               state.autoPilotLocked = false;
+            }, 1000);
          } else {
             const targetBox = BOXES.find(b => b.id === state.autoPilotTarget);
             if (targetBox) {
@@ -689,6 +720,11 @@ export default function SlimeController() {
     const state = engineRef.current;
 
     const handleMouseMove = (e: MouseEvent) => {
+      // Otopilot aktifken mouse takibini devre dışı bırak
+      if (state.autoPilotTarget) {
+        state.mouseX = e.clientX;
+        return;
+      }
       if (Math.abs(state.mouseX - e.clientX) > 2) {
         state.inputType = "mouse";
       }
@@ -805,7 +841,7 @@ export default function SlimeController() {
     <div className="fixed bottom-0 left-0 w-full h-screen pointer-events-none z-20">
       
       {/* Platform Kutuları */}
-      <div className="absolute top-0 left-0 w-full h-full pointer-events-auto">
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
         {BOXES.map((box) => {
           const isActive = activeBox === box.id;
           const squishAmount = squishValues[box.id] || 0;
@@ -827,6 +863,7 @@ export default function SlimeController() {
                 } else {
                   engineRef.current.autoPilotTarget = box.id;
                   engineRef.current.autoPilotRoute = box.href;
+                  engineRef.current.inputType = "none"; // Mouse takibini durdur
                 }
               }}
               style={{
@@ -838,7 +875,7 @@ export default function SlimeController() {
                 color: textColor,
                 transition: 'background-color 0.3s ease, color 0.3s ease',
               }}
-              className="platform-box absolute bottom-0 flex items-center justify-center cursor-pointer font-medium"
+              className="platform-box absolute bottom-0 flex items-center justify-center cursor-pointer font-medium pointer-events-auto"
             >
               {box.label}
             </div>
