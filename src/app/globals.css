@@ -26,7 +26,7 @@
 
 /* ── Dark Mode ─────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg-1: #111111;
+  --bg-1: #000000;
   --bg-2: #181818;
   --bg-3: #1e1e1e;
   --bg-4: #2a2a2a;
@@ -72,6 +72,16 @@ html {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Selection ─────────────────────────────────────────── */
+::selection {
+  background-color: var(--border-hover);
+  color: var(--text-title);
+}
+::-moz-selection {
+  background-color: var(--border-hover);
+  color: var(--text-title);
+}
+
 body {
   font-family: var(--font-matter);
   background-color: var(--bg-1);
@@ -114,5 +124,81 @@ body {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
+/* ── Custom Cursor ─────────────────────────────────────────── */
+@media (pointer: fine) {
+  /* Hide standard browser cursor globally */
+  *, *::before, *::after {
+    cursor: none !important;
+  }
 
+  .custom-cursor-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 99999;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  
+  .custom-cursor-wrapper.visible {
+    opacity: 1;
+  }
 
+  .custom-cursor-square {
+    width: 8px;
+    height: 8px;
+    background-color: var(--text-title);
+    mix-blend-mode: normal;
+    transform: translate(-50%, -50%);
+    opacity: 0.45; /* Soluk (faded by default) */
+    transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                height 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.2s ease,
+                border-color 0.2s ease,
+                opacity 0.2s ease;
+    transform-origin: center center;
+    border: 1px solid transparent;
+  }
+
+  /* Full opacity when clicked, hovered, or over text elements */
+  .custom-cursor-square.clicked,
+  .custom-cursor-square.hovered,
+  .custom-cursor-square.text {
+    opacity: 1;
+  }
+
+  /* Clicked state */
+  .custom-cursor-square.clicked {
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+
+  /* Hover state: rotates and slightly enlarges */
+  .custom-cursor-square.hovered {
+    width: 14px;
+    height: 14px;
+    transform: translate(-50%, -50%) rotate(45deg);
+    background-color: var(--text-title);
+  }
+
+  /* Text state: hollow square with border to keep text readable */
+  .custom-cursor-square.text {
+    width: 12px;
+    height: 12px;
+    background-color: transparent;
+    border: 1px solid var(--text-title);
+  }
+
+  /* Clicked + Hovered state */
+  .custom-cursor-square.hovered.clicked {
+    transform: translate(-50%, -50%) scale(0.7) rotate(45deg);
+  }
+}
+
+/* Fallback/reset for touch devices */
+@media (pointer: coarse) {
+  .custom-cursor-wrapper {
+    display: none !important;
+  }
+}

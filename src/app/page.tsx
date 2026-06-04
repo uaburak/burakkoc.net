@@ -1,4 +1,4 @@
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { Header } from "@/components/Header";
 import SlimeController from "@/components/SlimeController";
 
 export const metadata = {
@@ -16,10 +16,8 @@ export default function Home() {
         style={{ maxWidth: 720, margin: '0 auto', padding: '0 20px', height: 'calc(100vh - 240px)' }}
       >
 
-        {/* ── Theme Toggle (kapsayıcının sağ üstü) ── */}
-        <div className="flex justify-end" style={{ paddingTop: 32 }}>
-          <ThemeToggle />
-        </div>
+        {/* ── Header (Logo ve Theme Toggle) ── */}
+        <Header />
 
         {/* ── Hero (dikeyde ortalı, sola yaslı) ── */}
         <div className="flex-1 flex items-center">

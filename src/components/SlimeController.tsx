@@ -93,7 +93,11 @@ export default function SlimeController() {
     : null;
 
   const engineRef = useRef({
-    images: {} as Record<string, HTMLImageElement>,
+    images: {
+      light: {} as Record<string, HTMLImageElement>,
+      dark: {} as Record<string, HTMLImageElement>,
+    },
+    theme: theme,
     loaded: false,
     x: savedPos?.x ?? 0,
     y: savedPos ? savedPos.y : -1200, // Kayıtlı pozisyon varsa oradan, yoksa yukarıdan düşsün
@@ -137,21 +141,45 @@ export default function SlimeController() {
   // Preload Images
   useEffect(() => {
     let loadedCount = 0;
-    const totalImages = Object.keys(ANIMATIONS).length;
+    const darkStates = ["idle", "walk", "run", "jump"];
+    const states = Object.keys(ANIMATIONS) as ActionState[];
+    
+    const imageLoadList: { themeKey: "light" | "dark"; stateKey: ActionState; src: string }[] = [];
+    
+    states.forEach((stateKey) => {
+      const config = ANIMATIONS[stateKey];
+      imageLoadList.push({ themeKey: "light", stateKey, src: config.src });
+      
+      if (darkStates.includes(stateKey)) {
+        imageLoadList.push({ themeKey: "dark", stateKey, src: config.src.replace(".png", "-dark.png") });
+      }
+    });
+
+    const totalImages = imageLoadList.length;
     const state = engineRef.current;
 
-    Object.entries(ANIMATIONS).forEach(([key, config]) => {
+    imageLoadList.forEach(({ themeKey, stateKey, src }) => {
       const img = new Image();
-      img.src = config.src;
+      img.src = src;
       img.onload = () => {
-        state.images[key] = img;
+        state.images[themeKey][stateKey] = img;
         loadedCount++;
         if (loadedCount === totalImages) {
+          states.forEach((s) => {
+            if (!state.images.dark[s]) {
+              state.images.dark[s] = state.images.light[s];
+            }
+          });
           state.loaded = true;
         }
       };
     });
   }, []);
+
+  // Keep engineRef.current.theme in sync with react state
+  useEffect(() => {
+    engineRef.current.theme = theme;
+  }, [theme]);
 
   // Main Game Loop & Input Listeners
   useEffect(() => {
@@ -619,7 +647,8 @@ export default function SlimeController() {
       if (!state.loaded) return;
 
       const config = ANIMATIONS[state.currentState];
-      const img = state.images[state.currentState];
+      const themeKey = state.theme || "light";
+      const img = state.images[themeKey]?.[state.currentState];
       if (!img) {
         ctx.fillStyle = "red";
         ctx.font = "20px sans-serif";
@@ -653,28 +682,6 @@ export default function SlimeController() {
         ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
       }
 
-      ctx.restore();
-
-      // Debug Log (Sağ üst köşe)
-      ctx.save();
-      ctx.beginPath();
-      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-      ctx.roundRect ? ctx.roundRect(canvas.width - 220, 20, 200, 110, 8) : ctx.rect(canvas.width - 220, 20, 200, 110);
-      ctx.fill();
-      
-      ctx.fillStyle = "#fff";
-      ctx.font = "16px monospace";
-      // X: 0 sol kenar, Y: 0 alt kenar olacak şekilde hesaplıyoruz
-      const displayX = Math.round(canvas.width / 2 + state.x);
-      const displayY = Math.round(-state.y);
-      
-      ctx.fillText(`X: ${displayX} px`, canvas.width - 200, 50);
-      ctx.fillText(`Y: ${displayY} px`, canvas.width - 200, 80);
-      
-      if (state.autoPilotTarget) {
-         ctx.fillStyle = "#a8e6cf";
-         ctx.fillText(`Target: ${state.autoPilotTarget}`, canvas.width - 200, 110);
-      }
       ctx.restore();
     };
 
@@ -846,13 +853,15 @@ export default function SlimeController() {
           const isActive = activeBox === box.id;
           const squishAmount = squishValues[box.id] || 0;
 
-          // Sadece üstündeyken teal, değilse dark/light mode renkleri
-          const bgColor = isActive
-            ? '#a8e6cf'
-            : (theme === 'dark' ? '#374151' : '#e5e7eb');
-          const textColor = isActive
-            ? '#134e4a'
-            : (theme === 'dark' ? '#d1d5db' : '#1f2937');
+          // Figma Tasarımındaki Değerler:
+          // Light: Default #F2F2F2, Active #E4E4E4
+          // Dark: Default #0A0A0A, Active #181818
+          const bgColor = theme === 'dark'
+            ? (isActive ? '#181818' : '#0A0A0A')
+            : (isActive ? '#E4E4E4' : '#F2F2F2');
+          const textColor = theme === 'dark'
+            ? (isActive ? '#f5f5f5' : '#8a8a8a')
+            : (isActive ? '#1a1a1a' : '#757575');
 
           return (
             <div
