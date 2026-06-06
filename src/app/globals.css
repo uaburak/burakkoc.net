@@ -74,12 +74,12 @@ html {
 
 /* ── Selection ─────────────────────────────────────────── */
 ::selection {
-  background-color: var(--border-hover);
-  color: var(--text-title);
+  background-color: #ff8003 !important;
+  color: #ffffff !important;
 }
 ::-moz-selection {
-  background-color: var(--border-hover);
-  color: var(--text-title);
+  background-color: #ff8003 !important;
+  color: #ffffff !important;
 }
 
 body {

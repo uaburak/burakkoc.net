@@ -1,5 +1,5 @@
 import { Header } from "@/components/Header";
-import SlimeController from "@/components/SlimeController";
+import SlimeController from "@/components/SlimeGame";
 
 export const metadata = {
   title: "Burak Koç",
