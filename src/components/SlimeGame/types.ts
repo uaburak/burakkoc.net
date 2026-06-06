@@ -29,7 +29,7 @@ export interface GameState {
   keys: { left: boolean; right: boolean; shift: boolean; jump: boolean };
   mouseX: number;
   mouseY: number;
-  inputType: "keyboard" | "mouse" | "none";
+  inputType: "keyboard" | "mouse" | "touch" | "none";
   isJumping: boolean;
   canDoubleJump: boolean;
   isLanding: boolean;

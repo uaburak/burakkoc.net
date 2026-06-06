@@ -105,17 +105,120 @@ export const setupInputs = (
     state.keys.jump = false;
   };
 
-  window.addEventListener("keydown",   handleKeyDown);
-  window.addEventListener("keyup",     handleKeyUp);
-  window.addEventListener("mousemove", handleMouseMove);
-  window.addEventListener("mousedown", handleMouseDown);
-  window.addEventListener("mouseup",   handleMouseUp);
+  // ── İvme Sensörü (DeviceOrientation) ────────────────────────────────────
+  const TILT_DEADZONE = 3;   // ±3° → hareket yok
+  const TILT_MAX      = 15;  // ±15° → tam hız + sprint
+
+  const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
+    // gamma: sola/sağa yatış açısı (-90 ila +90)
+    const gamma = e.gamma ?? 0;
+
+    state.inputType  = "touch";
+    state.idleTimer  = 0;
+    state.isIdleMode = false;
+
+    const absGamma = Math.abs(gamma);
+
+    if (absGamma < TILT_DEADZONE) {
+      // Deadzone — hiç hareket yok
+      state.keys.left  = false;
+      state.keys.right = false;
+      state.keys.shift = false;
+    } else {
+      const normalized = Math.min((absGamma - TILT_DEADZONE) / (TILT_MAX - TILT_DEADZONE), 1);
+      state.keys.shift = normalized > 0.7;  // %70 eğimde sprint
+
+      if (gamma < -TILT_DEADZONE) {
+        state.keys.left  = true;
+        state.keys.right = false;
+      } else {
+        state.keys.right = true;
+        state.keys.left  = false;
+      }
+    }
+  };
+
+  // ── Mobil Dokunmatik: Zıplama ─────────────────────────────────────────────
+  // Etkileşimli bir elemente tıklanıp tıklanmadığını kontrol eder.
+  // data-no-jump attribute'u olan herhangi bir element de kapsam dışı.
+  const isInteractiveTarget = (el: HTMLElement): boolean => {
+    return !!(
+      el.closest("a")                   ||
+      el.closest("button")              ||
+      el.closest("input")               ||
+      el.closest("select")              ||
+      el.closest("textarea")            ||
+      el.closest("label")               ||
+      el.closest("[role='button']")     ||
+      el.closest("[role='link']")       ||
+      el.closest("[data-no-jump]")
+    );
+  };
+
+  let touchDidJump = false; // Bu dokunuşun zıplamayı tetikleyip tetiklemediğini izler
+
+  const handleTouchStart = (e: TouchEvent) => {
+    const target = e.target as HTMLElement;
+    if (!isInteractiveTarget(target)) {
+      touchDidJump = true;
+      tryDoubleJump(state, PHYSICS);
+      state.keys.jump  = true;
+      state.inputType  = "touch";
+      state.idleTimer  = 0;
+      state.isIdleMode = false;
+    } else {
+      touchDidJump = false;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchDidJump) {
+      state.keys.jump = false;
+      touchDidJump = false;
+    }
+  };
+
+  // ── iOS 13+ İzin Akışı ────────────────────────────────────────────────────
+  const startOrientationListener = async () => {
+    // @ts-ignore — iOS 13+ exclusive API
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof (DeviceOrientationEvent as any).requestPermission === "function") {
+      try {
+        // @ts-ignore
+        const result = await (DeviceOrientationEvent as any).requestPermission();
+        if (result === "granted") {
+          window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+        }
+      } catch {
+        // İzin reddedildi veya desteklenmiyor — sessizce geç
+      }
+    } else {
+      // Android veya izin gerektirmeyen tarayıcılar
+      window.addEventListener("deviceorientation", handleDeviceOrientation, true);
+    }
+  };
+
+  // Sadece mobil cihazlarda sensörü aç
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (isMobile) {
+    startOrientationListener();
+  }
+
+  window.addEventListener("keydown",    handleKeyDown);
+  window.addEventListener("keyup",      handleKeyUp);
+  window.addEventListener("mousemove",  handleMouseMove);
+  window.addEventListener("mousedown",  handleMouseDown);
+  window.addEventListener("mouseup",    handleMouseUp);
+  window.addEventListener("touchstart", handleTouchStart, { passive: true });
+  window.addEventListener("touchend",   handleTouchEnd,   { passive: true });
 
   return () => {
-    window.removeEventListener("keydown",   handleKeyDown);
-    window.removeEventListener("keyup",     handleKeyUp);
-    window.removeEventListener("mousemove", handleMouseMove);
-    window.removeEventListener("mousedown", handleMouseDown);
-    window.removeEventListener("mouseup",   handleMouseUp);
+    window.removeEventListener("keydown",          handleKeyDown);
+    window.removeEventListener("keyup",            handleKeyUp);
+    window.removeEventListener("mousemove",        handleMouseMove);
+    window.removeEventListener("mousedown",        handleMouseDown);
+    window.removeEventListener("mouseup",          handleMouseUp);
+    window.removeEventListener("touchstart",       handleTouchStart);
+    window.removeEventListener("touchend",         handleTouchEnd);
+    window.removeEventListener("deviceorientation", handleDeviceOrientation, true);
   };
 };
