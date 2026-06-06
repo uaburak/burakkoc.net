@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ArrowLeftIcon } from "@/components/icons";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 
@@ -99,13 +100,6 @@ const contact = [
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
-function ArrowLeftIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M12 4L6 10L12 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 function DownloadIcon() {
   return (

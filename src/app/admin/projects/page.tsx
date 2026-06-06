@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { PageHeader } from "@/components/PageHeader";
+import { ChevronRight, ExternalSmall } from "@/components/icons";
 import { listProjects, saveProject } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
 
@@ -37,13 +38,7 @@ function EditIcon() {
   );
 }
 
-function ChevronRight() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M5 2.5L9.5 7 5 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+// ChevronRight ve ExternalSmall icons.tsx'den import edildi
 
 // ── Create Project Dialog ─────────────────────────────────────────────────────
 
@@ -199,18 +194,7 @@ export default function AdminProjectsPage() {
   return (
     <div className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200">
       {/* Top nav */}
-      <div className="flex items-center justify-between px-6 pt-8">
-        <Link
-          href="/admin"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--text-subtitle)] hover:text-[var(--text-p)] transition-colors duration-200"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M9 2.5L4 7l5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Admin
-        </Link>
-        <ThemeToggle />
-      </div>
+      <PageHeader backHref="/admin" backLabel="Admin" />
 
       <main className="max-w-[720px] mx-auto px-6 pt-16 pb-24">
         {/* Header */}
@@ -276,9 +260,7 @@ export default function AdminProjectsPage() {
                     className="flex items-center justify-center w-8 h-8 rounded-xl border border-[var(--border)] text-[var(--text-subtitle)] hover:border-[var(--border-hover)] hover:text-[var(--text-title)] transition-colors duration-150"
                     title="Canlıda görüntüle"
                   >
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M7 1h4v4M11 1L5 7M4 2H2a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                    <ExternalSmall />
                   </Link>
                   <Link
                     href={`/admin/projects/${project.slug}`}

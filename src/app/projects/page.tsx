@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { PageHeader } from "@/components/PageHeader";
+import { ChevronRight } from "@/components/icons";
 import { listProjects } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
@@ -20,18 +21,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200">
-      <div className="flex items-center justify-between px-6 pt-8">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-[var(--text-subtitle)] hover:text-[var(--text-p)] transition-colors duration-200"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M9 2.5L4 7l5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Burak Koç
-        </Link>
-        <ThemeToggle />
-      </div>
+      <PageHeader backHref="/" backLabel="Burak Koç" />
 
       <main className="max-w-[720px] mx-auto px-6 pt-16 pb-24">
         <TextScrollingEffect>
@@ -73,9 +63,7 @@ export default function ProjectsPage() {
                     </span>
                   )}
                 </div>
-                <svg className="w-4 h-4 text-[var(--text-subtitle)]" viewBox="0 0 16 16" fill="none">
-                  <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <ChevronRight />
               </Link>
             ))}
           </div>

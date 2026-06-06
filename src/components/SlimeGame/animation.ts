@@ -1,90 +1,97 @@
 import { GameState } from "./types";
-import { ANIMATIONS, PHYSICS } from "./constants";
+import { ANIMATIONS, PHYSICS, RUN_START_END, RUN_LOOP_START, RUN_LOOP_END, RUN_STOP_START, JUMP_AIR_START, JUMP_AIR_END, JUMP_LAND_START } from "./constants";
 
 export const updateAnimation = (state: GameState, dt: number) => {
   const config = ANIMATIONS[state.currentState];
   if (!config) return;
 
-  // Havadayken (vy'ye bağlı özel mantık)
-  if (state.currentState === "jump" && state.isJumping) {
-    if (state.vy < -250) {
-      // Yükselişte: 3, 4, 5. frameler (Index 2, 3, 4)
-      state.frameTimer += dt;
-      if (state.frameTimer >= (1 / config.frameRate)) {
-        state.frameTimer = 0;
-        if (state.frameIndex < 2) state.frameIndex = 2;
-        else if (state.frameIndex < 4) state.frameIndex++;
-      }
-    } else if (state.vy > 250) {
-      // Düşüşte: 7. frame (Index 6)
-      state.frameIndex = 6;
-    } else {
-      // Zirve noktasında: 6. frame (Index 5)
-      state.frameIndex = 5;
-    }
-    return; // Havadayken normal animasyon döngüsünü pas geç
-  }
+  // ── JUMP animasyonu: 2 fazlı sistem (startup iptal) ─────────────
+  if (state.currentState === "jump") {
+    state.frameTimer += dt;
+    if (state.frameTimer >= (1 / config.frameRate)) {
+      state.frameTimer = 0;
 
-  const frameDuration = 1 / config.frameRate;
-  state.frameTimer += dt;
-
-  if (state.frameTimer >= frameDuration) {
-    state.frameTimer = 0;
-
-    // Start animasyonu TERS oynatma (run → walk geçişi)
-    if (state.isRunSlowingToWalk && state.currentState === "start") {
-      if (state.frameIndex > 0) {
-        state.frameIndex--;
-      } else {
-        state.isRunSlowingToWalk = false;
-        state.frameIndex = 0;
-      }
-      return;
-    }
-
-    if (state.currentState === "jump") {
-      if (state.isPreparingJump) {
-        // Yerdeki hazırlık evresi: ilk 2 kareyi oynat (Index 0 ve 1)
-        state.frameIndex++;
-        if (state.frameIndex === 2) {
-          // 3. kareye (Index 2) geldiğinde tam zıplama gücünü uygula ve havaya kalk!
-          state.isPreparingJump = false;
-          state.isJumping = true;
-          state.canDoubleJump = true; // Double jump hakkı verildi
-          state.vy = PHYSICS.jumpForce;
+      if (state.isJumping) {
+        // Faz 1: Havada (JUMP_AIR_START - JUMP_AIR_END) — son frame'de bekle
+        if (state.frameIndex < JUMP_AIR_END) {
+          state.frameIndex++;
         }
+        // JUMP_AIR_END'de kal: iniş gelene kadar
       } else if (state.isLanding) {
-        // Yere değdik: 8'den 11'e kadar ilerle (Index 7'den 10'a)
-        if (state.frameIndex < 10) {
+        // Faz 2: İniş (JUMP_LAND_START - son frame)
+        if (state.frameIndex < config.frames - 1) {
           state.frameIndex++;
         } else {
           state.isLanding = false; // İniş animasyonu bitti
         }
       }
-    } else {
-      // Diğer animasyonlar için standart oynatma
-      state.frameIndex++;
+    }
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────
 
-      // Animasyon bitişi kontrolü
-      if (state.frameIndex >= config.frames) {
-        if (config.loop) {
-          state.frameIndex = 0;
+  // ── RUN animasyonu: kendi timer'ı ile 3 fazlı sistem ─────────────
+  if (state.currentState === "run") {
+    const isTurnStop = state.runPhase === "stop" && state.pendingRunDirection !== 0;
+    const frameRate = isTurnStop
+      ? config.frameRate * PHYSICS.turnStopSpeedMult
+      : config.frameRate;
+    const frameDuration = 1 / frameRate;
+
+    state.frameTimer += dt;
+    if (state.frameTimer >= frameDuration) {
+      state.frameTimer = 0;
+
+      if (state.runPhase === "start") {
+        if (state.frameIndex < RUN_START_END) {
+          state.frameIndex++;
         } else {
-          state.frameIndex = config.frames - 1; // Son karede kal
+          state.runPhase = "loop";
+          state.frameIndex = RUN_LOOP_START;
+        }
+      } else if (state.runPhase === "loop") {
+        state.frameIndex++;
+        if (state.frameIndex > RUN_LOOP_END) {
+          state.frameIndex = RUN_LOOP_START;
+        }
+      } else if (state.runPhase === "stop") {
+        if (state.frameIndex < config.frames - 1) {
+          state.frameIndex++;
+        } else {
+          if (state.pendingRunDirection !== 0) {
+            state.direction = state.pendingRunDirection;
+            state.pendingRunDirection = 0;
+            state.runPhase = "start";
+            state.frameIndex = 0;
+          } else {
+            state.runPhase = null;
+          }
+        }
+      } else {
+        state.runPhase = "loop";
+        state.frameIndex = RUN_LOOP_START;
+      }
+    }
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────
 
-          // Tek seferlik aksiyon bittiyse normale dön
-          if (state.isAttacking) {
-            state.isAttacking = false;
-            state.comboResetTimer = 0.5;
-          }
-          // Start animasyonu bitti (ileri) → run-start kilidini kaldır
-          if (state.currentState === "start" && state.isRunStarting) {
-            state.isRunStarting = false;
-          }
-          // Stop animasyonu bitti → run-stop kilidini kaldır
-          if (state.currentState === "stop") {
-            state.isRunStopping = false;
-          }
+  // Diğer animasyonlar için standart oynatma
+  const frameDuration = 1 / config.frameRate;
+  state.frameTimer += dt;
+
+  if (state.frameTimer >= frameDuration) {
+    state.frameTimer = 0;
+    state.frameIndex++;
+
+    if (state.frameIndex >= config.frames) {
+      if (config.loop) {
+        state.frameIndex = 0;
+      } else {
+        state.frameIndex = config.frames - 1;
+        if (state.isAttacking) {
+          state.isAttacking = false;
+          state.comboResetTimer = 0.5;
         }
       }
     }

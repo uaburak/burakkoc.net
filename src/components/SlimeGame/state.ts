@@ -1,7 +1,8 @@
 import { GameState } from "./types";
+import { BOXES } from "./constants";
 
 export const getInitialState = (theme: string): GameState => {
-  const savedPos = typeof window !== 'undefined' 
+  const savedPos = typeof window !== 'undefined'
     ? (() => {
         try {
           const raw = sessionStorage.getItem('slime_pos');
@@ -24,7 +25,6 @@ export const getInitialState = (theme: string): GameState => {
     direction: savedPos?.dir ?? 1,
     currentState: (savedPos ? "idle" : "jump"),
     frameIndex: savedPos ? 0 : 6,
-    prevFrameIndex: savedPos ? 0 : 6,
     frameTimer: 0,
     keys: { left: false, right: false, shift: false, jump: false },
     mouseX: 0,
@@ -32,26 +32,25 @@ export const getInitialState = (theme: string): GameState => {
     inputType: "none",
     isJumping: savedPos ? false : true,
     canDoubleJump: false,
-    isPreparingJump: false,
     isLanding: false,
     jumpBuffered: false,
     jumpOriginY: 0,
     landingGraceTimer: 0,
     isAttacking: false,
-    isRunStarting: false,
-    isRunStopping: false,
-    isRunSlowingToWalk: false,
+    runPhase: null,
+    pendingRunDirection: 1,
     activeBox: null,
-    prevActiveBox: null,
     autoPilotTarget: null,
     autoPilotRoute: null,
     autoPilotLocked: false,
-    boxSquish: { about: 0, projects: 0, cv: 0 },
-    boxSquishVelocity: { about: 0, projects: 0, cv: 0 },
-    lastLandingVy: 0,
+    // boxSquish ve boxSquishVelocity BOXES'dan dinamik olarak üretilir
+    boxSquish: Object.fromEntries(BOXES.map((b) => [b.id, 0])),
+    boxSquishVelocity: Object.fromEntries(BOXES.map((b) => [b.id, 0])),
     attackCombo: 0,
     comboResetTimer: 0,
-    cubeImg: null,
     cubes: [],
+    idleTimer: 0,
+    isIdleMode: false,
+    idleWalkDir: 1,
   };
 };

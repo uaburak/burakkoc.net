@@ -4,6 +4,7 @@ import Lenis from "lenis";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { usePathname } from "next/navigation";
+import siteConfig from "@/lib/siteConfig";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -13,14 +14,13 @@ export default function SmoothScroll({ children }: { children: React.ReactNode }
   const isAdmin = pathname?.startsWith("/admin");
 
   useEffect(() => {
-    // Admin panelinde smooth scroll devre dışı
-    if (isAdmin) return;
+    // Admin panelinde veya flag kapalıysa smooth scroll devre dışı
+    if (isAdmin || !siteConfig.SMOOTH_SCROLL_ENABLED) return;
 
     // 1. Lenis başlat
     const lenis = new Lenis({
       duration: 1.2,
       easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      gestureOrientation: "vertical",
       smoothWheel: true,
       touchMultiplier: 2,
     });
