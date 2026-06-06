@@ -3,8 +3,6 @@ export type ActionState =
   | "idle"
   | "walk"
   | "run"
-  | "start"
-  | "stop"
   | "jump"
   | "attack1"
   | "attack2"
@@ -27,7 +25,6 @@ export interface GameState {
   direction: number;
   currentState: ActionState;
   frameIndex: number;
-  prevFrameIndex: number;
   frameTimer: number;
   keys: { left: boolean; right: boolean; shift: boolean; jump: boolean };
   mouseX: number;
@@ -35,27 +32,26 @@ export interface GameState {
   inputType: "keyboard" | "mouse" | "none";
   isJumping: boolean;
   canDoubleJump: boolean;
-  isPreparingJump: boolean;
   isLanding: boolean;
   jumpBuffered: boolean;
   jumpOriginY: number;
   landingGraceTimer: number;
   isAttacking: boolean;
-  isRunStarting: boolean;
-  isRunStopping: boolean;
-  isRunSlowingToWalk: boolean;
+  runPhase: "start" | "loop" | "stop" | null;
+  pendingRunDirection: number; // Dönüş sonrası yeni yön (0 = tam dur)
   activeBox: string | null;
-  prevActiveBox: string | null;
   autoPilotTarget: string | null;
   autoPilotRoute: string | null;
   autoPilotLocked: boolean;
   boxSquish: Record<string, number>;
   boxSquishVelocity: Record<string, number>;
-  lastLandingVy: number;
   attackCombo: number;
   comboResetTimer: number;
-  cubeImg: HTMLImageElement | null;
   cubes: Cube[];
+  // Idle otomasyon
+  idleTimer: number;       // Son inputtan bu yana geçen süre
+  isIdleMode: boolean;     // Otonom mod aktif mi
+  idleWalkDir: number;     // Wolta için yön (-1 veya 1)
 }
 
 export interface Cube {

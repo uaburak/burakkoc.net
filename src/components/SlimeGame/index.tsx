@@ -93,7 +93,6 @@ export default function SlimeController() {
       if (state.currentState === newState) return;
       state.currentState = newState;
       state.frameIndex = 0;
-      state.prevFrameIndex = 0;
       state.frameTimer = 0;
     };
 

@@ -26,7 +26,6 @@ export const renderGame = (
 
 
 
-      // Dinamik kaynak boyutu (Görsellerin çözünürlüğü farklı olabilir, örn: 512x512 veya 128x128)
       const config = ANIMATIONS[state.currentState];
       const themeKey = (state.theme || "light") as "light" | "dark";
       const img = state.images[themeKey]?.[state.currentState];
@@ -37,7 +36,7 @@ export const renderGame = (
         return;
       }
 
-      // Dinamik kaynak boyutu (Görsellerin çözünürlüğü farklı olabilir, örn: 512x512 veya 128x128)
+      // Kaynak frame boyutu (sprite sheet genişliği / frame sayısı)
       const sw = img.width / config.frames;
       const sh = img.height;
       const sx = state.frameIndex * sw;
