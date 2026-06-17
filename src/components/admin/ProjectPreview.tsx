@@ -374,27 +374,41 @@ function PreviewDivider() {
   return <div className="w-full h-px bg-[var(--border)] my-2" />;
 }
 
-function PreviewBlock({ block }: { block: Block }) {
-  switch (block.type) {
-    case "heading":    return <PreviewHeading    block={block} />;
-    case "subheading": return <PreviewSubheading block={block} />;
-    case "text":    return <PreviewText    block={block} />;
-    case "image":   return <PreviewImage   block={block} />;
-    case "video":   return <PreviewVideo   block={block} />;
-    case "code":    return <PreviewCode    block={block} />;
+// ── Language helpers ─────────────────────────────────────────────────────────
+
+/** Returns a copy of the block with EN fields promoted to the default slots when lang="en" */
+function resolveBlock(block: Block, lang: "tr" | "en"): Block {
+  if (lang === "tr") return block;
+  return {
+    ...block,
+    content: block.contentEn ?? block.content,
+    alt:     block.altEn     ?? block.alt,
+    caption: block.captionEn ?? block.caption,
+  };
+}
+
+function PreviewBlock({ block, lang }: { block: Block; lang: "tr" | "en" }) {
+  const b = resolveBlock(block, lang);
+  switch (b.type) {
+    case "heading":    return <PreviewHeading    block={b} />;
+    case "subheading": return <PreviewSubheading block={b} />;
+    case "text":    return <PreviewText    block={b} />;
+    case "image":   return <PreviewImage   block={b} />;
+    case "video":   return <PreviewVideo   block={b} />;
+    case "code":    return <PreviewCode    block={b} />;
     default:        return null;
   }
 }
 
 // ── Section renderer ──────────────────────────────────────────────────────────
 
-function PreviewSection({ section }: { section: Section }) {
+function PreviewSection({ section, lang }: { section: Section; lang: "tr" | "en" }) {
   return (
     <section className="flex flex-col gap-4 items-start w-full pt-10">
       {/* Blocks — heading/subheading blocks define the visual hierarchy */}
       {section.blocks.map((block) => (
         <div key={block.id} className="w-full">
-          <PreviewBlock block={block} />
+          <PreviewBlock block={block} lang={lang} />
         </div>
       ))}
 
@@ -409,19 +423,21 @@ function PreviewSection({ section }: { section: Section }) {
 
 // ── Root preview ──────────────────────────────────────────────────────────────
 
-export function ProjectPreview({ project }: { project: ProjectData }) {
+export function ProjectPreview({ project, lang = "tr" }: { project: ProjectData; lang?: "tr" | "en" }) {
+  const displayTitle = lang === "en" ? (project.titleEn || project.title) : project.title;
+
   return (
     <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-6 py-10">
       {/* Overview header */}
       <section className="flex flex-col items-start w-full">
         <div className="flex flex-col items-start w-full pt-[10px]">
-          {project.title ? (
+          {displayTitle ? (
             <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-              {project.title}
+              {displayTitle}
             </h1>
           ) : (
             <h1 className="w-full text-base font-medium leading-5 text-[var(--text-subtitle)] opacity-30 italic select-none">
-              Proje Başlığı
+              {lang === "en" ? "Project Title" : "Proje Başlığı"}
             </h1>
           )}
           <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)] mt-0">
@@ -440,7 +456,7 @@ export function ProjectPreview({ project }: { project: ProjectData }) {
           </div>
         ) : (
           <div key={item.id} className="w-full">
-            <PreviewSection section={item} />
+            <PreviewSection section={item} lang={lang} />
           </div>
         )
       )}

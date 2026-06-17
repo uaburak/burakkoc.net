@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { BadgeIconType, BadgeItem, BadgePosition, SegmentedSecondTab } from "@/types/project";
+import { PillButton } from "@/components/Button";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -261,9 +262,11 @@ function BadgeRow({ badge, isDragging, isOver, onChange, onDelete, onGripPointer
 interface BadgesEditorProps {
   badges: BadgeItem[];
   onChange: (badges: BadgeItem[]) => void;
+  /** Optional left-side control rendered in the same row as "+ Badge Ekle" */
+  aspectRatioControl?: React.ReactNode;
 }
 
-export function BadgesEditor({ badges, onChange }: BadgesEditorProps) {
+export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEditorProps) {
   const [showPicker, setShowPicker] = useState(false);
 
   // ── Drag state ──
@@ -353,15 +356,24 @@ export function BadgesEditor({ badges, onChange }: BadgesEditorProps) {
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Badges</span>
-        <button
+      {/* Row: oran seçici (sol, fit-width) + "+ Badge Ekle" (sağ) */}
+      <div className="flex items-center justify-between gap-2">
+        {/* Left: aspect ratio control (fit-width) */}
+        <div className="flex-shrink-0">
+          {aspectRatioControl}
+        </div>
+        {/* Right: Badge Ekle pill button */}
+        <PillButton
+          size="md"
           onClick={() => setShowPicker((v) => !v)}
-          className="text-[10px] font-medium px-2 py-1 rounded-lg border border-dashed border-[var(--border-hover)] text-[var(--text-subtitle)] hover:text-[var(--text-p)] hover:border-[var(--text-subtitle)] transition-colors cursor-pointer"
+          startIcon={
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+              <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          }
         >
-          {showPicker ? "Kapat" : "+ Ekle"}
-        </button>
+          Badge Ekle
+        </PillButton>
       </div>
 
       {/* Type picker */}
@@ -394,12 +406,6 @@ export function BadgesEditor({ badges, onChange }: BadgesEditorProps) {
             />
           ))}
         </div>
-      )}
-
-      {badges.length === 0 && !showPicker && (
-        <p className="text-[10px] text-[var(--text-subtitle)] opacity-40 italic select-none text-center py-1">
-          Badge eklenmedi
-        </p>
       )}
     </div>
   );

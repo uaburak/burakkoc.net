@@ -2,46 +2,51 @@
 
 /* ── Figma Design Tokens ──────────────────────────────────── */
 :root {
-  /* Backgrounds */
-  --bg-1: #ffffff;
-  --bg-2: #fefefe;
-  --bg-3: #f8f8f8;
-  --bg-4: #f2f2f2;
+  /* Background — Figma "Background" tokens */
+  --bg-1: #ffffff;   /* Background/1 Light: rgba(255,255,255,1) */
+  --bg-2: #fefefe;   /* Background/2 Light: rgba(254,254,254,1) */
+  --bg-3: #fcfcfc;   /* Background/3 Light: rgba(252,252,252,1) */
+  --bg-4: #f2f2f2;   /* Background/4 Light: rgba(242,242,242,1) */
+  --bg-5: #e4e4e4;   /* Background/5 Light: rgba(228,228,228,1) */
 
-  /* Text */
-  --text-title:    #1a1a1a;
-  --text-p:        #2a2a2a;
-  --text-subtitle: #757575;
+  /* Text — Figma "Text" tokens */
+  --text-title:    #1a1a1a;  /* Text/Title  Light: rgba(26,26,26,1)   */
+  --text-p:        #2a2a2a;  /* Text/P      Light: rgba(42,42,42,1)   */
+  --text-subtitle: #757575;  /* Text/Subtitle Light: rgba(117,117,117,1) */
 
-  /* Border */
+  /* Border — Figma "Kutu/Default" → rgba(242,242,242,1) */
   --border:       #f2f2f2;
-  --border-hover: #e0e0e0;
+  --border-hover: #e4e4e4;   /* Kutu/Active Light: rgba(228,228,228,1) */
 
   /* Scrollbar */
   --scrollbar-track: transparent;
-  --scrollbar-thumb: #E4E4E4;
+  --scrollbar-thumb: #e4e4e4;
   --scrollbar-thumb-hover: #aaaaaa;
   color-scheme: light;
 }
 
 /* ── Dark Mode ─────────────────────────────────────────────── */
 [data-theme="dark"] {
-  --bg-1: #000000;
-  --bg-2: #181818;
-  --bg-3: #1e1e1e;
-  --bg-4: #2a2a2a;
+  /* Background — Figma "Background" tokens (dark) */
+  --bg-1: #000000;   /* Background/1 Dark: rgba(0,0,0,1)    */
+  --bg-2: #0a0a0a;   /* Background/2 Dark: rgba(10,10,10,1) */
+  --bg-3: #0f0f0f;   /* Background/3 Dark: rgba(15,15,15,1) */
+  --bg-4: #1e1e1e;   /* Background/4 Dark: rgba(30,30,30,1) */
+  --bg-5: #343434;   /* Background/5 Dark: rgba(52,52,52,1) */
 
-  --text-title:    #f5f5f5;
-  --text-p:        #d5d5d5;
-  --text-subtitle: #8a8a8a;
+  /* Text — Figma "Text" tokens (dark) */
+  --text-title:    #f2f2f2;  /* Text/Title  Dark: rgba(242,242,242,1) */
+  --text-p:        #e5e5e5;  /* Text/P      Dark: rgba(229,229,229,1) */
+  --text-subtitle: #a0a0a0;  /* Text/Subtitle Dark: rgba(160,160,160,1) */
 
-  --border:       #2a2a2a;
-  --border-hover: #3a3a3a;
+  /* Border — Figma: border uses Background/4 token */
+  --border:       #1e1e1e;   /* Background/4 Dark: rgba(30,30,30,1)  */
+  --border-hover: #343434;   /* Background/5 Dark: rgba(52,52,52,1)  */
 
   /* Scrollbar */
   --scrollbar-track: transparent;
-  --scrollbar-thumb: #3a3a3a;
-  --scrollbar-thumb-hover: #555555;
+  --scrollbar-thumb: #1e1e1e;
+  --scrollbar-thumb-hover: #343434;
   color-scheme: dark;
 }
 
@@ -51,6 +56,7 @@
   --color-bg-2:      var(--bg-2);
   --color-bg-3:      var(--bg-3);
   --color-bg-4:      var(--bg-4);
+  --color-bg-5:      var(--bg-5);
 
   --color-text-title:    var(--text-title);
   --color-text-p:        var(--text-p);
@@ -154,6 +160,7 @@ body {
     opacity: 0.45; /* Soluk (faded by default) */
     transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1),
                 height 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                border-radius 0.25s cubic-bezier(0.16, 1, 0.3, 1),
                 transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
                 background-color 0.2s ease,
                 border-color 0.2s ease,
@@ -193,6 +200,45 @@ body {
   /* Clicked + Hovered state */
   .custom-cursor-square.hovered.clicked {
     transform: translate(-50%, -50%) scale(0.7) rotate(45deg);
+  }
+
+  /* Traffic light state: matches dot color, round, with icon */
+  .custom-cursor-square.traffic {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background-color: var(--cursor-traffic-color, #ffffff);
+    border: none;
+    opacity: 1;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                height 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                border-radius 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease,
+                transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .custom-cursor-square.traffic .traffic-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(0, 0, 0, 0.65);
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity 0.15s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .custom-cursor-square.traffic.icon-ready .traffic-icon {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .custom-cursor-square.traffic.clicked {
+    transform: translate(-50%, -50%) scale(0.82);
   }
 }
 

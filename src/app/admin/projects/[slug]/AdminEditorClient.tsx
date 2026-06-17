@@ -7,8 +7,11 @@ import { ImageBlockEditor } from "@/components/admin/ImageBlockEditor";
 import { VideoBlockEditor } from "@/components/admin/VideoBlockEditor";
 import { CodeBlockEditor }  from "@/components/admin/CodeBlockEditor";
 import { ProjectPreview }   from "@/components/admin/ProjectPreview";
+import { useEditorContext } from "@/components/admin/EditorNavControls";
 import { saveProject, loadProject } from "@/lib/firestore";
 import { cn } from "@/lib/utils";
+import { PillButton } from "@/components/Button";
+import { Input } from "@/components/Input";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +32,7 @@ function makeDivider(): PageDivider {
 const EMPTY_PROJECT: ProjectData = {
   slug: "",
   title: "",
+  titleEn: "",
   category: "",
   year: new Date().getFullYear().toString(),
   items: [],
@@ -170,10 +174,7 @@ function XIcon() {
   );
 }
 
-// ── Shared styles ─────────────────────────────────────────────────────────────
-
-const inputClass =
-  "w-full rounded-xl border border-[var(--border)] bg-[var(--bg-2)] px-4 py-2.5 text-sm text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150";
+// ── Shared styles — use shared Input component below ─────────────────────────
 
 // ── Block sub-components ──────────────────────────────────────────────────────
 
@@ -182,51 +183,82 @@ function BlockLabel({ type }: { type: BlockType }) {
     heading:    "Başlık",
     subheading: "Alt Başlık",
     text:       "Metin",
-    image:      "Resim",
+    image:      "Görsel",
     video:      "Video",
     code:       "Kod Bloğu",
   };
+  return <PillLabel>{labels[type]}</PillLabel>;
+}
+
+// ── Traffic light action dots ────────────────────────────────────────────────
+/** Figma: pill container bg-[var(--bg-4)] + border, gap-2, p-[7px], rounded-full; dots 12×12 px */
+function TrafficDots({
+  onUp, onDown, onDelete,
+}: {
+  onUp: () => void;
+  onDown: () => void;
+  onDelete: () => void;
+}) {
   return (
-    <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none px-2 py-0.5 rounded-md border border-[var(--border)] bg-[var(--bg-3)]">
-      {labels[type]}
-    </span>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onUp}
+        title="Yukarı taşı"
+        data-traffic-color="#00e288"
+        data-traffic-icon="up"
+        className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+        style={{ background: "#00e288" }}
+      />
+      <button
+        type="button"
+        onClick={onDown}
+        title="Aşağı taşı"
+        data-traffic-color="#e2d300"
+        data-traffic-icon="down"
+        className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+        style={{ background: "#e2d300" }}
+      />
+      <button
+        type="button"
+        onClick={onDelete}
+        title="Sil"
+        data-traffic-color="#e20000"
+        data-traffic-icon="trash"
+        className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+        style={{ background: "#e20000" }}
+      />
+    </div>
   );
 }
 
-function IconBtn({
-  onClick, children, title, danger = false,
-}: {
-  onClick: () => void; children: React.ReactNode; title: string; danger?: boolean;
-}) {
+// ── Pill label ───────────────────────────────────────────────────────────────
+/** 40px tall — h-10 (40px) inline-flex items-center */
+function PillLabel({ children }: { children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={cn(
-        "flex items-center justify-center w-6 h-6 rounded-lg border transition-all duration-150 cursor-pointer",
-        danger
-          ? "border-transparent text-[var(--text-subtitle)] hover:border-red-300 hover:text-red-500 hover:bg-red-50"
-          : "border-transparent text-[var(--text-subtitle)] hover:border-[var(--border-hover)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)]"
-      )}
-    >
+    <span className="inline-flex items-center px-[6px] text-[16px] font-medium text-[var(--text-title)] select-none whitespace-nowrap">
       {children}
-    </button>
+    </span>
   );
 }
 
 // ── Heading / Subheading editor ───────────────────────────────────────────────
 
-function HeadingBlockEditor({ block, onChange }: { block: Block; onChange: (u: Partial<Block>) => void }) {
+function HeadingBlockEditor({ block, onChange, lang }: { block: Block; onChange: (u: Partial<Block>) => void; lang: "tr" | "en" }) {
   const isSubheading = block.type === "subheading";
+  const value = lang === "en" ? (block.contentEn ?? "") : (block.content ?? "");
+  const placeholder = lang === "en"
+    ? (isSubheading ? "Subheading text…" : "Heading text…")
+    : (isSubheading ? "Alt başlık metni…" : "Başlık metni…");
   return (
-    <input
+    <Input
       type="text"
-      value={block.content ?? ""}
-      onChange={(e) => onChange({ content: e.target.value })}
-      placeholder={isSubheading ? "Alt başlık metni…" : "Başlık metni…"}
+      value={value}
+      onChange={(e) => onChange(lang === "en" ? { contentEn: e.target.value } : { content: e.target.value })}
+      placeholder={placeholder}
+      size="md"
       className={cn(
-        inputClass,
-        isSubheading ? "text-sm text-[var(--text-subtitle)]" : "text-sm font-medium text-[var(--text-title)]"
+        isSubheading ? "text-[var(--text-subtitle)]" : "font-medium text-[var(--text-title)]"
       )}
     />
   );
@@ -235,29 +267,44 @@ function HeadingBlockEditor({ block, onChange }: { block: Block; onChange: (u: P
 // ── Block Row ─────────────────────────────────────────────────────────────────
 
 function BlockRow({
-  block, onChange, onMoveUp, onMoveDown, onDelete,
+  block, onChange, onMoveUp, onMoveDown, onDelete, lang, projectSlug,
 }: {
   block: Block;
   onChange: (u: Partial<Block>) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
+  lang: "tr" | "en";
+  projectSlug: string;
 }) {
+  function handleChange(u: Partial<Block>) {
+    if (lang === "en") {
+      const mapped: Partial<Block> = { ...u };
+      if ("content" in u) { mapped.contentEn = u.content; delete mapped.content; }
+      if ("alt"     in u) { mapped.altEn     = u.alt;     delete mapped.alt;     }
+      if ("caption" in u) { mapped.captionEn = u.caption; delete mapped.caption; }
+      onChange(mapped);
+    } else {
+      onChange(u);
+    }
+  }
+
+  const viewBlock: Block = lang === "en"
+    ? { ...block, content: block.contentEn ?? "", alt: block.altEn ?? "", caption: block.captionEn ?? "" }
+    : block;
+
   return (
-    <div className="group/block flex flex-col gap-3 p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-1)] hover:border-[var(--border-hover)] transition-colors duration-150">
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-col gap-[10px] p-[12px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-4)] transition-colors duration-150">
+      {/* Header: label left, traffic dots right */}
+      <div className="flex items-center justify-between">
         <BlockLabel type={block.type} />
-        <div className="flex items-center gap-1 opacity-0 group-hover/block:opacity-100 transition-opacity duration-150">
-          <IconBtn onClick={onMoveUp}   title="Yukarı taşı"><ChevronUpIcon /></IconBtn>
-          <IconBtn onClick={onMoveDown} title="Aşağı taşı"><ChevronDownIcon /></IconBtn>
-          <IconBtn onClick={onDelete}   title="Bloğu sil" danger><TrashIcon /></IconBtn>
-        </div>
+        <TrafficDots onUp={onMoveUp} onDown={onMoveDown} onDelete={onDelete} />
       </div>
-      {(block.type === "heading" || block.type === "subheading") && <HeadingBlockEditor block={block} onChange={onChange} />}
-      {block.type === "text"  && <TextBlockEditor  block={block} onChange={onChange} />}
-      {block.type === "image" && <ImageBlockEditor block={block} onChange={onChange} />}
-      {block.type === "video" && <VideoBlockEditor block={block} onChange={onChange} />}
-      {block.type === "code"  && <CodeBlockEditor  block={block} onChange={onChange} />}
+      {(block.type === "heading" || block.type === "subheading") && <HeadingBlockEditor block={block} onChange={onChange} lang={lang} />}
+      {block.type === "text"  && <TextBlockEditor  block={viewBlock} onChange={handleChange} />}
+      {block.type === "image" && <ImageBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
+      {block.type === "video" && <VideoBlockEditor block={viewBlock} onChange={handleChange} />}
+      {block.type === "code"  && <CodeBlockEditor  block={viewBlock} onChange={handleChange} />}
     </div>
   );
 }
@@ -280,12 +327,14 @@ function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType) => void }) 
 
   return (
     <>
-      <button
+      <PillButton
+        size="md"
         onClick={openMenu}
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-[var(--border-hover)] text-[var(--text-subtitle)] hover:text-[var(--text-p)] hover:border-[var(--text-subtitle)] transition-all duration-150 cursor-pointer text-sm"
+        className="w-full justify-center border-dashed border-[var(--border-hover)] hover:border-[var(--text-subtitle)]"
+        startIcon={<PlusIcon />}
       >
-        <PlusIcon /><span>Blok ekle</span>
-      </button>
+        Blok ekle
+      </PillButton>
       {open && (
         <>
           <div className="fixed inset-0 z-[9998]" onClick={close} aria-hidden />
@@ -323,7 +372,7 @@ function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType) => void }) 
 // ── Section Card ──────────────────────────────────────────────────────────────
 
 function SectionCard({
-  section, index, onChange, onMoveUp, onMoveDown, onDelete,
+  section, index, onChange, onMoveUp, onMoveDown, onDelete, lang, projectSlug,
 }: {
   section: PageSection;
   index: number;
@@ -331,6 +380,8 @@ function SectionCard({
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
+  lang: "tr" | "en";
+  projectSlug: string;
 }) {
   function updateBlock(blockId: string, updates: Partial<Block>) {
     onChange({ blocks: section.blocks.map((b) => (b.id === blockId ? { ...b, ...updates } : b)) });
@@ -350,17 +401,11 @@ function SectionCard({
   }
 
   return (
-    <div className="group/section flex flex-col gap-4 p-5 rounded-2xl border border-[var(--border)] bg-[var(--bg-2)] hover:border-[var(--border-hover)] transition-colors duration-200">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-[var(--text-subtitle)] select-none tabular-nums">{String(index + 1).padStart(2, "0")}</span>
-          <span className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Bölüm</span>
-        </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover/section:opacity-100 transition-opacity duration-150">
-          <IconBtn onClick={onMoveUp}   title="Yukarı taşı"><ChevronUpIcon /></IconBtn>
-          <IconBtn onClick={onMoveDown} title="Aşağı taşı"><ChevronDownIcon /></IconBtn>
-          <IconBtn onClick={onDelete}   title="Bölümü sil" danger><TrashIcon /></IconBtn>
-        </div>
+    <div className="flex flex-col gap-[10px] p-[18px] rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] transition-colors duration-200">
+      {/* Header: "01 Bölüm" pill left, traffic dots right */}
+      <div className="flex items-center justify-between">
+        <PillLabel>{String(index + 1).padStart(2, "0")} Bölüm</PillLabel>
+        <TrafficDots onUp={onMoveUp} onDown={onMoveDown} onDelete={onDelete} />
       </div>
 
       {section.blocks.length > 0 ? (
@@ -373,6 +418,8 @@ function SectionCard({
               onMoveUp={() => moveBlock(bi, bi - 1)}
               onMoveDown={() => moveBlock(bi, bi + 1)}
               onDelete={() => deleteBlock(block.id)}
+              lang={lang}
+              projectSlug={projectSlug}
             />
           ))}
         </div>
@@ -397,15 +444,11 @@ function DividerPageCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="group/divider flex items-center gap-3 px-5 py-3 rounded-2xl border border-dashed border-[var(--border)] hover:border-[var(--border-hover)] transition-colors duration-200">
+    <div className="flex items-center gap-3 px-5 py-3 rounded-2xl border border-dashed border-[var(--border)] hover:border-[var(--border-hover)] transition-colors duration-200">
       <div className="flex-1 h-px bg-[var(--border)]" />
       <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none shrink-0">Divider</span>
       <div className="flex-1 h-px bg-[var(--border)]" />
-      <div className="flex items-center gap-1 opacity-0 group-hover/divider:opacity-100 transition-opacity duration-150 shrink-0">
-        <IconBtn onClick={onMoveUp}   title="Yukarı taşı"><ChevronUpIcon /></IconBtn>
-        <IconBtn onClick={onMoveDown} title="Aşağı taşı"><ChevronDownIcon /></IconBtn>
-        <IconBtn onClick={onDelete}   title="Kaldır" danger><TrashIcon /></IconBtn>
-      </div>
+      <TrafficDots onUp={onMoveUp} onDown={onMoveDown} onDelete={onDelete} />
     </div>
   );
 }
@@ -530,12 +573,12 @@ function MetaField({ value, placeholder, onChange }: {
   value: string; placeholder: string; onChange: (v: string) => void;
 }) {
   return (
-    <input
+    <Input
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={inputClass}
+      size="md"
     />
   );
 }
@@ -547,9 +590,13 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   // localStorage is read in useEffect (client-only) to avoid hydration mismatch.
   const [project, setProject] = useState<ProjectData>({ ...EMPTY_PROJECT, slug });
 
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // ── Pull shared state from EditorContext (set by EditorNavControls in the top nav) ──
+  const { editLang, saveStatus, setSaveStatus, registerSave } = useEditorContext();
+
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [loadingFromDB, setLoadingFromDB] = useState(true);
+  /** Whether this project exists in Firestore (i.e. has been published at least once) */
+  const [isPublished, setIsPublished] = useState(false);
 
   // ── Load from Firestore on mount — always enforce URL slug ──
   useEffect(() => {
@@ -560,6 +607,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
           // Ensure slug always matches the URL
           const normalized = { ...data, slug };
           setProject(normalized);
+          setIsPublished(true);
           localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(normalized));
         } else {
           // No Firestore data — try local cache as fallback
@@ -611,7 +659,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }, [project, slug, loadingFromDB]);
 
   const updateMeta = useCallback(
-    (updates: Partial<Pick<ProjectData, "title" | "category" | "year" | "slug">>) => {
+    (updates: Partial<Pick<ProjectData, "title" | "titleEn" | "category" | "year" | "slug">>) => {
       setProject((p) => ({ ...p, ...updates }));
     }, []
   );
@@ -673,6 +721,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       await saveProject(dataToSave);
       // Keep state and cache in sync
       setProject(dataToSave);
+      setIsPublished(true);
       localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(dataToSave));
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2500);
@@ -682,6 +731,12 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       setTimeout(() => setSaveStatus("idle"), 3000);
     }
   }
+
+  // Register save handler with the context so EditorNavControls can call it
+  useEffect(() => {
+    registerSave(handleSave);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, slug]);
 
   const sectionCount = project.items.filter((i) => i.kind === "section").length;
   let sectionIndex = 0;
@@ -695,76 +750,39 @@ export function AdminEditorClient({ slug }: { slug: string }) {
         <div className="sticky top-0 z-30 flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-1)]/90 backdrop-blur-md">
           <div className="flex flex-col">
             <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Editör</span>
-            <span className="text-sm font-medium text-[var(--text-title)] leading-5 truncate max-w-[160px]">
+            <span className="text-sm font-medium text-[var(--text-title)] leading-5 truncate max-w-[220px]">
               {project.title || "Başlıksız Proje"}
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddMenu(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-medium border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-p)] hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] transition-all duration-200 cursor-pointer"
-            >
-              <span className="flex items-center justify-center w-3.5 h-3.5"><PlusIcon /></span>
-              Ekle
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saveStatus === "saving"}
-              className={cn(
-                "inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 cursor-pointer border",
-                saveStatus === "saving"
-                  ? "border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-subtitle)] cursor-not-allowed opacity-70"
-                  : saveStatus === "saved"
-                  ? "border-green-300 bg-green-50 text-green-700"
-                  : saveStatus === "error"
-                  ? "border-red-300 bg-red-50 text-red-600"
-                  : "border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-p)] hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)]"
-              )}
-            >
-              <span className="flex items-center justify-center w-4 h-4">
-                {saveStatus === "saving" ? (
-                  <svg className="animate-spin" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="8 16" strokeLinecap="round"/>
-                  </svg>
-                ) : saveStatus === "saved" ? (
-                  <CheckIcon />
-                ) : saveStatus === "error" ? (
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M7 4v4M7 10h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.25"/>
-                  </svg>
-                ) : (
-                  <SaveIcon />
-                )}
-              </span>
-              {saveStatus === "saving" ? "Kaydediliyor…" : saveStatus === "saved" ? "Kaydedildi" : saveStatus === "error" ? "Hata!" : "Kaydet"}
-            </button>
-          </div>
+          <PillButton
+            size="md"
+            onClick={() => setShowAddMenu(true)}
+            startIcon={<PlusIcon />}
+          >
+            Ekle
+          </PillButton>
         </div>
 
         {/* Editor scroll area */}
-        <div className="flex flex-col gap-8 px-5 py-8">
-          {/* Project Meta */}
+        <div className="flex flex-col gap-6 px-5 py-8">
+
+          {/* ── Proje Bilgileri ── */}
           <section className="flex flex-col gap-3">
-            <h2 className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Proje Bilgileri</h2>
+            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-subtitle)] select-none">Proje Bilgileri</h2>
             <div className="grid grid-cols-2 gap-2.5">
-              <MetaField value={project.title}    placeholder="Başlık"    onChange={(v) => updateMeta({ title: v })} />
-              <MetaField value={project.slug}     placeholder="Slug"      onChange={(v) => updateMeta({ slug: v })} />
-              <MetaField value={project.category} placeholder="Kategori"  onChange={(v) => updateMeta({ category: v })} />
-              <MetaField value={project.year}     placeholder="Yıl"       onChange={(v) => updateMeta({ year: v })} />
+              <MetaField value={project.title}        placeholder="Başlık (TR)"    onChange={(v) => updateMeta({ title: v })} />
+              <MetaField value={project.titleEn ?? ""} placeholder="Title (EN)" onChange={(v) => updateMeta({ titleEn: v })} />
+              <MetaField value={project.slug}         placeholder="Slug"            onChange={(v) => updateMeta({ slug: v })} />
+              <MetaField value={project.category}     placeholder="Kategori"        onChange={(v) => updateMeta({ category: v })} />
+              <MetaField value={project.year}         placeholder="Yıl"             onChange={(v) => updateMeta({ year: v })} />
             </div>
           </section>
 
           <div className="w-full h-px bg-[var(--border)]" />
 
-          {/* Items (sections + dividers) */}
+          {/* ── İçerik ── */}
           <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">İçerik</h2>
-              <span className="text-xs text-[var(--text-subtitle)] select-none">
-                {sectionCount} bölüm · {project.items.filter((i) => i.kind === "divider").length} divider
-              </span>
-            </div>
+            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-subtitle)] select-none">İçerik</h2>
 
             {project.items.length === 0 && (
               <div className="flex flex-col items-center gap-2 py-8 rounded-2xl border border-dashed border-[var(--border)] text-center">
@@ -796,6 +814,8 @@ export function AdminEditorClient({ slug }: { slug: string }) {
                     onMoveUp={() => moveItem(idx, idx - 1)}
                     onMoveDown={() => moveItem(idx, idx + 1)}
                     onDelete={() => deleteItem(item.id)}
+                    lang={editLang}
+                    projectSlug={slug}
                   />
                 );
               })}
@@ -824,15 +844,32 @@ export function AdminEditorClient({ slug }: { slug: string }) {
             <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Önizleme</span>
             <span className="text-sm font-medium text-[var(--text-title)] leading-5">Canlı görünüm</span>
           </div>
-          <span className="flex items-center gap-1.5 text-xs text-[var(--text-subtitle)] select-none">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+          <div className="flex items-center gap-3">
+            {isPublished && (
+              <PillButton
+                size="md"
+                startIcon={
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M5 2H2a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V7" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+                    <path d="M8 1h3m0 0v3m0-3L5.5 6.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                }
+                onClick={() => window.open(`/projects/${slug}`, "_blank")}
+                title="Yayın sayfasını yeni sekmede aç"
+              >
+                Yayında Görüntüle
+              </PillButton>
+            )}
+            <span className="flex items-center gap-1.5 text-xs text-[var(--text-subtitle)] select-none">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+              </span>
+              Canlı
             </span>
-            Canlı
-          </span>
+          </div>
         </div>
-        <ProjectPreview project={project} />
+        <ProjectPreview project={project} lang={editLang} />
       </div>
 
       {showAddMenu && (

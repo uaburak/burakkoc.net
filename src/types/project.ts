@@ -30,6 +30,7 @@ export interface BadgeItem {
 export interface Block {
   id: string;
   type: BlockType;
+  // TR (default)
   content?: string;
   language?: string;
   codePreview?: string;
@@ -38,6 +39,10 @@ export interface Block {
   caption?: string;
   aspectRatio?: "16/9" | "4/3" | "1/1";
   badges?: BadgeItem[];
+  // EN
+  contentEn?: string;
+  altEn?: string;
+  captionEn?: string;
 }
 
 // ── Section ───────────────────────────────────────────────────────────────────
@@ -68,6 +73,8 @@ export type PageItem = PageSection | PageDivider;
 export interface ProjectData {
   slug: string;
   title: string;
+  /** English title (optional) */
+  titleEn?: string;
   category: string;
   year: string;
   /** Flat ordered list of sections and dividers */
