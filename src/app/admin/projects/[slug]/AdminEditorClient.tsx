@@ -768,7 +768,6 @@ export function AdminEditorClient({ slug }: { slug: string }) {
 
           {/* ── Proje Bilgileri ── */}
           <section className="flex flex-col gap-3">
-            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-subtitle)] select-none">Proje Bilgileri</h2>
             <div className="grid grid-cols-2 gap-2.5">
               <MetaField value={project.title}        placeholder="Başlık (TR)"    onChange={(v) => updateMeta({ title: v })} />
               <MetaField value={project.titleEn ?? ""} placeholder="Title (EN)" onChange={(v) => updateMeta({ titleEn: v })} />
@@ -782,7 +781,6 @@ export function AdminEditorClient({ slug }: { slug: string }) {
 
           {/* ── İçerik ── */}
           <section className="flex flex-col gap-3">
-            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-subtitle)] select-none">İçerik</h2>
 
             {project.items.length === 0 && (
               <div className="flex flex-col items-center gap-2 py-8 rounded-2xl border border-dashed border-[var(--border)] text-center">
