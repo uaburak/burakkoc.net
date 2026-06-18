@@ -1,6 +1,6 @@
 // ── Block Types (divider removed — it's now a top-level PageItem) ─────────────
 
-export type BlockType = "heading" | "subheading" | "text" | "image" | "video" | "code";
+export type BlockType = "heading" | "subheading" | "text" | "image" | "video" | "code" | "figma";
 
 // ── Badge System ─────────────────────────────────────────────────────────────
 
@@ -32,6 +32,7 @@ export interface Block {
   type: BlockType;
   // TR (default)
   content?: string;
+  subheading?: string;
   language?: string;
   codePreview?: string;
   src?: string;
@@ -39,8 +40,12 @@ export interface Block {
   caption?: string;
   aspectRatio?: "16/9" | "4/3" | "1/1";
   badges?: BadgeItem[];
+  figmaWorkspace?: string;
+  figmaCover?: string;
+  figmaWorkspaceCover?: string;
   // EN
   contentEn?: string;
+  subheadingEn?: string;
   altEn?: string;
   captionEn?: string;
 }
@@ -79,6 +84,8 @@ export interface ProjectData {
   year: string;
   /** Cover / thumbnail image URL */
   coverImage?: string;
+  description?: string;
+  descriptionEn?: string;
   /** Flat ordered list of sections and dividers */
   items: PageItem[];
 }

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem } from "@/types/project";
 import { Segmented } from "@/components/Segmented";
+import { ZoomableImage } from "@/components/ZoomableImage";
+import { ZoomableFigma } from "@/components/ZoomableFigma";
 
 // ── Badge icon components (matching page.tsx style) ───────────────────────────
 
@@ -103,7 +105,7 @@ function BadgeRenderer({
                   <Segmented
                     key={badge.id}
                     options={[t1, t2]}
-                    defaultValue={t1}
+                    value={activeTab || t1}
                     onChange={onTabChange}
                   />
                 );
@@ -129,14 +131,23 @@ function BadgeRenderer({
 
 /** Heading block — same style as the h2 SectionTitle from page.tsx */
 function PreviewHeading({ block }: { block: Block }) {
-  return block.content ? (
-    <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-      {block.content}
-    </h2>
-  ) : (
-    <h2 className="w-full text-base font-medium leading-5 text-[var(--text-subtitle)] opacity-30 italic select-none">
-      Başlık…
-    </h2>
+  return (
+    <div className="flex flex-col w-full">
+      {block.content ? (
+        <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+          {block.content}
+        </h2>
+      ) : (
+        <h2 className="w-full text-base font-medium leading-5 text-[var(--text-subtitle)] opacity-30 italic select-none">
+          Başlık…
+        </h2>
+      )}
+      {block.subheading && (
+        <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
+          {block.subheading}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -198,8 +209,14 @@ function PreviewImage({ block }: { block: Block }) {
         {/* Tab 1 or Tab 2 content */}
         {!isTab2 ? (
           block.src ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={block.src} alt={block.alt ?? ""} className="w-full h-full object-cover" />
+            <ZoomableImage
+              src={block.src}
+              alt={block.alt ?? ""}
+              className="w-full h-full object-cover"
+              badges={block.badges}
+              activeTab={activeTab}
+              onTabChange={handleTabChange}
+            />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">
               Görsel
@@ -304,7 +321,7 @@ function PreviewCode({ block }: { block: Block }) {
               <span className="ml-2 text-xs text-[var(--text-subtitle)] font-mono select-none">{block.language ?? "code"}</span>
             </div>
             <pre className="px-4 pb-6 font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre">
-              {hasCode ? block.content : <span className="opacity-30 italic">// kod girilmedi</span>}
+              {hasCode ? block.content : <span className="opacity-30 italic">{"// kod girilmedi"}</span>}
             </pre>
           </div>
         ) : usedTab === "Preview" ? (
@@ -339,8 +356,7 @@ function PreviewCode({ block }: { block: Block }) {
 function SecondTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   if (tab2.type === "image") {
     return tab2.src ? (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={tab2.src} alt="" className="w-full h-full object-cover" />
+      <ZoomableImage src={tab2.src} alt="" className="w-full h-full object-cover" />
     ) : (
       <div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--text-subtitle)] opacity-40 select-none">Görsel URL girilmedi</div>
     );
@@ -356,7 +372,7 @@ function SecondTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   if (tab2.type === "code") {
     return (
       <pre className="font-mono text-xs leading-6 text-[var(--text-p)] whitespace-pre overflow-x-auto">
-        {tab2.content?.trim() ? tab2.content : <span className="opacity-30 italic">// kod girilmedi</span>}
+        {tab2.content?.trim() ? tab2.content : <span className="opacity-30 italic">{"// kod girilmedi"}</span>}
       </pre>
     );
   }
@@ -370,6 +386,8 @@ function SecondTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   return null;
 }
 
+// PreviewFigma removed in favor of ZoomableFigma
+
 function PreviewDivider() {
   return <div className="w-full h-px bg-[var(--border)] my-2" />;
 }
@@ -381,9 +399,10 @@ function resolveBlock(block: Block, lang: "tr" | "en"): Block {
   if (lang === "tr") return block;
   return {
     ...block,
-    content: block.contentEn ?? block.content,
-    alt:     block.altEn     ?? block.alt,
-    caption: block.captionEn ?? block.caption,
+    content:    block.contentEn    ?? block.content,
+    subheading: block.subheadingEn ?? block.subheading,
+    alt:        block.altEn        ?? block.alt,
+    caption:    block.captionEn    ?? block.caption,
   };
 }
 
@@ -396,6 +415,7 @@ function PreviewBlock({ block, lang }: { block: Block; lang: "tr" | "en" }) {
     case "image":   return <PreviewImage   block={b} />;
     case "video":   return <PreviewVideo   block={b} />;
     case "code":    return <PreviewCode    block={b} />;
+    case "figma":   return <ZoomableFigma    src={b.src ?? ""} figmaWorkspace={b.figmaWorkspace} figmaCover={b.figmaCover} figmaWorkspaceCover={b.figmaWorkspaceCover} caption={b.caption} lang={lang} />;
     default:        return null;
   }
 }
@@ -425,6 +445,7 @@ function PreviewSection({ section, lang }: { section: Section; lang: "tr" | "en"
 
 export function ProjectPreview({ project, lang = "tr" }: { project: ProjectData; lang?: "tr" | "en" }) {
   const displayTitle = lang === "en" ? (project.titleEn || project.title) : project.title;
+  const displayDesc = lang === "en" ? project.descriptionEn : project.description;
 
   return (
     <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-6 py-10">
@@ -445,6 +466,38 @@ export function ProjectPreview({ project, lang = "tr" }: { project: ProjectData;
               <span className="opacity-30 italic">Kategori · Yıl</span>
             )}
           </p>
+
+          {/* Description (Açıklama) */}
+          {displayDesc ? (
+            <p className="w-full text-base font-light leading-7 text-[var(--text-p)] mt-6 whitespace-pre-wrap">
+              {displayDesc}
+            </p>
+          ) : (
+            <p className="w-full text-base font-light leading-7 text-[var(--text-subtitle)] mt-6 italic opacity-30 select-none">
+              {lang === "en" ? "Project description goes here…" : "Proje açıklaması burada görünecek…"}
+            </p>
+          )}
+
+          {/* Cover Image (Resim) */}
+          {project.coverImage ? (
+            <div
+              className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden mt-12 mb-6"
+              style={{ aspectRatio: "940/518" }}
+            >
+              <ZoomableImage
+                src={project.coverImage}
+                alt={displayTitle || project.slug}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          ) : (
+            <div
+              className="relative w-full rounded-[32px] border border-dashed border-[var(--border)] bg-[var(--bg-2)] overflow-hidden mt-12 mb-6 flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40"
+              style={{ aspectRatio: "940/518" }}
+            >
+              {lang === "en" ? "Cover Image" : "Kapak Resmi"}
+            </div>
+          )}
         </div>
       </section>
 

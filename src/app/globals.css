@@ -142,7 +142,7 @@ body {
     top: 0;
     left: 0;
     pointer-events: none;
-    z-index: 99999;
+    z-index: 999999;
     opacity: 0;
     transition: opacity 0.15s ease;
   }
@@ -154,6 +154,7 @@ body {
   .custom-cursor-square {
     width: 8px;
     height: 8px;
+    border-radius: 50% !important;
     background-color: var(--text-title);
     mix-blend-mode: normal;
     transform: translate(-50%, -50%);
@@ -172,34 +173,48 @@ body {
   /* Full opacity when clicked, hovered, or over text elements */
   .custom-cursor-square.clicked,
   .custom-cursor-square.hovered,
-  .custom-cursor-square.text {
+  .custom-cursor-square.text,
+  .custom-cursor-square.image-hovered {
     opacity: 1;
   }
 
   /* Clicked state */
   .custom-cursor-square.clicked {
     transform: translate(-50%, -50%) scale(0.7);
+    border-radius: 50% !important;
   }
 
-  /* Hover state: rotates and slightly enlarges */
+  /* Hover state: slightly enlarges */
   .custom-cursor-square.hovered {
     width: 14px;
     height: 14px;
-    transform: translate(-50%, -50%) rotate(45deg);
+    border-radius: 50% !important;
+    transform: translate(-50%, -50%);
     background-color: var(--text-title);
   }
 
-  /* Text state: hollow square with border to keep text readable */
+  /* Text state: hollow circle with border to keep text readable */
   .custom-cursor-square.text {
     width: 12px;
     height: 12px;
+    border-radius: 50% !important;
     background-color: transparent;
     border: 1px solid var(--text-title);
   }
 
+  /* Image hover state: expands circle slightly with transparency */
+  .custom-cursor-square.image-hovered {
+    width: 24px;
+    height: 24px;
+    border-radius: 50% !important;
+    background-color: var(--text-title);
+    opacity: 0.35;
+  }
+
   /* Clicked + Hovered state */
   .custom-cursor-square.hovered.clicked {
-    transform: translate(-50%, -50%) scale(0.7) rotate(45deg);
+    transform: translate(-50%, -50%) scale(0.7);
+    border-radius: 50% !important;
   }
 
   /* Traffic light state: matches dot color, round, with icon */
@@ -247,4 +262,18 @@ body {
   .custom-cursor-wrapper {
     display: none !important;
   }
+}
+
+/* Image Hover Scale Effect */
+img {
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+img:hover {
+  transform: scale(1.03) !important;
+}
+
+/* Custom View Transition for Lightbox */
+::view-transition-group(active-lightbox-image) {
+  animation-duration: 300ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }

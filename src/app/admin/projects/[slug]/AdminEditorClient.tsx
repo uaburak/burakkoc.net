@@ -6,6 +6,7 @@ import { TextBlockEditor }  from "@/components/admin/TextBlockEditor";
 import { ImageBlockEditor } from "@/components/admin/ImageBlockEditor";
 import { VideoBlockEditor } from "@/components/admin/VideoBlockEditor";
 import { CodeBlockEditor }  from "@/components/admin/CodeBlockEditor";
+import { FigmaBlockEditor }  from "@/components/admin/FigmaBlockEditor";
 import { ProjectPreview }   from "@/components/admin/ProjectPreview";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
 import { saveProject, loadProject } from "@/lib/firestore";
@@ -38,6 +39,8 @@ const EMPTY_PROJECT: ProjectData = {
   category: "",
   year: new Date().getFullYear().toString(),
   coverImage: "",
+  description: "",
+  descriptionEn: "",
   items: [],
 };
 
@@ -59,16 +62,6 @@ const BLOCK_DEFS: {
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M2 4h12M2 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         <text x="2" y="15" fontSize="7" fill="currentColor" fontWeight="700">H</text>
-      </svg>
-    ),
-  },
-  {
-    type: "subheading",
-    label: "Alt Başlık",
-    description: "İkincil açıklama satırı",
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M2 5h10M2 9h7M2 13h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -112,6 +105,16 @@ const BLOCK_DEFS: {
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M5 5L2 8l3 3M11 5l3 3-3 3M9 3l-2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "figma",
+    label: "Figma",
+    description: "Tasarım / Prototip embed",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M5.5 5.5a2 2 0 1 0 0-4h2.5v4H5.5zm0 5a2 2 0 1 0 0-4h2.5v4H5.5zm0 4.25a2 2 0 0 0 2-2V10.5H5.5a2 2 0 1 0 0 4.25zm5-9.25a2 2 0 1 0-2-2v4h2a2 2 0 1 0 0-4zm-2 6.75a2 2 0 0 0 2-2H8v2z" fill="currentColor" />
       </svg>
     ),
   },
@@ -189,6 +192,7 @@ function BlockLabel({ type }: { type: BlockType }) {
     image:      "Görsel",
     video:      "Video",
     code:       "Kod Bloğu",
+    figma:      "Figma",
   };
   return <PillLabel>{labels[type]}</PillLabel>;
 }
@@ -248,22 +252,48 @@ function PillLabel({ children }: { children: React.ReactNode }) {
 // ── Heading / Subheading editor ───────────────────────────────────────────────
 
 function HeadingBlockEditor({ block, onChange, lang }: { block: Block; onChange: (u: Partial<Block>) => void; lang: "tr" | "en" }) {
-  const isSubheading = block.type === "subheading";
-  const value = lang === "en" ? (block.contentEn ?? "") : (block.content ?? "");
-  const placeholder = lang === "en"
-    ? (isSubheading ? "Subheading text…" : "Heading text…")
-    : (isSubheading ? "Alt başlık metni…" : "Başlık metni…");
+  if (block.type === "subheading") {
+    // Legacy support for separate subheading blocks:
+    const value = lang === "en" ? (block.contentEn ?? "") : (block.content ?? "");
+    const placeholder = lang === "en" ? "Subheading text…" : "Alt başlık metni…";
+    return (
+      <Input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(lang === "en" ? { contentEn: e.target.value } : { content: e.target.value })}
+        placeholder={placeholder}
+        size="md"
+        className="text-[var(--text-subtitle)]"
+      />
+    );
+  }
+
+  // Combined heading/subheading editor
+  const headingVal = lang === "en" ? (block.contentEn ?? "") : (block.content ?? "");
+  const subheadingVal = lang === "en" ? (block.subheadingEn ?? "") : (block.subheading ?? "");
+
+  const headingPlaceholder = lang === "en" ? "Heading text…" : "Başlık metni…";
+  const subheadingPlaceholder = lang === "en" ? "Subheading text (optional)…" : "Alt başlık metni (isteğe bağlı)…";
+
   return (
-    <Input
-      type="text"
-      value={value}
-      onChange={(e) => onChange(lang === "en" ? { contentEn: e.target.value } : { content: e.target.value })}
-      placeholder={placeholder}
-      size="md"
-      className={cn(
-        isSubheading ? "text-[var(--text-subtitle)]" : "font-medium text-[var(--text-title)]"
-      )}
-    />
+    <div className="flex flex-col gap-2 w-full">
+      <Input
+        type="text"
+        value={headingVal}
+        onChange={(e) => onChange(lang === "en" ? { contentEn: e.target.value } : { content: e.target.value })}
+        placeholder={headingPlaceholder}
+        size="md"
+        className="font-medium text-[var(--text-title)]"
+      />
+      <Input
+        type="text"
+        value={subheadingVal}
+        onChange={(e) => onChange(lang === "en" ? { subheadingEn: e.target.value } : { subheading: e.target.value })}
+        placeholder={subheadingPlaceholder}
+        size="md"
+        className="text-[var(--text-subtitle)] text-sm"
+      />
+    </div>
   );
 }
 
@@ -308,6 +338,7 @@ function BlockRow({
       {block.type === "image" && <ImageBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
       {block.type === "video" && <VideoBlockEditor block={viewBlock} onChange={handleChange} />}
       {block.type === "code"  && <CodeBlockEditor  block={viewBlock} onChange={handleChange} />}
+      {block.type === "figma" && <FigmaBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
     </div>
   );
 }
@@ -746,6 +777,18 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   /** Whether this project exists in Firestore (i.e. has been published at least once) */
   const [isPublished, setIsPublished] = useState(false);
 
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const autoResizeDesc = useCallback(() => {
+    const el = descRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    autoResizeDesc();
+  }, [project.description, project.descriptionEn, editLang, autoResizeDesc]);
+
   // ── Load from Firestore on mount — always enforce URL slug ──
   useEffect(() => {
     loadProject(slug)
@@ -807,7 +850,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }, [project, slug, loadingFromDB]);
 
   const updateMeta = useCallback(
-    (updates: Partial<Pick<ProjectData, "title" | "titleEn" | "category" | "year" | "slug" | "coverImage">>) => {
+    (updates: Partial<Pick<ProjectData, "title" | "titleEn" | "category" | "year" | "slug" | "coverImage" | "description" | "descriptionEn">>) => {
       setProject((p) => ({ ...p, ...updates }));
     }, []
   );
@@ -930,6 +973,19 @@ export function AdminEditorClient({ slug }: { slug: string }) {
               <MetaField value={project.category}     placeholder="Kategori"        onChange={(v) => updateMeta({ category: v })} />
               <MetaField value={project.year}         placeholder="Yıl"             onChange={(v) => updateMeta({ year: v })} />
             </div>
+
+            {/* Description textarea */}
+            <textarea
+              ref={descRef}
+              value={editLang === "en" ? (project.descriptionEn ?? "") : (project.description ?? "")}
+              placeholder={editLang === "en" ? "Description (EN)…" : "Açıklama (TR)…"}
+              onChange={(e) => {
+                updateMeta(editLang === "en" ? { descriptionEn: e.target.value } : { description: e.target.value });
+                autoResizeDesc();
+              }}
+              rows={3}
+              className="w-full resize-none overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-2)] px-4 py-3 text-sm font-light leading-6 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150"
+            />
 
             {/* Cover image upload — right after the meta fields */}
             <CoverImageUpload

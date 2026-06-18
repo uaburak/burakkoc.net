@@ -33,15 +33,16 @@ type TrafficIcon = "up" | "down" | "trash" | null;
 
 export default function CustomCursor() {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [isHovered,    setIsHovered]    = useState(false);
-  const [isClicked,    setIsClicked]    = useState(false);
-  const [isText,       setIsText]       = useState(false);
-  const [isVisible,    setIsVisible]    = useState(false);
-  const [mounted,      setMounted]      = useState(false);
-  const [trafficColor, setTrafficColor] = useState<string | null>(null);
-  const [trafficIcon,  setTrafficIcon]  = useState<TrafficIcon>(null);
+  const [isHovered,      setIsHovered]      = useState(false);
+  const [isClicked,      setIsClicked]      = useState(false);
+  const [isText,         setIsText]         = useState(false);
+  const [isImageHovered, setIsImageHovered] = useState(false);
+  const [isVisible,      setIsVisible]      = useState(false);
+  const [mounted,        setMounted]        = useState(false);
+  const [trafficColor,   setTrafficColor]   = useState<string | null>(null);
+  const [trafficIcon,    setTrafficIcon]    = useState<TrafficIcon>(null);
   /** Slight delay so icon fades in after circle expands */
-  const [iconReady,    setIconReady]    = useState(false);
+  const [iconReady,      setIconReady]      = useState(false);
   const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
@@ -95,6 +96,14 @@ export default function CustomCursor() {
       return false;
     };
 
+    const checkImage = (target: HTMLElement | null): boolean => {
+      if (!target) return false;
+      return (
+        target.tagName === "IMG" ||
+        target.closest("img") !== null
+      );
+    };
+
     const getTraffic = (target: HTMLElement | null): { color: string; icon: TrafficIcon } | null => {
       let el: HTMLElement | null = target;
       while (el) {
@@ -126,6 +135,7 @@ export default function CustomCursor() {
         setIconReady(false);
         setIsHovered(false);
         setIsText(false);
+        setIsImageHovered(false);
         // Slight delay — let the circle expand first, then fade icon in
         iconTimerRef.current = setTimeout(() => setIconReady(true), 80);
         return;
@@ -137,15 +147,22 @@ export default function CustomCursor() {
       setTrafficIcon(null);
       setIconReady(false);
 
-      if (checkClickable(target)) {
+      if (checkImage(target)) {
+        setIsImageHovered(true);
+        setIsHovered(false);
+        setIsText(false);
+      } else if (checkClickable(target)) {
         setIsHovered(true);
         setIsText(false);
+        setIsImageHovered(false);
       } else if (checkText(target)) {
         setIsText(true);
         setIsHovered(false);
+        setIsImageHovered(false);
       } else {
         setIsHovered(false);
         setIsText(false);
+        setIsImageHovered(false);
       }
     };
 
@@ -182,13 +199,14 @@ export default function CustomCursor() {
     !trafficColor && isHovered ? "hovered"   : "",
     isClicked                 ? "clicked"    : "",
     !trafficColor && isText   ? "text"       : "",
+    !trafficColor && isImageHovered ? "image-hovered" : "",
   ].filter(Boolean).join(" ");
 
   return (
     <div
       ref={wrapperRef}
       className={`custom-cursor-wrapper ${isVisible ? "visible" : ""}`}
-      style={{ position: "fixed", top: 0, left: 0, pointerEvents: "none", zIndex: 99999 }}
+      style={{ position: "fixed", top: 0, left: 0, pointerEvents: "none", zIndex: 999999 }}
     >
       <div
         className={classes}

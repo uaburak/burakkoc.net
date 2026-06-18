@@ -402,6 +402,15 @@ function SecondTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   return null;
 }
 
+function getEmbedUrl(src: string): string | null {
+  const ytMatch = src.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`;
+  const vimeoMatch = src.match(/vimeo\.com\/(\d+)/);
+  if (vimeoMatch) return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+  if (src.endsWith(".mp4") || src.endsWith(".webm")) return src;
+  return null;
+}
+
 // DetailFigma removed in favor of ZoomableFigma
 
 function DetailDivider() {
@@ -431,15 +440,6 @@ function DetailSection({ section }: { section: Section }) {
       ))}
     </section>
   );
-}
-
-function getEmbedUrl(src: string): string | null {
-  const ytMatch = src.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`;
-  const vimeoMatch = src.match(/vimeo\.com\/(\d+)/);
-  if (vimeoMatch) return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
-  if (src.endsWith(".mp4") || src.endsWith(".webm")) return src;
-  return null;
 }
 
 // ── Skeleton Loader Component ─────────────────────────────────────────────────
@@ -476,24 +476,30 @@ function DetailSkeleton() {
   );
 }
 
-// ── Main Client Component ─────────────────────────────────────────────────────
+// ── Main Page Component ────────────────────────────────────────────────────────
 
-export function ProjectDetailClient({ slug }: { slug: string }) {
+export default function TestPage() {
   const [project, setProject] = useState<ProjectData | null>(null);
   const [projects, setProjects] = useState<ProjectData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    loadProject(slug)
-      .then((data) => setProject(data))
-      .catch((err) => console.error("Failed to load project details:", err))
-      .finally(() => setLoading(false));
-
-    listProjects()
-      .then(setProjects)
-      .catch((err) => console.error("Failed to list projects:", err));
-  }, [slug]);
+    async function init() {
+      try {
+        setLoading(true);
+        let data = await loadProject("deneme");
+        const all = await listProjects();
+        setProjects(all);
+        if (!data && all.length > 0) data = all[0];
+        setProject(data);
+      } catch (err) {
+        console.error("Failed to load project:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, []);
 
   if (loading) return <DetailSkeleton />;
 
@@ -501,10 +507,10 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
     return (
       <div className="min-h-screen bg-[var(--bg-1)] flex items-center justify-center px-6">
         <div className="text-center flex flex-col items-center gap-4">
-          <h1 className="text-base font-medium text-[var(--text-title)]">Project Not Found</h1>
-          <p className="text-sm font-light text-[var(--text-subtitle)]">The requested project could not be found or has been removed.</p>
-          <Link href="/projects" className="px-4 py-2 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm text-[var(--text-p)] hover:bg-[var(--bg-4)] transition-all duration-200">
-            Back to Projects
+          <h1 className="text-base font-medium text-[var(--text-title)]">No Projects Found</h1>
+          <p className="text-sm font-light text-[var(--text-subtitle)]">Add projects in the admin panel or create one with slug &apos;deneme&apos;.</p>
+          <Link href="/" className="px-4 py-2 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm text-[var(--text-p)] hover:bg-[var(--bg-4)] transition-all duration-200">
+            Back to Home
           </Link>
         </div>
       </div>
@@ -523,7 +529,7 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
     }
   });
 
-  const currentIndex = projects.findIndex((p) => p.slug === slug);
+  const currentIndex = projects.findIndex((p) => p.slug === project.slug);
   const showNavigation = projects.length > 1 && currentIndex !== -1;
   const prevProject = showNavigation ? projects[(currentIndex - 1 + projects.length) % projects.length] : null;
   const nextProject = showNavigation ? projects[(currentIndex + 1) % projects.length] : null;
@@ -536,13 +542,13 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
         style={{ left: "calc(50% - 468px - var(--scrollbar-width, 0px) / 2)" }}
       >
         <Link
-          href="/projects"
+          href="/"
           className="inline-flex items-center gap-1 px-[10px] py-[10px] rounded-full font-medium text-base leading-5 text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-95"
         >
           <span className="flex items-center justify-center w-5 h-5">
             <ArrowLeftIcon />
           </span>
-          <span className="px-1">Project</span>
+          <span className="px-1">Home</span>
         </Link>
         <ThemeToggle />
       </div>
@@ -560,11 +566,11 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
       {/* ── Mobile top bar ── */}
       <div className="flex xl:hidden items-center justify-between px-5 pt-8 pb-0">
         <Link
-          href="/projects"
+          href="/"
           className="inline-flex items-center gap-1 px-3 py-2 rounded-full font-medium text-sm text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)]"
         >
           <ArrowLeftIcon className="w-4 h-4" />
-          <span>Project</span>
+          <span>Home</span>
         </Link>
         <ThemeToggle />
       </div>
@@ -624,16 +630,16 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
             <div className="w-full h-px bg-[var(--border)]" />
             <div className="flex items-start justify-between w-full gap-4 sm:flex-row flex-col">
               {prevProject && (
-                <Link href={`/projects/${prevProject.slug}`} className="flex flex-col gap-0.5 flex-1 min-w-0 group cursor-pointer">
-                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">Previous</span>
-                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">{prevProject.title || prevProject.slug}</span>
-                </Link>
+                <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">Previous Project</span>
+                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate opacity-60">{prevProject.title || prevProject.slug}</span>
+                </div>
               )}
               {nextProject && (
-                <Link href={`/projects/${nextProject.slug}`} className="flex flex-col gap-0.5 items-start sm:items-end flex-1 min-w-0 group cursor-pointer">
-                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">Next</span>
-                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">{nextProject.title || nextProject.slug}</span>
-                </Link>
+                <div className="flex flex-col gap-0.5 items-start sm:items-end flex-1 min-w-0">
+                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">Next Project</span>
+                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate opacity-60">{nextProject.title || nextProject.slug}</span>
+                </div>
               )}
             </div>
           </div>
