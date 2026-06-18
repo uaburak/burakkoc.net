@@ -201,7 +201,7 @@ export function CVClient() {
       </div>
 
       {/* ── Main content ── */}
-      <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:py-[160px]">
+      <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:pt-[160px] xl:pb-[60px]">
 
         {/* ─── Header ─── */}
         <section className="flex flex-col items-start w-full pt-[10px] pb-10 border-b border-[var(--border)]">

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { AdminEditorClient } from "./AdminEditorClient";
-import { EditorProvider, EditorNavControls } from "@/components/admin/EditorNavControls";
+import { EditorProvider } from "@/components/admin/EditorNavControls";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -36,7 +36,6 @@ export default async function AdminProjectPage({ params }: Props) {
             <span className="text-sm text-[var(--text-subtitle)] font-mono">/admin/projects/{slug}</span>
           </div>
           <div className="flex items-center gap-2">
-            <EditorNavControls />
             <ThemeToggle />
           </div>
         </div>

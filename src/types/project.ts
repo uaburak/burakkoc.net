@@ -77,6 +77,8 @@ export interface ProjectData {
   titleEn?: string;
   category: string;
   year: string;
+  /** Cover / thumbnail image URL */
+  coverImage?: string;
   /** Flat ordered list of sections and dividers */
   items: PageItem[];
 }

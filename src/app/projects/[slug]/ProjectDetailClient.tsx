@@ -444,7 +444,7 @@ function DetailSkeleton() {
         </div>
       </div>
 
-      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:py-[160px]">
+      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         <div className="w-full pt-[10px] flex flex-col gap-2.5">
           <div className="h-6 w-48 rounded bg-[var(--bg-3)]" />
           <div className="h-4 w-32 rounded bg-[var(--bg-3)]" />
@@ -564,9 +564,21 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
       </div>
 
       {/* ── Main content ── */}
-      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:py-[160px]">
+      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         {/* ─── Overview ─── */}
         <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
+
+          {/* Cover image — full content width, first element */}
+          {project.coverImage && (
+            <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden h-[270px] mb-12">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={project.coverImage}
+                alt={project.title || project.slug}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
           <div className="flex flex-col items-start w-full pt-[10px]">
             <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
               {project.title || project.slug}

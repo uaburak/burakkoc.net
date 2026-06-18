@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { BadgeIconType, BadgeItem, BadgePosition, SegmentedSecondTab } from "@/types/project";
 import { PillButton } from "@/components/Button";
+import { Input } from "@/components/Input";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -93,15 +94,6 @@ function ISegmented() {
     </svg>
   );
 }
-function ITrash() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-      <path d="M1.5 3h9M4.5 3V2h3v1M3.5 3l.5 7h4l.5-7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-
-/** Six-dot grip */
 function IGrip() {
   return (
     <svg width="10" height="14" viewBox="0 0 10 14" fill="none">
@@ -139,14 +131,18 @@ function SegmentedConfig({ badge, onChange }: { badge: BadgeItem; onChange: (u: 
   const tab2 = badge.tab2 ?? { type: "image" as const };
   function update2(u: Partial<SegmentedSecondTab>) { onChange({ tab2: { ...tab2, ...u } as SegmentedSecondTab }); }
 
-  const fc = "w-full rounded-lg border border-[var(--border)] bg-[var(--bg-1)] px-2.5 py-1.5 text-xs text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150";
-  const chip = (a: boolean) => `px-2 py-1 rounded-md text-[10px] font-medium border transition-colors cursor-pointer ${a ? "border-[var(--text-title)] bg-[var(--bg-4)] text-[var(--text-title)]" : "border-[var(--border)] text-[var(--text-subtitle)] hover:text-[var(--text-p)]"}`;
+  const chip = (a: boolean) =>
+    `px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors cursor-pointer ${
+      a
+        ? "border-[var(--border-hover)] bg-[var(--bg-5)] text-[var(--text-title)]"
+        : "border-[var(--border)] text-[var(--text-subtitle)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]"
+    }`;
 
   return (
     <div className="flex flex-col gap-2.5">
       <div className="grid grid-cols-2 gap-2">
-        <input type="text" value={badge.tab1Label ?? ""} onChange={(e) => onChange({ tab1Label: e.target.value })} placeholder="Sekme 1 adı" className={fc} />
-        <input type="text" value={badge.tab2Label ?? ""} onChange={(e) => onChange({ tab2Label: e.target.value })} placeholder="Sekme 2 adı" className={fc} />
+        <Input size="sm" value={badge.tab1Label ?? ""} onChange={(e) => onChange({ tab1Label: e.target.value })} placeholder="Sekme 1 adı" />
+        <Input size="sm" value={badge.tab2Label ?? ""} onChange={(e) => onChange({ tab2Label: e.target.value })} placeholder="Sekme 2 adı" />
       </div>
       <div className="flex gap-1.5 flex-wrap">
         {SECOND_TAB_TYPES.map(({ value, label }) => (
@@ -154,13 +150,25 @@ function SegmentedConfig({ badge, onChange }: { badge: BadgeItem; onChange: (u: 
         ))}
       </div>
       {(tab2.type === "image" || tab2.type === "video") && (
-        <input type="url" value={tab2.src ?? ""} onChange={(e) => update2({ src: e.target.value })} placeholder="URL" className={fc} />
+        <Input size="sm" type="url" value={tab2.src ?? ""} onChange={(e) => update2({ src: e.target.value })} placeholder="URL" />
       )}
       {tab2.type === "code" && (
-        <textarea value={tab2.content ?? ""} onChange={(e) => update2({ content: e.target.value })} rows={3} placeholder="// kod…" className={`${fc} resize-none font-mono`} />
+        <textarea
+          value={tab2.content ?? ""}
+          onChange={(e) => update2({ content: e.target.value })}
+          rows={3}
+          placeholder="// kod…"
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-1)] px-3 py-2 text-xs text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150 resize-none font-mono"
+        />
       )}
       {tab2.type === "text" && (
-        <textarea value={tab2.content ?? ""} onChange={(e) => update2({ content: e.target.value })} rows={2} placeholder="Metin…" className={`${fc} resize-none`} />
+        <textarea
+          value={tab2.content ?? ""}
+          onChange={(e) => update2({ content: e.target.value })}
+          rows={2}
+          placeholder="Metin…"
+          className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-1)] px-3 py-2 text-xs text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150 resize-none"
+        />
       )}
     </div>
   );
@@ -170,8 +178,8 @@ function SegmentedConfig({ badge, onChange }: { badge: BadgeItem; onChange: (u: 
 
 interface BadgeRowProps {
   badge: BadgeItem;
-  isDragging: boolean;   // this row is being dragged
-  isOver: boolean;       // this row is the drop target
+  isDragging: boolean;
+  isOver: boolean;
   onChange: (u: Partial<BadgeItem>) => void;
   onDelete: () => void;
   onGripPointerDown: (e: React.PointerEvent) => void;
@@ -183,37 +191,48 @@ function BadgeRow({ badge, isDragging, isOver, onChange, onDelete, onGripPointer
   const meta = getBadgeMeta(badge.icon);
   const canExpand = hasExtra(badge.icon);
 
-  const fc = "w-full rounded-lg border border-[var(--border)] bg-[var(--bg-1)] px-2.5 py-1.5 text-xs text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150";
-
   return (
     <div
       ref={rowRef}
       className={[
-        "rounded-xl border overflow-hidden transition-all duration-100 select-none",
-        isDragging ? "opacity-40 scale-[0.98] border-[var(--border)] bg-[var(--bg-2)]" :
+        "rounded-[14px] border overflow-hidden transition-all duration-150",
+        isDragging ? "opacity-40 scale-[0.98] border-[var(--border)] bg-[var(--bg-4)]" :
         isOver     ? "border-[var(--border-hover)] bg-[var(--bg-4)] shadow-sm" :
-                     "border-[var(--border)] bg-[var(--bg-2)]",
+                     "border-[var(--border)] bg-[var(--bg-4)]",
       ].join(" ")}
     >
-      {/* ── Main row ── */}
+      {/* ── Header row ── */}
       <div
-        className={`flex items-center gap-2 px-2 py-2 ${canExpand ? "cursor-pointer hover:bg-[var(--bg-4)] transition-colors duration-100" : ""}`}
+        className={`flex items-center gap-2 px-3 py-2.5 ${canExpand ? "cursor-pointer" : ""}`}
         onClick={() => canExpand && setOpen((v) => !v)}
       >
-        {/* Grip — pointer-event capture here */}
+        {/* Grip */}
         <span
-          className="flex-shrink-0 text-[var(--text-subtitle)] opacity-30 hover:opacity-70 transition-opacity duration-100 cursor-grab active:cursor-grabbing touch-none px-0.5 py-1"
+          className="flex-shrink-0 text-[var(--text-subtitle)] opacity-30 hover:opacity-60 transition-opacity duration-100 cursor-grab active:cursor-grabbing touch-none"
           onPointerDown={(e) => { e.stopPropagation(); onGripPointerDown(e); }}
           onClick={(e) => e.stopPropagation()}
         >
           <IGrip />
         </span>
 
-        {/* Icon + label */}
-        <span className="text-[var(--text-subtitle)] flex-shrink-0 flex items-center w-3.5">{meta?.icon}</span>
-        <span className="flex-1 text-xs font-medium text-[var(--text-p)] truncate min-w-0">{meta?.label}</span>
+        {/* Icon + label — plain text like PillLabel */}
+        <span className="text-[var(--text-subtitle)] flex-shrink-0 flex items-center">{meta?.icon}</span>
+        <span className="flex-1 text-[13px] font-medium text-[var(--text-title)] truncate min-w-0 select-none">{meta?.label}</span>
 
-        {/* 4 position icons */}
+        {/* Expand chevron (only for expandable) */}
+        {canExpand && (
+          <svg
+            width="14" height="14" viewBox="0 0 14 14" fill="none"
+            className={`flex-shrink-0 text-[var(--text-subtitle)] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          >
+            <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
+
+        {/* Divider */}
+        <div className="w-px h-4 bg-[var(--border)] flex-shrink-0" />
+
+        {/* Position icons */}
         <div className="flex items-center gap-0.5 shrink-0">
           {POSITIONS.map((p) => (
             <button
@@ -227,26 +246,28 @@ function BadgeRow({ badge, isDragging, isOver, onChange, onDelete, onGripPointer
           ))}
         </div>
 
-        {/* Delete */}
+        {/* Delete — X button */}
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
           title="Kaldır"
-          className="flex items-center justify-center w-6 h-6 rounded-md border border-transparent text-[var(--text-subtitle)] hover:border-red-200 hover:text-red-500 hover:bg-red-50 transition-colors duration-100 cursor-pointer flex-shrink-0"
+          className="flex items-center justify-center w-6 h-6 rounded-full border border-transparent text-[var(--text-subtitle)] hover:border-red-300/60 hover:text-red-500 hover:bg-red-50/10 transition-colors duration-150 cursor-pointer flex-shrink-0"
         >
-          <ITrash />
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+            <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
         </button>
       </div>
 
       {/* ── Accordion body ── */}
       {canExpand && open && (
-        <div className="px-3 pb-3 pt-2.5 border-t border-[var(--border)] bg-[var(--bg-1)] flex flex-col gap-2.5">
+        <div className="px-3 pb-3 pt-2 border-t border-[var(--border)] bg-[var(--bg-2)] flex flex-col gap-2.5">
           {(badge.icon === "link" || badge.icon === "external") && (
-            <input
+            <Input
+              size="sm"
               type="url"
               value={badge.href ?? ""}
               onChange={(e) => onChange({ href: e.target.value })}
               placeholder="https://…"
-              className={fc}
               onClick={(e) => e.stopPropagation()}
             />
           )}
@@ -262,18 +283,16 @@ function BadgeRow({ badge, isDragging, isOver, onChange, onDelete, onGripPointer
 interface BadgesEditorProps {
   badges: BadgeItem[];
   onChange: (badges: BadgeItem[]) => void;
-  /** Optional left-side control rendered in the same row as "+ Badge Ekle" */
+  /** Optional left-side control rendered in the same row as \"+ Badge Ekle\" */
   aspectRatioControl?: React.ReactNode;
 }
 
 export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEditorProps) {
   const [showPicker, setShowPicker] = useState(false);
 
-  // ── Drag state ──
   const [dragSource, setDragSource] = useState<number | null>(null);
   const [dragOver,   setDragOver]   = useState<number | null>(null);
 
-  // Refs — needed inside event listeners added to document
   const dragSourceRef = useRef<number | null>(null);
   const dragOverRef   = useRef<number | null>(null);
   const badgesRef     = useRef(badges);
@@ -281,7 +300,6 @@ export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEdi
 
   useEffect(() => { badgesRef.current = badges; }, [badges]);
 
-  // Find the closest badge row index to a given clientY
   function findClosestIndex(clientY: number): number {
     let closest = 0;
     let closestDist = Infinity;
@@ -297,46 +315,30 @@ export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEdi
 
   function handleGripPointerDown(e: React.PointerEvent, sourceIndex: number) {
     e.preventDefault();
-
     dragSourceRef.current = sourceIndex;
     dragOverRef.current   = sourceIndex;
     setDragSource(sourceIndex);
     setDragOver(sourceIndex);
-
-    // Prevent text selection globally while dragging
     document.body.style.userSelect = "none";
 
     function onPointerMove(ev: PointerEvent) {
       const over = findClosestIndex(ev.clientY);
-      if (over !== dragOverRef.current) {
-        dragOverRef.current = over;
-        setDragOver(over);
-      }
+      if (over !== dragOverRef.current) { dragOverRef.current = over; setDragOver(over); }
     }
-
     function onPointerUp() {
       document.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerup",   onPointerUp);
       document.body.style.userSelect = "";
-
       const from = dragSourceRef.current;
       const to   = dragOverRef.current;
-
-      setDragSource(null);
-      setDragOver(null);
-      dragSourceRef.current = null;
-      dragOverRef.current   = null;
-
-      if (from !== null && to !== null && from !== to) {
-        onChange(moveArray(badgesRef.current, from, to));
-      }
+      setDragSource(null); setDragOver(null);
+      dragSourceRef.current = null; dragOverRef.current = null;
+      if (from !== null && to !== null && from !== to) onChange(moveArray(badgesRef.current, from, to));
     }
-
     document.addEventListener("pointermove", onPointerMove);
     document.addEventListener("pointerup",   onPointerUp);
   }
 
-  // ── Helpers ──
   function addBadge(type: BadgeIconType) {
     const newBadge: BadgeItem = {
       id: uid(), icon: type, position: "top-right",
@@ -356,19 +358,15 @@ export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEdi
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Row: oran seçici (sol, fit-width) + "+ Badge Ekle" (sağ) */}
+      {/* Top row: aspect ratio + badge ekle */}
       <div className="flex items-center justify-between gap-2">
-        {/* Left: aspect ratio control (fit-width) */}
-        <div className="flex-shrink-0">
-          {aspectRatioControl}
-        </div>
-        {/* Right: Badge Ekle pill button */}
+        <div className="flex-shrink-0">{aspectRatioControl}</div>
         <PillButton
-          size="md"
+          size="sm"
           onClick={() => setShowPicker((v) => !v)}
           startIcon={
             <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-              <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
             </svg>
           }
         >
@@ -378,13 +376,15 @@ export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEdi
 
       {/* Type picker */}
       {showPicker && (
-        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-xl border border-[var(--border)] bg-[var(--bg-2)]">
+        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-4)]">
           {BADGE_DEFS.map(({ type, label, icon }) => (
-            <button key={type} onClick={() => addBadge(type)}
-              className="flex flex-col items-center gap-1 p-2 rounded-lg border border-transparent hover:border-[var(--border)] hover:bg-[var(--bg-4)] transition-all duration-100 cursor-pointer group"
+            <button
+              key={type}
+              onClick={() => addBadge(type)}
+              className="flex flex-col items-center gap-1.5 p-2.5 rounded-[10px] border border-transparent hover:border-[var(--border-hover)] hover:bg-[var(--bg-5)] transition-all duration-100 cursor-pointer group"
             >
               <span className="text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-100">{icon}</span>
-              <span className="text-[10px] text-[var(--text-subtitle)] group-hover:text-[var(--text-p)] transition-colors duration-100">{label}</span>
+              <span className="text-[10px] font-medium text-[var(--text-subtitle)] group-hover:text-[var(--text-p)] transition-colors duration-100">{label}</span>
             </button>
           ))}
         </div>

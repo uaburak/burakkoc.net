@@ -3,6 +3,7 @@ import {
   setDoc,
   getDoc,
   getDocs,
+  deleteDoc,
   collection,
   serverTimestamp,
   Timestamp,
@@ -53,4 +54,12 @@ export async function listProjects(): Promise<ProjectData[]> {
     delete data.createdAt;
     return data as unknown as ProjectData;
   });
+}
+
+// ── Delete project ────────────────────────────────────────────────────────────
+
+export async function deleteProject(slug: string): Promise<void> {
+  if (!slug) throw new Error("Project slug is required");
+  const ref = doc(db, COLLECTION, slug);
+  await deleteDoc(ref);
 }

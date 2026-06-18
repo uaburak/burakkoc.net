@@ -1,4 +1,4 @@
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL, listAll, deleteObject } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 
 export type UploadProgress = {
@@ -45,4 +45,33 @@ export async function uploadFile(
 export function blockStoragePath(projectSlug: string, blockId: string, file: File): string {
   const ext = file.name.split(".").pop() ?? "bin";
   return `projects/${projectSlug}/blocks/${blockId}/${Date.now()}.${ext}`;
+}
+
+/**
+ * Generate a storage path for the project's cover image.
+ * e.g. "projects/my-slug/cover/1718000000000.jpg"
+ */
+export function coverStoragePath(projectSlug: string, file: File): string {
+  const ext = file.name.split(".").pop() ?? "bin";
+  return `projects/${projectSlug}/cover/${Date.now()}.${ext}`;
+}
+
+/**
+ * Delete all files under the project's storage folder (recursive).
+ * Firebase Storage doesn't support folder deletion natively, so we
+ * list all items recursively and delete each one.
+ *
+ * Folder structure: projects/{slug}/...
+ */
+export async function deleteProjectFolder(projectSlug: string): Promise<void> {
+  async function deleteAll(folderRef: ReturnType<typeof ref>): Promise<void> {
+    const result = await listAll(folderRef);
+    await Promise.all([
+      ...result.items.map((item) => deleteObject(item)),
+      ...result.prefixes.map((prefix) => deleteAll(prefix)),
+    ]);
+  }
+
+  const folderRef = ref(storage, `projects/${projectSlug}`);
+  await deleteAll(folderRef);
 }

@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { ChevronRight, ExternalSmall } from "@/components/icons";
-import { listProjects, saveProject } from "@/lib/firestore";
+import { listProjects, saveProject, deleteProject } from "@/lib/firestore";
+import { deleteProjectFolder } from "@/lib/storage";
 import { ProjectData } from "@/types/project";
 
 // ── Slug helpers ──────────────────────────────────────────────────────────────
@@ -38,7 +39,128 @@ function EditIcon() {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+      <path d="M2 4h10M5 4V2.5h4V4M5.5 6.5v4M8.5 6.5v4M3 4l.7 7.5c.05.55.5.97 1.05.97h4.5c.55 0 1-.42 1.05-.97L11 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // ChevronRight ve ExternalSmall icons.tsx'den import edildi
+
+// ── Delete Confirm Dialog ────────────────────────────────────────────────────────
+
+function DeleteConfirmDialog({
+  project,
+  onClose,
+  onDeleted,
+}: {
+  project: ProjectData;
+  onClose: () => void;
+  onDeleted: (slug: string) => void;
+}) {
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const slugMatch = confirmText === project.slug;
+
+  async function handleDelete() {
+    if (!slugMatch) return;
+    setDeleting(true);
+    setError("");
+    try {
+      // 1. Delete all Storage files first (best-effort)
+      await deleteProjectFolder(project.slug).catch((err) =>
+        console.warn("Storage cleanup partially failed:", err)
+      );
+      // 2. Delete Firestore document
+      await deleteProject(project.slug);
+      onDeleted(project.slug);
+    } catch (err) {
+      console.error(err);
+      setError("Silme işlemi başarısız oldu. Tekrar deneyin.");
+      setDeleting(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && slugMatch) handleDelete();
+    if (e.key === "Escape") onClose();
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-[var(--bg-1)]/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Dialog */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center px-6">
+        <div className="w-full max-w-sm rounded-2xl border border-[var(--border)] bg-[var(--bg-2)] shadow-xl p-6 flex flex-col gap-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-[var(--text-title)]">Projeyi Sil</h2>
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center w-6 h-6 rounded-lg text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors duration-150 cursor-pointer"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-[var(--text-subtitle)] leading-relaxed">
+              <span className="text-[var(--text-p)] font-medium">{project.title || project.slug}</span>
+              {" "}projesini silmek üzeresiniz. Firestore belgesi ve tüm Storage dosyaları kalıcı olarak silinecek.
+            </p>
+            <p className="text-xs text-[var(--text-subtitle)] opacity-70">
+              Onaylamak için slug&apos;ı yazın:
+              {" "}<span className="font-mono text-[var(--text-p)]">{project.slug}</span>
+            </p>
+          </div>
+
+          <input
+            ref={inputRef}
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={project.slug}
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-2)] px-4 py-2.5 text-sm font-mono text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-red-500/50 transition-colors duration-150"
+          />
+
+          {error && (
+            <p className="text-xs text-red-500 -mt-2">{error}</p>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-[var(--border)] text-sm text-[var(--text-subtitle)] hover:bg-[var(--bg-4)] hover:text-[var(--text-p)] transition-colors duration-150 cursor-pointer"
+            >
+              İptal
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={!slugMatch || deleting}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-red-500/40 bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {deleting ? "Siliniyor…" : "Sil"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
 
 // ── Create Project Dialog ─────────────────────────────────────────────────────
 
@@ -179,6 +301,7 @@ export default function AdminProjectsPage() {
   const [projects, setProjects] = useState<ProjectData[]>([]);
   const [loading, setLoading]   = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectData | null>(null);
 
   useEffect(() => {
     listProjects()
@@ -189,6 +312,11 @@ export default function AdminProjectsPage() {
 
   function handleCreated(slug: string) {
     router.push(`/admin/projects/${slug}`);
+  }
+
+  function handleDeleted(slug: string) {
+    setProjects((prev) => prev.filter((p) => p.slug !== slug));
+    setDeleteTarget(null);
   }
 
   return (
@@ -269,6 +397,13 @@ export default function AdminProjectsPage() {
                     <EditIcon />
                     Düzenle
                   </Link>
+                  <button
+                    onClick={() => setDeleteTarget(project)}
+                    className="flex items-center justify-center w-8 h-8 rounded-xl border border-[var(--border)] text-[var(--text-subtitle)] hover:border-red-500/40 hover:text-red-400 hover:bg-red-500/10 transition-colors duration-150 cursor-pointer"
+                    title="Projeyi sil"
+                  >
+                    <TrashIcon />
+                  </button>
                 </div>
               </div>
             ))}
@@ -281,6 +416,15 @@ export default function AdminProjectsPage() {
         <CreateProjectDialog
           onClose={() => setShowCreate(false)}
           onCreate={handleCreated}
+        />
+      )}
+
+      {/* Delete confirm dialog */}
+      {deleteTarget && (
+        <DeleteConfirmDialog
+          project={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={handleDeleted}
         />
       )}
     </div>

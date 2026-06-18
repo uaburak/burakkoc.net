@@ -47,7 +47,7 @@ export default function TextScrollingEffect({
               ease: "power2.out",
               scrollTrigger: {
                 trigger: text,
-                start: "top 85%",
+                start: "top 95%",
                 end: "top 40%",
                 scrub: 1,
               },

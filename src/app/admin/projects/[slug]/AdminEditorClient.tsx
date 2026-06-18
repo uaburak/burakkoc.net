@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Block, BlockType, PageItem, PageSection, PageDivider, ProjectData, Section } from "@/types/project";
 import { TextBlockEditor }  from "@/components/admin/TextBlockEditor";
 import { ImageBlockEditor } from "@/components/admin/ImageBlockEditor";
 import { VideoBlockEditor } from "@/components/admin/VideoBlockEditor";
 import { CodeBlockEditor }  from "@/components/admin/CodeBlockEditor";
 import { ProjectPreview }   from "@/components/admin/ProjectPreview";
-import { useEditorContext } from "@/components/admin/EditorNavControls";
+import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
 import { saveProject, loadProject } from "@/lib/firestore";
+import { uploadFile, coverStoragePath } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 import { PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
+import { Segmented } from "@/components/Segmented";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,7 @@ const EMPTY_PROJECT: ProjectData = {
   titleEn: "",
   category: "",
   year: new Date().getFullYear().toString(),
+  coverImage: "",
   items: [],
 };
 
@@ -583,6 +586,151 @@ function MetaField({ value, placeholder, onChange }: {
   );
 }
 
+// ── Cover Image Upload ─────────────────────────────────────────────────────────
+// Mirrors the ImageBlockEditor layout exactly:
+// Segmented (URL | Yükle) + input/upload zone on the same row.
+
+const COVER_SOURCE_MODES = ["URL", "Yükle"];
+
+function CoverUploadZone({
+  slug,
+  currentSrc,
+  onUploaded,
+}: {
+  slug: string;
+  currentSrc?: string;
+  onUploaded: (url: string) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filename, setFilename] = useState<string | null>(null);
+
+  // Extract filename from existing src on mount
+  useEffect(() => {
+    if (currentSrc && !filename) {
+      const parts = currentSrc.split("/");
+      const raw = parts[parts.length - 1].split("?")[0];
+      const match = raw.match(/^\d+_(.+)$/);
+      setFilename(match ? match[1] : raw);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleFile(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setError("Sadece resim dosyaları yüklenebilir.");
+      return;
+    }
+    setError(null);
+    setProgress(0);
+    try {
+      const path = coverStoragePath(slug, file);
+      const url = await uploadFile(file, path, setProgress);
+      setFilename(file.name);
+      onUploaded(url);
+    } catch (e) {
+      setError("Yükleme başarısız oldu.");
+      console.error(e);
+    } finally {
+      setProgress(null);
+    }
+  }
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  return (
+    <div className="flex items-center gap-2 flex-1 min-w-0">
+      <PillButton
+        size="md"
+        onClick={() => fileRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={onDrop}
+        startIcon={
+          progress !== null ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="animate-spin">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="30 70" strokeLinecap="round"/>
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <polyline points="17 8 12 3 7 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          )
+        }
+      >
+        {progress !== null ? `${progress}%` : "Dosya Seç"}
+      </PillButton>
+
+      {/* File name chip */}
+      {filename && progress === null && (
+        <span className="text-[13px] text-[var(--text-subtitle)] truncate min-w-0 flex-1 select-none">
+          {filename}
+        </span>
+      )}
+
+      {error && <span className="text-[12px] text-red-500 select-none truncate">{error}</span>}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+function CoverImageUpload({
+  slug,
+  currentSrc,
+  onChange,
+}: {
+  slug: string;
+  currentSrc?: string;
+  onChange: (url: string) => void;
+}) {
+  const [tab, setTab] = useState<"URL" | "Yükle">("URL");
+
+  return (
+    <div className="flex items-center gap-[10px]">
+      <Segmented
+        options={COVER_SOURCE_MODES}
+        value={tab}
+        onChange={(v) => setTab(v as "URL" | "Yükle")}
+        size="md"
+      />
+      {tab === "URL" ? (
+        <Input
+          type="url"
+          value={currentSrc ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Kapak resmi URL — https://…"
+          size="md"
+          className="flex-1"
+        />
+      ) : (
+        <CoverUploadZone
+          slug={slug}
+          currentSrc={currentSrc}
+          onUploaded={onChange}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── Main Editor ───────────────────────────────────────────────────────────────
 
 export function AdminEditorClient({ slug }: { slug: string }) {
@@ -659,7 +807,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }, [project, slug, loadingFromDB]);
 
   const updateMeta = useCallback(
-    (updates: Partial<Pick<ProjectData, "title" | "titleEn" | "category" | "year" | "slug">>) => {
+    (updates: Partial<Pick<ProjectData, "title" | "titleEn" | "category" | "year" | "slug" | "coverImage">>) => {
       setProject((p) => ({ ...p, ...updates }));
     }, []
   );
@@ -754,13 +902,16 @@ export function AdminEditorClient({ slug }: { slug: string }) {
               {project.title || "Başlıksız Proje"}
             </span>
           </div>
-          <PillButton
-            size="md"
-            onClick={() => setShowAddMenu(true)}
-            startIcon={<PlusIcon />}
-          >
-            Ekle
-          </PillButton>
+          <div className="flex items-center gap-2">
+            <EditorNavControls />
+            <PillButton
+              size="md"
+              onClick={() => setShowAddMenu(true)}
+              startIcon={<PlusIcon />}
+            >
+              Ekle
+            </PillButton>
+          </div>
         </div>
 
         {/* Editor scroll area */}
@@ -769,12 +920,23 @@ export function AdminEditorClient({ slug }: { slug: string }) {
           {/* ── Proje Bilgileri ── */}
           <section className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-2.5">
-              <MetaField value={project.title}        placeholder="Başlık (TR)"    onChange={(v) => updateMeta({ title: v })} />
-              <MetaField value={project.titleEn ?? ""} placeholder="Title (EN)" onChange={(v) => updateMeta({ titleEn: v })} />
+              {/* Single title field — follows active edit lang (TR/EN) */}
+              <MetaField
+                value={editLang === "en" ? (project.titleEn ?? "") : project.title}
+                placeholder={editLang === "en" ? "Title (EN)" : "Başlık (TR)"}
+                onChange={(v) => updateMeta(editLang === "en" ? { titleEn: v } : { title: v })}
+              />
               <MetaField value={project.slug}         placeholder="Slug"            onChange={(v) => updateMeta({ slug: v })} />
               <MetaField value={project.category}     placeholder="Kategori"        onChange={(v) => updateMeta({ category: v })} />
               <MetaField value={project.year}         placeholder="Yıl"             onChange={(v) => updateMeta({ year: v })} />
             </div>
+
+            {/* Cover image upload — right after the meta fields */}
+            <CoverImageUpload
+              slug={slug}
+              currentSrc={project.coverImage}
+              onChange={(url) => updateMeta({ coverImage: url })}
+            />
           </section>
 
           <div className="w-full h-px bg-[var(--border)]" />
