@@ -478,12 +478,31 @@ function DetailSkeleton() {
 
 // ── Main Client Component ─────────────────────────────────────────────────────
 
-export function ProjectDetailClient({ slug }: { slug: string }) {
-  const [project, setProject] = useState<ProjectData | null>(null);
-  const [projects, setProjects] = useState<ProjectData[]>([]);
-  const [loading, setLoading] = useState(true);
+interface ProjectDetailClientProps {
+  slug: string;
+  initialProject?: ProjectData | null;
+  initialProjects?: ProjectData[];
+}
+
+export function ProjectDetailClient({
+  slug,
+  initialProject,
+  initialProjects,
+}: ProjectDetailClientProps) {
+  const [project, setProject] = useState<ProjectData | null>(initialProject || null);
+  const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);
+  const [loading, setLoading] = useState(!initialProject);
 
   useEffect(() => {
+    if (initialProject) {
+      setProject(initialProject);
+      if (initialProjects) {
+        setProjects(initialProjects);
+      }
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     loadProject(slug)
       .then((data) => setProject(data))
@@ -493,7 +512,7 @@ export function ProjectDetailClient({ slug }: { slug: string }) {
     listProjects()
       .then(setProjects)
       .catch((err) => console.error("Failed to list projects:", err));
-  }, [slug]);
+  }, [slug, initialProject, initialProjects]);
 
   if (loading) return <DetailSkeleton />;
 
