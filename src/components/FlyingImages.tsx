@@ -28,6 +28,7 @@ interface FlyingImage {
 export interface FlyingImagesRef {
   warpTo: (category: string) => void;
   setSlowMotion: (isSlow: boolean) => void;
+  startExitAnimation: () => void;
 }
 
 const NUM_ITEMS = 16; // 16 active items for a rich starfield
@@ -196,7 +197,9 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
     };
   };
 
-  // Expose warpTo and setSlowMotion methods to parent components
+  const isExitingRef = useRef(false);
+
+  // Expose warpTo, setSlowMotion, and startExitAnimation methods to parent components
   useImperativeHandle(ref, () => ({
     warpTo(category: string) {
       // 1. Immediately swap the image pool reference (extremely cheap, 0ms execution)
@@ -209,6 +212,9 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
     },
     setSlowMotion(isSlow: boolean) {
       isSlowMotionRef.current = isSlow;
+    },
+    startExitAnimation() {
+      isExitingRef.current = true;
     }
   }));
 
@@ -263,6 +269,8 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
 
     let animationFrameId: number;
     let lastTime = performance.now();
+    let textZ = 110;
+    let wasExiting = false;
 
     const loop = (time: number) => {
       const dt = (time - lastTime) / 1000;
@@ -292,41 +300,57 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
 
       // Calculate the global warp speed multiplier based on current velocity and base speed
       const baseSpeedSample = CONSTANT_SPEED * currentBaseSpeedMultRef.current;
-      const speedMultiplier = (baseSpeedSample + Math.abs(scrollVelocityRef.current * 2.2)) / CONSTANT_SPEED;
+      const currentExitSpeed = isExitingRef.current ? 2800 : 0;
+      const speedMultiplier = (baseSpeedSample + Math.abs(scrollVelocityRef.current * 2.2) + currentExitSpeed) / CONSTANT_SPEED;
+
+      // Displacement: (base speed + scroll velocity + current exit speed) * safeDt
+      const baseSpeed = CONSTANT_SPEED * currentBaseSpeedMultRef.current;
+      const dz = (baseSpeed + scrollVelocityRef.current * 2.2 + currentExitSpeed) * safeDt;
 
       itemsRef.current.forEach((item, index) => {
         const el = domRefs.current[index];
         if (!el) return;
 
-        // Displacement: (base speed + scroll velocity) * safeDt
-        const baseSpeed = item.speed * currentBaseSpeedMultRef.current;
-        const dz = (baseSpeed + scrollVelocityRef.current * 2.2) * safeDt;
         item.z3d -= dz;
 
         // Reset logic
         if (dz >= 0) {
           if (item.z3d <= 90) {
-            const newItem = createItem(item.id, poolRef.current, false);
-            itemsRef.current[index] = newItem;
+            if (isExitingRef.current) {
+              // Do not recycle when exiting
+            } else {
+              const newItem = createItem(item.id, poolRef.current, false);
+              itemsRef.current[index] = newItem;
 
-            const imgEl = imgRefs.current[index];
-            if (imgEl) imgEl.src = newItem.url;
-            el.style.aspectRatio = String(newItem.aspectRatio);
+              const imgEl = imgRefs.current[index];
+              if (imgEl) imgEl.src = newItem.url;
+              el.style.aspectRatio = String(newItem.aspectRatio);
+            }
           }
         } else {
           if (item.z3d >= 1000) {
-            const newItem = createItem(item.id, poolRef.current, false);
-            newItem.z3d = 90;
-            itemsRef.current[index] = newItem;
+            if (isExitingRef.current) {
+              // Do not recycle when exiting
+            } else {
+              const newItem = createItem(item.id, poolRef.current, false);
+              newItem.z3d = 90;
+              itemsRef.current[index] = newItem;
 
-            const imgEl = imgRefs.current[index];
-            if (imgEl) imgEl.src = newItem.url;
-            el.style.aspectRatio = String(newItem.aspectRatio);
+              const imgEl = imgRefs.current[index];
+              if (imgEl) imgEl.src = newItem.url;
+              el.style.aspectRatio = String(newItem.aspectRatio);
+            }
           }
         }
 
         const currentItem = itemsRef.current[index];
         const z = currentItem.z3d;
+
+        // If z <= 90, keep it completely transparent and avoid calculation glitches
+        if (z <= 90) {
+          el.style.opacity = "0";
+          return;
+        }
 
         // Perspective Projection Math (constant FOV of 130 to keep scale and position in perfect mathematical sync)
         const fov = 130;
@@ -334,7 +358,10 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
         const posY = (currentItem.y3d / z) * fov;
 
         // Scale (clamped to a maximum of 1.8 to prevent layout overflow during extreme warp spikes)
-        const scale = Math.min(1.8, (110 / z) * currentItem.scaleMult);
+        // Except during exit, where we let it scale up larger as it zooms past the camera
+        const scale = isExitingRef.current
+          ? (110 / z) * currentItem.scaleMult
+          : Math.min(1.8, (110 / z) * currentItem.scaleMult);
 
         // Opacity
         const opacity = getOpacityForZ(z);
@@ -366,6 +393,27 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
           el.style.zIndex = inFront ? "30" : "5";
         }
       });
+
+      // Animate the main text (h1) in sync with the images
+      if (isExitingRef.current) {
+        const h1El = document.querySelector("h1") as HTMLElement;
+        if (h1El) {
+          const textDz = dz * 0.1143;
+          textZ = Math.max(6, textZ - textDz);
+          const textScale = 110 / textZ;
+          h1El.style.transform = `scale(${textScale})`;
+          const textOpacity = Math.max(0, (textZ - 6) / 104);
+          h1El.style.opacity = String(textOpacity);
+        }
+        wasExiting = true;
+      } else if (wasExiting) {
+        const h1El = document.querySelector("h1") as HTMLElement;
+        if (h1El) {
+          h1El.style.transform = "";
+          h1El.style.opacity = "";
+        }
+        wasExiting = false;
+      }
 
       animationFrameId = requestAnimationFrame(loop);
     };

@@ -446,7 +446,7 @@ function SectionCard({
         <div className="flex flex-col gap-3">
           {section.blocks.map((block, bi) => (
             <BlockRow
-              key={block.id}
+              key={block.id || `block-${bi}`}
               block={block}
               onChange={(updates) => updateBlock(block.id, updates)}
               onMoveUp={() => moveBlock(bi, bi - 1)}
@@ -1009,10 +1009,11 @@ export function AdminEditorClient({ slug }: { slug: string }) {
 
             <div className="flex flex-col gap-3">
               {project.items.map((item, idx) => {
+                const itemKey = item.id || `item-${idx}`;
                 if (item.kind === "divider") {
                   return (
                     <DividerPageCard
-                      key={item.id}
+                      key={itemKey}
                       onMoveUp={() => moveItem(idx, idx - 1)}
                       onMoveDown={() => moveItem(idx, idx + 1)}
                       onDelete={() => deleteItem(item.id)}
@@ -1023,7 +1024,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
                 const currentSectionIndex = sectionIndex++;
                 return (
                   <SectionCard
-                    key={item.id}
+                    key={itemKey}
                     section={item}
                     index={currentSectionIndex}
                     onChange={(updates) => updateSection(item.id, updates)}

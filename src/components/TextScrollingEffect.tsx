@@ -59,14 +59,9 @@ export default function TextScrollingEffect({
     { scope: containerRef }
   );
 
+  // `.line-reveal` stili globals.css'te tanımlı (her instance için <style> basmamak adına).
   return (
     <div ref={containerRef} className={className}>
-      <style>{`
-        .line-reveal {
-          overflow: hidden;
-          display: block;
-        }
-      `}</style>
       {children}
     </div>
   );

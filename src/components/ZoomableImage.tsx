@@ -4,6 +4,8 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Segmented } from "@/components/Segmented";
 import { BadgeItem } from "@/types/project";
+import { CodeHighlight } from "@/components/CodeHighlight";
+import { cn } from "@/lib/utils";
 
 type ZoomableImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
   badges?: BadgeItem[];
@@ -48,24 +50,14 @@ function ZoomTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   }
   if (tab2.type === "code") {
     return (
-      <div className="bg-[var(--bg-2)] w-full h-full overflow-auto p-8 pt-8 pb-20">
-        <div className="flex items-center gap-1.5 pb-4">
-          <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-          <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-          <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-          {tab2.language && (
-            <span className="ml-2 text-xs text-[var(--text-subtitle)] font-mono select-none">{tab2.language}</span>
-          )}
-        </div>
-        <pre className="font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre">
-          {tab2.content?.trim() || "// kod girilmedi"}
-        </pre>
+      <div className="bg-[var(--bg-2)] w-full h-full overflow-auto">
+        <CodeHighlight code={tab2.content?.trim() || "// kod girilmedi"} language={tab2.language || "javascript"} />
       </div>
     );
   }
   if (tab2.type === "text") {
     return (
-      <div className="p-8 pt-8 pb-20 overflow-auto w-full h-full bg-[var(--bg-2)]">
+      <div className="p-5 sm:p-6 overflow-auto w-full h-full bg-[var(--bg-2)]">
         <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
           {tab2.content?.trim() || "Metin girilmedi"}
         </p>
@@ -156,14 +148,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     const target = calculateTargetRect(img.naturalWidth || rect.width, img.naturalHeight || rect.height);
     setTargetRect(target);
     setIsZoomed(true);
-
-    // Block page scrolling and prevent scrollbar shift/jitter
-    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-    if (scrollbarWidth > 0) {
-      document.body.style.paddingRight = `${scrollbarWidth}px`;
-      document.documentElement.style.setProperty("--scrollbar-width", `${scrollbarWidth}px`);
-    }
-    document.body.style.overflow = "hidden";
   };
 
   const handleClose = useCallback(() => {
@@ -179,18 +163,45 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
 
     setIsExpanded(false);
 
-    // Unmount portal and restore scroll after the 400ms transition completes
+    // Unmount portal after the 400ms transition completes
     closeTimeoutRef.current = setTimeout(() => {
       setIsZoomed(false);
       setOriginalRect(null);
       setTargetRect(null);
-      document.body.style.overflow = "";
-      document.body.style.paddingRight = "";
-      document.documentElement.style.removeProperty("--scrollbar-width");
       onTabChange?.(localActiveTab);
       closeTimeoutRef.current = null;
     }, 400);
   }, [isZoomed, localActiveTab, onTabChange]);
+
+  // Lock background scrolling while zoomed without modifying body layout/padding
+  useEffect(() => {
+    if (!isZoomed) return;
+
+    // Pause Lenis smooth scroll so background page cannot scroll at all
+    const lenis = (window as any).__lenis;
+    if (lenis && typeof lenis.stop === "function") {
+      lenis.stop();
+    }
+
+    const preventScroll = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("[data-lenis-prevent]")) {
+        return; // Allow wheel/touchpad scrolling inside zoomed container!
+      }
+      e.preventDefault();
+    };
+
+    window.addEventListener("wheel", preventScroll, { passive: false });
+    window.addEventListener("touchmove", preventScroll, { passive: false });
+
+    return () => {
+      if (lenis && typeof lenis.start === "function") {
+        lenis.start();
+      }
+      window.removeEventListener("wheel", preventScroll);
+      window.removeEventListener("touchmove", preventScroll);
+    };
+  }, [isZoomed]);
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -295,7 +306,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
             {/* Cloned container and image performing the FLIP zoom animation */}
             <div
               data-lenis-prevent
-              className="fixed z-[9999] cursor-zoom-out select-none"
+              className={cn("fixed z-[9999] select-text overscroll-contain", isTab2 ? "cursor-default" : "cursor-zoom-out")}
               style={{
                 left: isExpanded ? `${targetRect.left}px` : `${originalRect.left}px`,
                 top: isExpanded ? `${targetRect.top}px` : `${originalRect.top}px`,
@@ -306,10 +317,12 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                 overflow: "hidden",
                 transition: "all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
               }}
-              onClick={handleClose}
+              onClick={isTab2 ? (e) => e.stopPropagation() : handleClose}
             >
               {isTab2 && tab2 ? (
-                <ZoomTabContent tab2={tab2} />
+                <div className="w-full h-full bg-[var(--bg-2)] overflow-auto" onClick={(e) => e.stopPropagation()}>
+                  <ZoomTabContent tab2={tab2} />
+                </div>
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img

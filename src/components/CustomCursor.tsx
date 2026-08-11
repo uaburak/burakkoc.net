@@ -1,62 +1,54 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import gsap from "gsap";
 
-// ── Traffic icons ─────────────────────────────────────────────────────────────
+// ── Traffic icons (tek sefer DOM'a basılır, class ile gösterilir) ──────────────
 
-function IconUp() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-      <path d="M3 9L7 5l4 4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IconDown() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-      <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IconTrash() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-      <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-    </svg>
-  );
-}
+const TRAFFIC_ICONS = {
+  up:    '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 9L7 5l4 4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  down:  '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  trash: '<svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+} as const;
 
-type TrafficIcon = "up" | "down" | "trash" | null;
+type TrafficIcon = keyof typeof TRAFFIC_ICONS;
+
+const TEXT_TAGS = new Set([
+  "P","H1","H2","H3","H4","H5","H6","SPAN","LABEL","LI","TD","TH","STRONG","EM","CODE",
+]);
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+/**
+ * Özel imleç. Tüm durum geçişleri doğrudan DOM üzerinde (classList) yapılır —
+ * mousemove/mouseover başına React render'ı tetiklenmez.
+ */
 export default function CustomCursor() {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [isHovered,      setIsHovered]      = useState(false);
-  const [isClicked,      setIsClicked]      = useState(false);
-  const [isText,         setIsText]         = useState(false);
-  const [isImageHovered, setIsImageHovered] = useState(false);
-  const [isVisible,      setIsVisible]      = useState(false);
-  const [mounted,        setMounted]        = useState(false);
-  const [trafficColor,   setTrafficColor]   = useState<string | null>(null);
-  const [trafficIcon,    setTrafficIcon]    = useState<TrafficIcon>(null);
-  /** Slight delay so icon fades in after circle expands */
-  const [iconReady,      setIconReady]      = useState(false);
-  const iconTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => { setMounted(true); }, []);
+  const dotRef = useRef<HTMLDivElement>(null);
+  const iconRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    if (!mounted) return;
-
     const wrapper = wrapperRef.current;
-    if (!wrapper) return;
+    const dot = dotRef.current;
+    const icon = iconRef.current;
+    if (!wrapper || !dot || !icon) return;
 
     gsap.set(wrapper, { x: -100, y: -100 });
 
+    let iconTimer: ReturnType<typeof setTimeout> | null = null;
+    let currentTraffic: string | null = null;
+    let currentIcon: TrafficIcon | null = null;
+
+    const clearIconTimer = () => {
+      if (iconTimer) {
+        clearTimeout(iconTimer);
+        iconTimer = null;
+      }
+    };
+
     const onMouseMove = (e: MouseEvent) => {
-      setIsVisible(true);
+      wrapper.classList.add("visible");
       gsap.to(wrapper, {
         x: e.clientX,
         y: e.clientY,
@@ -66,29 +58,17 @@ export default function CustomCursor() {
       });
     };
 
-    const onMouseLeave = () => setIsVisible(false);
-    const onMouseEnter = () => setIsVisible(true);
+    const onMouseLeave = () => wrapper.classList.remove("visible");
+    const onMouseEnter = () => wrapper.classList.add("visible");
 
-    const checkClickable = (target: HTMLElement | null): boolean => {
-      if (!target) return false;
-      return (
-        target.tagName === "A" ||
-        target.tagName === "BUTTON" ||
-        target.classList.contains("cursor-pointer") ||
-        target.classList.contains("platform-box") ||
-        target.getAttribute("role") === "button" ||
-        target.closest("a") !== null ||
-        target.closest("button") !== null ||
-        target.closest(".cursor-pointer") !== null ||
-        target.closest(".platform-box") !== null ||
-        target.closest('[role="button"]') !== null
-      );
-    };
+    const checkClickable = (target: HTMLElement): boolean =>
+      target.tagName === "A" ||
+      target.tagName === "BUTTON" ||
+      target.getAttribute("role") === "button" ||
+      target.closest('a, button, .cursor-pointer, .platform-box, [role="button"]') !== null;
 
-    const checkText = (target: HTMLElement | null): boolean => {
-      if (!target) return false;
-      const textTags = ["P","H1","H2","H3","H4","H5","H6","SPAN","LABEL","LI","TD","TH","STRONG","EM","CODE"];
-      if (textTags.includes(target.tagName)) return true;
+    const checkText = (target: HTMLElement): boolean => {
+      if (TEXT_TAGS.has(target.tagName)) return true;
       for (let i = 0; i < target.childNodes.length; i++) {
         const node = target.childNodes[i];
         if (node.nodeType === 3 && node.nodeValue?.trim()) return true;
@@ -96,88 +76,81 @@ export default function CustomCursor() {
       return false;
     };
 
-    const checkImage = (target: HTMLElement | null): boolean => {
-      if (!target) return false;
-      return (
-        target.tagName === "IMG" ||
-        target.closest("img") !== null
-      );
+    const checkImage = (target: HTMLElement): boolean =>
+      target.tagName === "IMG" || target.closest("img") !== null;
+
+    const getTraffic = (target: HTMLElement) => {
+      const el = target.closest<HTMLElement>("[data-traffic-color]");
+      if (!el) return null;
+      return {
+        color: el.getAttribute("data-traffic-color") as string,
+        icon: el.getAttribute("data-traffic-icon") as TrafficIcon | null,
+      };
     };
 
-    const getTraffic = (target: HTMLElement | null): { color: string; icon: TrafficIcon } | null => {
-      let el: HTMLElement | null = target;
-      while (el) {
-        const color = el.getAttribute("data-traffic-color");
-        if (color) {
-          const icon = (el.getAttribute("data-traffic-icon") as TrafficIcon) ?? null;
-          return { color, icon };
-        }
-        el = el.parentElement;
-      }
-      return null;
-    };
-
-    const clearIconTimer = () => {
-      if (iconTimerRef.current) {
-        clearTimeout(iconTimerRef.current);
-        iconTimerRef.current = null;
-      }
+    const setState = (state: "hovered" | "text" | "image-hovered" | null) => {
+      dot.classList.toggle("hovered", state === "hovered");
+      dot.classList.toggle("text", state === "text");
+      dot.classList.toggle("image-hovered", state === "image-hovered");
     };
 
     const onMouseOver = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
       const traffic = getTraffic(target);
 
       if (traffic) {
-        clearIconTimer();
-        setTrafficColor(traffic.color);
-        setTrafficIcon(traffic.icon);
-        setIconReady(false);
-        setIsHovered(false);
-        setIsText(false);
-        setIsImageHovered(false);
-        // Slight delay — let the circle expand first, then fade icon in
-        iconTimerRef.current = setTimeout(() => setIconReady(true), 80);
+        if (traffic.color !== currentTraffic || traffic.icon !== currentIcon) {
+          currentTraffic = traffic.color;
+          currentIcon = traffic.icon;
+          clearIconTimer();
+
+          dot.style.setProperty("--cursor-traffic-color", traffic.color);
+          dot.classList.add("traffic");
+          dot.classList.remove("icon-ready");
+          setState(null);
+
+          /* Kırmızı zeminde beyaz ikon; yeşil/sarı parlak olduğu için koyu ikon */
+          icon.style.color =
+            traffic.color === "#e20000" ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.65)";
+          icon.innerHTML = traffic.icon ? TRAFFIC_ICONS[traffic.icon] ?? "" : "";
+
+          // Önce daire büyüsün, ikon sonra fade-in olsun
+          iconTimer = setTimeout(() => dot.classList.add("icon-ready"), 80);
+        }
         return;
       }
 
-      // Left traffic zone
-      clearIconTimer();
-      setTrafficColor(null);
-      setTrafficIcon(null);
-      setIconReady(false);
-
-      if (checkImage(target)) {
-        setIsImageHovered(true);
-        setIsHovered(false);
-        setIsText(false);
-      } else if (checkClickable(target)) {
-        setIsHovered(true);
-        setIsText(false);
-        setIsImageHovered(false);
-      } else if (checkText(target)) {
-        setIsText(true);
-        setIsHovered(false);
-        setIsImageHovered(false);
-      } else {
-        setIsHovered(false);
-        setIsText(false);
-        setIsImageHovered(false);
+      // Traffic bölgesinden çıkıldı
+      if (currentTraffic !== null) {
+        clearIconTimer();
+        currentTraffic = null;
+        currentIcon = null;
+        dot.classList.remove("traffic", "icon-ready");
+        dot.style.removeProperty("--cursor-traffic-color");
+        icon.innerHTML = "";
       }
+
+      if (checkImage(target)) setState("image-hovered");
+      else if (checkClickable(target)) setState("hovered");
+      else if (checkText(target)) setState("text");
+      else setState(null);
     };
 
-    const onMouseDown = () => setIsClicked(true);
-    const onMouseUp   = () => setIsClicked(false);
+    const onMouseDown = () => dot.classList.add("clicked");
+    const onMouseUp   = () => dot.classList.remove("clicked");
 
-    window.addEventListener("mousemove",    onMouseMove);
+    window.addEventListener("mousemove",    onMouseMove, { passive: true });
     document.addEventListener("mouseleave", onMouseLeave);
     document.addEventListener("mouseenter", onMouseEnter);
-    window.addEventListener("mouseover",    onMouseOver);
-    window.addEventListener("mousedown",    onMouseDown);
-    window.addEventListener("mouseup",      onMouseUp);
+    window.addEventListener("mouseover",    onMouseOver, { passive: true });
+    window.addEventListener("mousedown",    onMouseDown, { passive: true });
+    window.addEventListener("mouseup",      onMouseUp,   { passive: true });
 
     return () => {
       clearIconTimer();
+      gsap.killTweensOf(wrapper);
       window.removeEventListener("mousemove",    onMouseMove);
       document.removeEventListener("mouseleave", onMouseLeave);
       document.removeEventListener("mouseenter", onMouseEnter);
@@ -185,40 +158,16 @@ export default function CustomCursor() {
       window.removeEventListener("mousedown",    onMouseDown);
       window.removeEventListener("mouseup",      onMouseUp);
     };
-  }, [mounted]);
-
-  if (!mounted) return null;
-
-  /* Red bg → white icon; green/yellow are bright → dark icon */
-  const iconColor = trafficColor === "#e20000" ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.65)";
-
-  const classes = [
-    "custom-cursor-square",
-    trafficColor              ? "traffic"    : "",
-    trafficColor && iconReady ? "icon-ready" : "",
-    !trafficColor && isHovered ? "hovered"   : "",
-    isClicked                 ? "clicked"    : "",
-    !trafficColor && isText   ? "text"       : "",
-    !trafficColor && isImageHovered ? "image-hovered" : "",
-  ].filter(Boolean).join(" ");
+  }, []);
 
   return (
     <div
       ref={wrapperRef}
-      className={`custom-cursor-wrapper ${isVisible ? "visible" : ""}`}
+      className="custom-cursor-wrapper"
       style={{ position: "fixed", top: 0, left: 0, pointerEvents: "none", zIndex: 999999 }}
     >
-      <div
-        className={classes}
-        style={trafficColor ? ({ "--cursor-traffic-color": trafficColor } as React.CSSProperties) : undefined}
-      >
-        {trafficColor && trafficIcon && (
-          <span className="traffic-icon" style={{ color: iconColor }}>
-            {trafficIcon === "up"    && <IconUp />}
-            {trafficIcon === "down"  && <IconDown />}
-            {trafficIcon === "trash" && <IconTrash />}
-          </span>
-        )}
+      <div ref={dotRef} className="custom-cursor-square">
+        <span ref={iconRef} className="traffic-icon" />
       </div>
     </div>
   );

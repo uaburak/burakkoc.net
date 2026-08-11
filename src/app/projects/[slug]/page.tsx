@@ -41,8 +41,8 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function ProjectDetailPage({ params }: Props) {
   const { slug } = await params;
-  const project = await loadProject(slug);
-  const projects = await listProjects();
+  // Paralel çek — iki Firestore isteği birbirini beklemesin.
+  const [project, projects] = await Promise.all([loadProject(slug), listProjects()]);
 
   return (
     <ProjectDetailClient

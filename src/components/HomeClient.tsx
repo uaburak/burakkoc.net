@@ -1,21 +1,36 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FlyingImages, FlyingImagesRef } from "@/components/FlyingImages";
 import { ProjectData } from "@/types/project";
 
 export default function HomeClient({ initialProjects }: { initialProjects: ProjectData[] }) {
+  const router = useRouter();
   const flyingImagesRef = useRef<FlyingImagesRef>(null);
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
 
   const handleMouseEnter = (category: string) => {
+    if (isExiting) return;
     setHoveredCategory(category);
     flyingImagesRef.current?.warpTo(category);
   };
 
   const handleMouseLeave = () => {
+    if (isExiting) return;
     setHoveredCategory(null);
+  };
+
+  const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    e.preventDefault();
+    if (isExiting) return;
+    setIsExiting(true);
+    flyingImagesRef.current?.startExitAnimation();
+    setTimeout(() => {
+      router.push(href);
+    }, 400);
   };
 
   const getButtonClass = (category: string) => {
@@ -50,15 +65,18 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
         
         {/* ── Hero (dikeyde ortalı, ortalanmış) ── */}
         <div className="flex-1 flex items-center justify-center">
-          <h1 className="text-[26px] sm:text-[36px] md:text-[44px] leading-[38px] sm:leading-[50px] md:leading-[58px] font-light tracking-tight text-center pointer-events-auto select-none flex flex-col gap-1.5 md:gap-2">
+          <h1
+            className={`text-[26px] sm:text-[36px] md:text-[44px] leading-[38px] sm:leading-[50px] md:leading-[58px] font-light tracking-tight text-center select-none flex flex-col gap-1.5 md:gap-2 ${isExiting ? "pointer-events-none" : "pointer-events-auto"}`}
+          >
             <span className="block">
               <span className="text-[var(--text-p)] transition-all duration-300">{`Hello, I'm `}</span>
               <Link
-                href="/about"
+                href="/cv"
+                onClick={(e) => handleLinkClick(e, "/cv")}
                 onMouseEnter={() => handleMouseEnter("Burak")}
                 onMouseLeave={handleMouseLeave}
                 className={`${getButtonClass("Burak")} bg-gradient-to-r bg-clip-text text-transparent font-semibold inline-block cursor-pointer transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-title)] rounded px-1`}
-                aria-label="View about page"
+                aria-label="View CV page"
               >
                 Burak
               </Link>
@@ -68,6 +86,7 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
             <span className="block">
               <Link
                 href="/projects"
+                onClick={(e) => handleLinkClick(e, "/projects")}
                 onMouseEnter={() => handleMouseEnter("products")}
                 onMouseLeave={handleMouseLeave}
                 className={`${getButtonClass("products")} bg-gradient-to-r bg-clip-text text-transparent font-semibold inline-block cursor-pointer transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-title)] rounded px-1`}
@@ -79,6 +98,7 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
 
               <Link
                 href="/projects"
+                onClick={(e) => handleLinkClick(e, "/projects")}
                 onMouseEnter={() => handleMouseEnter("brands")}
                 onMouseLeave={handleMouseLeave}
                 className={`${getButtonClass("brands")} bg-gradient-to-r bg-clip-text text-transparent font-semibold inline-block cursor-pointer transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-title)] rounded px-1`}
@@ -90,6 +110,7 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
 
               <Link
                 href="/projects"
+                onClick={(e) => handleLinkClick(e, "/projects")}
                 onMouseEnter={() => handleMouseEnter("websites")}
                 onMouseLeave={handleMouseLeave}
                 className={`${getButtonClass("websites")} bg-gradient-to-r bg-clip-text text-transparent font-semibold inline-block cursor-pointer transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-title)] rounded px-1`}

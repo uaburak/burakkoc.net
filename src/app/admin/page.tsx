@@ -17,7 +17,7 @@ export default function AdminPage() {
         <nav className="flex flex-col gap-0">
           <Link
             href="/admin/projects"
-            className="group flex items-center justify-between py-4 border-b border-[var(--border)] transition-all duration-200 hover:opacity-60"
+            className="group flex items-center justify-between py-[10px] border-b border-[var(--border)] transition-all duration-200 hover:opacity-60"
           >
             <div className="flex flex-col gap-0.5">
               <span className="text-base font-medium text-[var(--text-title)]">Projeler</span>

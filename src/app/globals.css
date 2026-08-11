@@ -18,6 +18,10 @@
   --border:       #f2f2f2;
   --border-hover: #e4e4e4;   /* Kutu/Active Light: rgba(228,228,228,1) */
 
+  /* Progress Bar */
+  --progress-track: #e6e6e6;
+  --progress-fill:  #c5c5c5;
+
   /* Scrollbar */
   --scrollbar-track: transparent;
   --scrollbar-thumb: #e4e4e4;
@@ -43,6 +47,10 @@
   --border:       #1e1e1e;   /* Background/4 Dark: rgba(30,30,30,1)  */
   --border-hover: #343434;   /* Background/5 Dark: rgba(52,52,52,1)  */
 
+  /* Progress Bar */
+  --progress-track: #1e1e1e;
+  --progress-fill:  #4c4c4c;
+
   /* Scrollbar */
   --scrollbar-track: transparent;
   --scrollbar-thumb: #1e1e1e;
@@ -65,7 +73,10 @@
   --color-border:       var(--border);
   --color-border-hover: var(--border-hover);
 
-  --font-matter: "Matter", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-progress-track: var(--progress-track);
+  --color-progress-fill:  var(--progress-fill);
+
+  --font-matter: "Matter", var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 /* ── Base ──────────────────────────────────────────────── */
@@ -76,6 +87,7 @@
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-y: scroll !important;
 }
 
 /* ── Selection ─────────────────────────────────────────── */
@@ -93,6 +105,24 @@ body {
   background-color: var(--bg-1);
   color: var(--text-p);
   transition: background-color 200ms ease, color 200ms ease;
+}
+
+/* ── Sayfa giriş animasyonu (PageEntrance) ─────────────────── */
+/* fill-mode yok: animasyon bitince transform tamamen kalkar, böylece
+   içerideki position:fixed öğeler viewport'a göre sabit kalır. */
+@keyframes page-entrance {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.page-entrance {
+  animation: page-entrance 800ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── GSAP SplitText satır maskesi (TextScrollingEffect) ───── */
+.line-reveal {
+  overflow: hidden;
+  display: block;
 }
 
 /* ── Scrollbars ────────────────────────────────────────────── */
@@ -277,3 +307,99 @@ img:hover {
   animation-duration: 300ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* ── Prism Syntax Highlighting IDE Themes ─────────────────── */
+code[class*="language-"],
+pre[class*="language-"] {
+  color: var(--text-p);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  line-height: 1.6;
+  tab-size: 2;
+  hyphens: none;
+}
+
+.token.comment,
+.token.block-comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #757575;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: #888888;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.function-name,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #e25555;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #029855;
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.variable {
+  color: #d97706;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword,
+.token.class-name {
+  color: #8b5cf6;
+  font-weight: 500;
+}
+
+.token.function {
+  color: #0284c7;
+}
+
+.token.regex,
+.token.important {
+  color: #e11d48;
+}
+
+/* Dark mode overrides for high-contrast IDE aesthetic */
+[data-theme="dark"] .token.keyword,
+[data-theme="dark"] .token.class-name {
+  color: #c084fc;
+}
+[data-theme="dark"] .token.string,
+[data-theme="dark"] .token.attr-name {
+  color: #4ade80;
+}
+[data-theme="dark"] .token.function {
+  color: #38bdf8;
+}
+[data-theme="dark"] .token.number,
+[data-theme="dark"] .token.boolean {
+  color: #f87171;
+}
+[data-theme="dark"] .token.operator {
+  color: #fb923c;
+}
+[data-theme="dark"] .token.comment {
+  color: #808080;
+}
+

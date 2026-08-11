@@ -371,7 +371,7 @@ export default function AdminProjectsPage() {
             {projects.map((project) => (
               <div
                 key={project.slug}
-                className="flex items-center justify-between py-4 border-b border-[var(--border)]"
+                className="flex items-center justify-between py-[10px] border-b border-[var(--border)]"
               >
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-base font-medium text-[var(--text-title)] truncate">

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import gsap from "gsap";
 import { ArrowLeftIcon } from "@/components/icons";
 import { Segmented } from "@/components/Segmented";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
@@ -13,6 +13,9 @@ import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { ZoomableFigma } from "@/components/ZoomableFigma";
 import { IconButton } from "@/components/Button";
+import PageEntrance from "@/components/PageEntrance";
+import { TopBar } from "@/components/TopBar";
+import { CodeHighlight } from "@/components/CodeHighlight";
 
 // ── SVG Icons ──────────────────────────────────────────────────
 
@@ -331,20 +334,16 @@ function DetailCode({ block }: { block: Block }) {
 
           {usedTab === "Code" || usedTab === "tab1" ? (
             <div className="bg-[var(--bg-2)]">
-              <div className="flex items-center gap-1.5 px-4 pt-[52px] pb-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-                <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-                <span className="ml-2 text-xs text-[var(--text-subtitle)] font-mono select-none">{block.language ?? "code"}</span>
-              </div>
-              <pre className="px-4 pb-6 font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre">
-                {hasCode ? block.content : <span className="opacity-30 italic">{"// kod girilmedi"}</span>}
-              </pre>
+              {hasCode ? (
+                <CodeHighlight code={block.content ?? ""} language={block.language ?? "javascript"} />
+              ) : (
+                <div className="p-5 sm:p-6 opacity-30 italic font-mono text-xs text-[var(--text-subtitle)]">{"// kod girilmedi"}</div>
+              )}
             </div>
           ) : usedTab === "Preview" ? (
-            <div className="bg-[var(--bg-3)] pt-[52px]">
+            <div className="bg-[var(--bg-3)] p-5 sm:p-6">
               {hasPreview ? (
-                <div className="px-4 pb-6" dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
+                <div dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
               ) : (
                 <div className="flex items-center justify-center h-24 text-sm text-[var(--text-subtitle)] opacity-30 italic font-light select-none">
                   HTML önizlemesi girilmedi
@@ -352,7 +351,7 @@ function DetailCode({ block }: { block: Block }) {
               )}
             </div>
           ) : usedTab === "tab2" && segBadge?.tab2 ? (
-            <div className="pt-[52px] px-4 pb-6">
+            <div className="w-full h-full min-h-[180px]">
               <SecondTabContent tab2={segBadge.tab2} />
             </div>
           ) : null}
@@ -387,16 +386,18 @@ function SecondTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   }
   if (tab2.type === "code") {
     return (
-      <pre className="font-mono text-xs leading-6 text-[var(--text-p)] whitespace-pre overflow-x-auto">
-        {tab2.content?.trim() || "// kod girilmedi"}
-      </pre>
+      <div className="w-full h-full bg-[var(--bg-2)]">
+        <CodeHighlight code={tab2.content?.trim() || "// kod girilmedi"} language={tab2.language || "javascript"} />
+      </div>
     );
   }
   if (tab2.type === "text") {
     return (
-      <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-        {tab2.content?.trim() || "Metin girilmedi"}
-      </p>
+      <div className="w-full h-full overflow-auto p-5 sm:p-6 bg-[var(--bg-2)]">
+        <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
+          {tab2.content?.trim() || "Metin girilmedi"}
+        </p>
+      </div>
     );
   }
   return null;
@@ -476,6 +477,18 @@ function DetailSkeleton() {
   );
 }
 
+function getProjectCoverImage(proj?: ProjectData | null): string | null {
+  if (!proj) return null;
+  if (proj.coverImage) return proj.coverImage;
+  for (const item of proj.items) {
+    if (item.kind === "section") {
+      const imgBlock = item.blocks.find((b) => b.type === "image" && b.src);
+      if (imgBlock?.src) return imgBlock.src;
+    }
+  }
+  return null;
+}
+
 // ── Main Client Component ─────────────────────────────────────────────────────
 
 interface ProjectDetailClientProps {
@@ -492,6 +505,101 @@ export function ProjectDetailClient({
   const [project, setProject] = useState<ProjectData | null>(initialProject || null);
   const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);
   const [loading, setLoading] = useState(!initialProject);
+
+  const footerCardRef = useRef<HTMLDivElement>(null);
+  const footerImageRef = useRef<HTMLImageElement>(null);
+  const [footerActiveImage, setFooterActiveImage] = useState<string | null>(null);
+
+  const handleMouseEnterPrev = (proj: ProjectData) => {
+    const img = getProjectCoverImage(proj);
+    if (!img) return;
+    setFooterActiveImage(img);
+
+    if (footerCardRef.current) {
+      gsap.to(footerCardRef.current, {
+        left: "0%",
+        opacity: 1,
+        scale: 1,
+        duration: 0.4,
+        ease: "power3.out",
+        overwrite: "auto",
+      });
+    }
+  };
+
+  const handleMouseMovePrev = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!footerCardRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width - 0.5;
+
+    gsap.to(footerCardRef.current, {
+      left: "0%",
+      x: relX * 20,
+      rotation: relX * 6,
+      opacity: 1,
+      scale: 1,
+      duration: 0.3,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+  };
+
+  const handleMouseEnterNext = (proj: ProjectData) => {
+    const img = getProjectCoverImage(proj);
+    if (!img) return;
+    setFooterActiveImage(img);
+
+    if (footerCardRef.current) {
+      gsap.to(footerCardRef.current, {
+        left: "50%",
+        opacity: 1,
+        scale: 1,
+        duration: 0.4,
+        ease: "power3.out",
+        overwrite: "auto",
+      });
+    }
+  };
+
+  const handleMouseMoveNext = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!footerCardRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width - 0.5;
+
+    gsap.to(footerCardRef.current, {
+      left: "50%",
+      x: relX * 20,
+      rotation: relX * 6,
+      opacity: 1,
+      scale: 1,
+      duration: 0.3,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+  };
+
+  const handleMouseLeaveFooter = () => {
+    if (!footerCardRef.current) return;
+    gsap.to(footerCardRef.current, {
+      opacity: 0,
+      scale: 0.95,
+      x: 0,
+      rotation: 0,
+      duration: 0.35,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+  };
+
+  useEffect(() => {
+    if (footerActiveImage && footerImageRef.current) {
+      gsap.fromTo(
+        footerImageRef.current,
+        { scale: 1.15 },
+        { scale: 1, duration: 0.45, ease: "power2.out" }
+      );
+    }
+  }, [footerActiveImage]);
 
   useEffect(() => {
     if (initialProject) {
@@ -547,8 +655,11 @@ export function ProjectDetailClient({
   const prevProject = showNavigation ? projects[(currentIndex - 1 + projects.length) % projects.length] : null;
   const nextProject = showNavigation ? projects[(currentIndex + 1) % projects.length] : null;
 
+  const prevImg = getProjectCoverImage(prevProject);
+  const nextImg = getProjectCoverImage(nextProject);
+
   return (
-    <div className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative">
+    <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative">
       {/* ── Left sidebar ── */}
       <div
         className="fixed top-[160px] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex"
@@ -563,7 +674,6 @@ export function ProjectDetailClient({
           </span>
           <span className="px-1">Project</span>
         </Link>
-        <ThemeToggle />
       </div>
 
       {/* ── Right TOC sidebar ── */}
@@ -576,20 +686,11 @@ export function ProjectDetailClient({
         </div>
       )}
 
-      {/* ── Mobile top bar ── */}
-      <div className="flex xl:hidden items-center justify-between px-5 pt-8 pb-0">
-        <Link
-          href="/projects"
-          className="inline-flex items-center gap-1 px-3 py-2 rounded-full font-medium text-sm text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)]"
-        >
-          <ArrowLeftIcon className="w-4 h-4" />
-          <span>Project</span>
-        </Link>
-        <ThemeToggle />
-      </div>
+      {/* ── Top bar (xl altı) — içerik sütunuyla aynı hizada ── */}
+      <TopBar backHref="/projects" backLabel="Project" showThemeToggle={false} className="xl:hidden" />
 
       {/* ── Main content ── */}
-      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:pt-[160px] xl:pb-[60px]">
+      <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
           <div className="flex flex-col items-start w-full pt-[10px]">
             <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
@@ -639,25 +740,67 @@ export function ProjectDetailClient({
         )}
 
         {showNavigation && (prevProject || nextProject) && (
-          <div className="flex flex-col gap-12 items-start pt-16 w-full">
+          <div
+            className="flex flex-col gap-12 items-start pt-16 w-full"
+            onMouseLeave={handleMouseLeaveFooter}
+          >
             <div className="w-full h-px bg-[var(--border)]" />
-            <div className="flex items-start justify-between w-full gap-4 sm:flex-row flex-col">
-              {prevProject && (
-                <Link href={`/projects/${prevProject.slug}`} className="flex flex-col gap-0.5 flex-1 min-w-0 group cursor-pointer">
-                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">Previous</span>
-                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">{prevProject.title || prevProject.slug}</span>
+            <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-0 w-full">
+              {/* Single Shared Footer Preview Card */}
+              <div
+                ref={footerCardRef}
+                className="absolute pointer-events-none hidden md:block w-1/2 aspect-[16/9] origin-bottom rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
+                style={{ bottom: "calc(100% + 12px)", left: "0%" }}
+              >
+                {footerActiveImage && (
+                  <img
+                    ref={footerImageRef}
+                    src={footerActiveImage}
+                    alt="Project Preview"
+                    className="w-full h-full object-cover"
+                  />
+                )}
+              </div>
+
+              {prevProject ? (
+                <Link
+                  href={`/projects/${prevProject.slug}`}
+                  onMouseEnter={() => handleMouseEnterPrev(prevProject)}
+                  onMouseMove={handleMouseMovePrev}
+                  className="relative group flex flex-col gap-0.5 justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+                >
+                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
+                    Previous
+                  </span>
+                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
+                    {prevProject.title || prevProject.slug}
+                  </span>
                 </Link>
+              ) : (
+                <div />
               )}
-              {nextProject && (
-                <Link href={`/projects/${nextProject.slug}`} className="flex flex-col gap-0.5 items-start sm:items-end flex-1 min-w-0 group cursor-pointer">
-                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">Next</span>
-                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">{nextProject.title || nextProject.slug}</span>
+
+              {nextProject ? (
+                <Link
+                  href={`/projects/${nextProject.slug}`}
+                  onMouseEnter={() => handleMouseEnterNext(nextProject)}
+                  onMouseMove={handleMouseMoveNext}
+                  className="relative group flex flex-col gap-0.5 items-start sm:items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+                >
+                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
+                    Next
+                  </span>
+                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
+                    {nextProject.title || nextProject.slug}
+                  </span>
                 </Link>
+              ) : (
+                <div />
               )}
             </div>
           </div>
         )}
       </main>
-    </div>
+    </PageEntrance>
   );
 }

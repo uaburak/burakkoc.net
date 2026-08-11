@@ -5,6 +5,7 @@ import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem } from 
 import { Segmented } from "@/components/Segmented";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { ZoomableFigma } from "@/components/ZoomableFigma";
+import { CodeHighlight } from "@/components/CodeHighlight";
 
 // ── Badge icon components (matching page.tsx style) ───────────────────────────
 
@@ -314,20 +315,16 @@ function PreviewCode({ block }: { block: Block }) {
         {/* Content area */}
         {usedTab === "Code" || usedTab === "tab1" ? (
           <div className="bg-[var(--bg-2)]">
-            <div className="flex items-center gap-1.5 px-4 pt-[52px] pb-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-              <span className="w-2.5 h-2.5 rounded-full bg-[var(--border-hover)]" />
-              <span className="ml-2 text-xs text-[var(--text-subtitle)] font-mono select-none">{block.language ?? "code"}</span>
-            </div>
-            <pre className="px-4 pb-6 font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre">
-              {hasCode ? block.content : <span className="opacity-30 italic">{"// kod girilmedi"}</span>}
-            </pre>
+            {hasCode ? (
+              <CodeHighlight code={block.content ?? ""} language={block.language ?? "javascript"} />
+            ) : (
+              <div className="p-5 sm:p-6 opacity-30 italic font-mono text-xs text-[var(--text-subtitle)]">{"// kod girilmedi"}</div>
+            )}
           </div>
         ) : usedTab === "Preview" ? (
-          <div className="bg-[var(--bg-3)] pt-[52px]">
+          <div className="bg-[var(--bg-3)] p-5 sm:p-6">
             {hasPreview ? (
-              <div className="px-4 pb-6" dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
+              <div dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
             ) : (
               <div className="flex items-center justify-center h-24 text-sm text-[var(--text-subtitle)] opacity-30 italic font-light select-none">
                 HTML önizlemesi girilmedi
@@ -335,7 +332,7 @@ function PreviewCode({ block }: { block: Block }) {
             )}
           </div>
         ) : usedTab === "tab2" && segBadge?.tab2 ? (
-          <div className="pt-[52px] px-4 pb-6">
+          <div className="w-full h-full min-h-[180px]">
             <SecondTabContent tab2={segBadge.tab2} />
           </div>
         ) : null}
@@ -371,9 +368,9 @@ function SecondTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   }
   if (tab2.type === "code") {
     return (
-      <pre className="font-mono text-xs leading-6 text-[var(--text-p)] whitespace-pre overflow-x-auto">
-        {tab2.content?.trim() ? tab2.content : <span className="opacity-30 italic">{"// kod girilmedi"}</span>}
-      </pre>
+      <div className="w-full h-full bg-[var(--bg-2)]">
+        <CodeHighlight code={tab2.content?.trim() || "// kod girilmedi"} language={tab2.language || "javascript"} />
+      </div>
     );
   }
   if (tab2.type === "text") {

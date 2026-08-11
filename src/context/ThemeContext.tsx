@@ -13,10 +13,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    const saved = localStorage.getItem("theme") as Theme | null;
-    const initial = saved ?? "light"; // Default: light mode
+    // Attribute'u layout'taki inline script ilk boyamadan önce yazıyor;
+    // burada sadece React state'ini onunla senkronlıyoruz.
+    const initial =
+      (document.documentElement.getAttribute("data-theme") as Theme | null) ?? "light";
     setTheme(initial);
-    document.documentElement.setAttribute("data-theme", initial);
   }, []);
 
   const toggle = () => {
