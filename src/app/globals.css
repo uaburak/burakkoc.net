@@ -399,7 +399,35 @@ pre[class*="language-"] {
 [data-theme="dark"] .token.operator {
   color: #fb923c;
 }
-[data-theme="dark"] .token.comment {
-  color: #808080;
+/* ── Custom Code Block Scrollbars ─────────────────────────── */
+.custom-code-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-code-scroll::-webkit-scrollbar-track:vertical {
+  background: transparent;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.custom-code-scroll::-webkit-scrollbar-track:horizontal {
+  background: transparent;
+  margin-left: 20px;
+  margin-right: 20px;
+}
+
+.custom-code-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 9999px;
+}
+
+.custom-code-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtitle);
+}
+
+.custom-code-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hover) transparent;
 }
 
