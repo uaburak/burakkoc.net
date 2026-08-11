@@ -210,8 +210,15 @@ export function CodeHighlight({ code, language = "javascript", className = "" }:
         className="w-full h-full overflow-auto hide-native-scrollbar"
         onMouseEnter={flashScrollbar}
       >
-        <pre className="font-mono text-xs sm:text-sm leading-6 text-[var(--text-p)] whitespace-pre p-5 sm:p-6 m-0 min-w-full inline-block">
-          <code ref={codeRef} className={`language-${normalizedLang} inline-block min-w-full pb-2`}>
+        <pre
+          suppressHydrationWarning
+          className="font-mono text-xs sm:text-sm leading-6 text-[var(--text-p)] whitespace-pre p-5 sm:p-6 m-0 min-w-full inline-block"
+        >
+          <code
+            suppressHydrationWarning
+            ref={codeRef}
+            className={`language-${normalizedLang} inline-block min-w-full pb-2`}
+          >
             {code}
           </code>
         </pre>

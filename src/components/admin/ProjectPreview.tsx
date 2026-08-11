@@ -6,6 +6,7 @@ import { Segmented } from "@/components/Segmented";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { ZoomableFigma } from "@/components/ZoomableFigma";
 import { CodeHighlight } from "@/components/CodeHighlight";
+import { ComponentRenderer } from "@/components/demos/ComponentRegistry";
 
 // ── Badge icon components (matching page.tsx style) ───────────────────────────
 
@@ -295,14 +296,14 @@ function PreviewCode({ block }: { block: Block }) {
   const usedTab = segBadge ? (isTab2 ? "tab2" : "tab1") : builtInTab;
 
   const hasCode = Boolean(block.content?.trim());
-  const hasPreview = Boolean(block.codePreview?.trim());
+  const hasPreview = Boolean(block.codePreview?.trim() || block.previewComponent);
 
   return (
     <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden min-h-[200px]">
+      <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden">
 
-        {/* Built-in segmented (when no segmented badge) */}
-        {!segBadge && (
+        {/* Built-in segmented (when no segmented badge & preview exists) */}
+        {!segBadge && hasPreview && (
           <div className="absolute top-[14px] right-[14px] z-10">
             <Segmented
               options={["Preview", "Code"]}
@@ -322,12 +323,14 @@ function PreviewCode({ block }: { block: Block }) {
             )}
           </div>
         ) : usedTab === "Preview" ? (
-          <div className="bg-[var(--bg-3)] p-5 sm:p-6">
-            {hasPreview ? (
-              <div dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
+          <div className="bg-[var(--bg-3)] p-5 sm:p-6 min-h-[120px] flex items-center justify-center">
+            {block.previewComponent ? (
+              <ComponentRenderer componentKey={block.previewComponent} />
+            ) : hasPreview ? (
+              <div className="w-full" dangerouslySetInnerHTML={{ __html: block.codePreview ?? "" }} />
             ) : (
               <div className="flex items-center justify-center h-24 text-sm text-[var(--text-subtitle)] opacity-30 italic font-light select-none">
-                HTML önizlemesi girilmedi
+                Önizleme girilmedi
               </div>
             )}
           </div>

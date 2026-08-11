@@ -13,6 +13,7 @@ export interface SegmentedSecondTab {
   content?: string;
   language?: string;
   codePreview?: string;
+  previewComponent?: string;
 }
 
 export interface BadgeItem {
@@ -35,6 +36,7 @@ export interface Block {
   subheading?: string;
   language?: string;
   codePreview?: string;
+  previewComponent?: string;
   src?: string;
   alt?: string;
   caption?: string;
