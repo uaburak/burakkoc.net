@@ -407,14 +407,14 @@ pre[class*="language-"] {
 
 .custom-code-scroll::-webkit-scrollbar-track:vertical {
   background: transparent;
-  margin-top: 20px;
-  margin-bottom: 20px;
+  margin-top: 32px;
+  margin-bottom: 32px;
 }
 
 .custom-code-scroll::-webkit-scrollbar-track:horizontal {
   background: transparent;
-  margin-left: 20px;
-  margin-right: 20px;
+  margin-left: 32px;
+  margin-right: 32px;
 }
 
 .custom-code-scroll::-webkit-scrollbar-thumb {
