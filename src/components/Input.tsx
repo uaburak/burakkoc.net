@@ -22,19 +22,22 @@ type SizeVariant = "xs" | "sm" | "md" | "lg";
 interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
   /** xs=28px · sm=32px · md=40px · lg=48px */
   size?: SizeVariant;
+  /** "section" (in white section: bg-white, hover bg-#f2f2f2 + border) | "block" (inside #f2f2f2 block: bg-white, hover stays bg-white + adds border) */
+  bgContext?: "section" | "block";
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ size = "md", className, ...props }, ref) => {
+  ({ size = "md", bgContext = "section", className, ...props }, ref) => {
     return (
       <input
         ref={ref}
         {...props}
         className={cn(
-          "w-full rounded-full border border-[var(--border)] bg-[var(--bg-2)]",
-          "text-[var(--text-p)] placeholder:text-[var(--text-subtitle)]",
-          "focus:outline-none focus:border-[var(--border-hover)]",
-          "transition-colors duration-150",
+          "w-full rounded-full text-[var(--text-p)] placeholder:text-[var(--text-subtitle)]",
+          "focus:outline-none focus:border-[var(--border-hover)] transition-all duration-150",
+          bgContext === "section"
+            ? "border border-[var(--border)] bg-white dark:bg-[var(--bg-2)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)]"
+            : "border border-transparent bg-white dark:bg-[var(--bg-2)] hover:bg-white dark:hover:bg-[var(--bg-2)] hover:border-[var(--border-hover)]",
           sizeMap[size],
           className
         )}

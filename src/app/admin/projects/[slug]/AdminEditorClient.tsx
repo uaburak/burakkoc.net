@@ -9,12 +9,13 @@ import { CodeBlockEditor }  from "@/components/admin/CodeBlockEditor";
 import { FigmaBlockEditor }  from "@/components/admin/FigmaBlockEditor";
 import { ProjectPreview }   from "@/components/admin/ProjectPreview";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
-import { saveProject, loadProject } from "@/lib/firestore";
+import { saveProject, loadProject, getCVData } from "@/lib/firestore";
 import { uploadFile, coverStoragePath } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 import { PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { Segmented } from "@/components/Segmented";
+import { Select } from "@/components/Select";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -259,6 +260,7 @@ function HeadingBlockEditor({ block, onChange, lang }: { block: Block; onChange:
     return (
       <Input
         type="text"
+        bgContext="block"
         value={value}
         onChange={(e) => onChange(lang === "en" ? { contentEn: e.target.value } : { content: e.target.value })}
         placeholder={placeholder}
@@ -279,6 +281,7 @@ function HeadingBlockEditor({ block, onChange, lang }: { block: Block; onChange:
     <div className="flex flex-col gap-2 w-full">
       <Input
         type="text"
+        bgContext="block"
         value={headingVal}
         onChange={(e) => onChange(lang === "en" ? { contentEn: e.target.value } : { content: e.target.value })}
         placeholder={headingPlaceholder}
@@ -287,6 +290,7 @@ function HeadingBlockEditor({ block, onChange, lang }: { block: Block; onChange:
       />
       <Input
         type="text"
+        bgContext="block"
         value={subheadingVal}
         onChange={(e) => onChange(lang === "en" ? { subheadingEn: e.target.value } : { subheading: e.target.value })}
         placeholder={subheadingPlaceholder}
@@ -777,6 +781,17 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   /** Whether this project exists in Firestore (i.e. has been published at least once) */
   const [isPublished, setIsPublished] = useState(false);
 
+  const [companies, setCompanies] = useState<string[]>([]);
+
+  useEffect(() => {
+    getCVData()
+      .then((cv) => {
+        const list = Array.from(new Set(cv.experience.map((e) => e.company.trim()).filter(Boolean)));
+        setCompanies(list);
+      })
+      .catch((err) => console.error("Failed to load CV companies for select:", err));
+  }, []);
+
   const descRef = useRef<HTMLTextAreaElement>(null);
   const autoResizeDesc = useCallback(() => {
     const el = descRef.current;
@@ -850,7 +865,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }, [project, slug, loadingFromDB]);
 
   const updateMeta = useCallback(
-    (updates: Partial<Pick<ProjectData, "title" | "titleEn" | "category" | "year" | "slug" | "coverImage" | "description" | "descriptionEn">>) => {
+    (updates: Partial<Pick<ProjectData, "title" | "titleEn" | "category" | "year" | "company" | "slug" | "coverImage" | "description" | "descriptionEn">>) => {
       setProject((p) => ({ ...p, ...updates }));
     }, []
   );
@@ -974,6 +989,15 @@ export function AdminEditorClient({ slug }: { slug: string }) {
               <MetaField value={project.year}         placeholder="Yıl"             onChange={(v) => updateMeta({ year: v })} />
             </div>
 
+            {/* Şirket Select (CV Deneyimlerinden) */}
+            <Select
+              options={companies}
+              value={project.company ?? ""}
+              onChange={(val) => updateMeta({ company: val })}
+              placeholder="Şirket Seçin (Opsiyonel)"
+              size="md"
+            />
+
             {/* Description textarea */}
             <textarea
               ref={descRef}
@@ -984,7 +1008,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
                 autoResizeDesc();
               }}
               rows={3}
-              className="w-full resize-none overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-2)] px-4 py-3 text-sm font-light leading-6 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150"
+              className="w-full resize-none overflow-hidden rounded-[18px] border border-[var(--border)] bg-white dark:bg-[var(--bg-2)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] px-4 py-3 text-sm font-light leading-6 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-all duration-150"
             />
 
             {/* Cover image upload — right after the meta fields */}

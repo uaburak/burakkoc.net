@@ -106,18 +106,23 @@ interface PillButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: "xs" | "sm" | "md" | "lg";
   /** Visual style */
   variant?: "default" | "filled" | "ghost";
+  /** "section" (in white section: bg-white, hover bg-#f2f2f2 + border) | "block" (inside #f2f2f2 block: bg-white, hover stays bg-white + adds border) */
+  bgContext?: "section" | "block";
 }
 
-const pillVariantMap = {
-  default: "border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-subtitle)] hover:bg-[var(--bg-4)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]",
-  filled:  "border border-[var(--border)] bg-[var(--bg-4)] text-[var(--text-title)] hover:bg-[var(--bg-5)] hover:border-[var(--border-hover)]",
-  ghost:   "border border-transparent bg-transparent text-[var(--text-p)] hover:bg-[var(--bg-4)]",
-} as const;
-
 export function PillButton({
-  children, startIcon, size = "md", variant = "default", className, ...props
+  children, startIcon, size = "md", variant = "default", bgContext = "section", className, ...props
 }: PillButtonProps) {
   const s = sizeMap[size];
+
+  const pillVariantStyle = {
+    default: bgContext === "section"
+      ? "border border-[var(--border)] bg-white dark:bg-[var(--bg-2)] text-[var(--text-subtitle)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]"
+      : "border border-transparent bg-white dark:bg-[var(--bg-2)] text-[var(--text-subtitle)] hover:bg-white dark:hover:bg-[var(--bg-2)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]",
+    filled: "border border-[var(--border)] bg-[var(--bg-4)] text-[var(--text-title)] hover:bg-[var(--bg-5)] hover:border-[var(--border-hover)]",
+    ghost: "border border-transparent bg-transparent text-[var(--text-p)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)]",
+  }[variant];
+
   return (
     <button
       {...props}
@@ -126,7 +131,7 @@ export function PillButton({
         "transition-all duration-150 cursor-pointer",
         "active:scale-[0.97]",
         s.outer,
-        pillVariantMap[variant],
+        pillVariantStyle,
         className
       )}
     >

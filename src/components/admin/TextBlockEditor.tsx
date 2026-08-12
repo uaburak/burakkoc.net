@@ -33,7 +33,7 @@ export function TextBlockEditor({ block, onChange }: TextBlockEditorProps) {
       }}
       placeholder="Paragraf metnini buraya yazın…"
       rows={3}
-      className="w-full resize-none overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-1)] px-4 py-3 text-sm font-light leading-7 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-colors duration-150"
+      className="w-full resize-none overflow-hidden rounded-xl border border-transparent bg-white dark:bg-[var(--bg-2)] hover:bg-white dark:hover:bg-[var(--bg-2)] hover:border-[var(--border-hover)] px-4 py-3 text-sm font-light leading-7 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-all duration-150"
     />
   );
 }

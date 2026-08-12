@@ -25,6 +25,17 @@ export default function AdminPage() {
             </div>
             <ChevronRight />
           </Link>
+
+          <Link
+            href="/admin/cv"
+            className="group flex items-center justify-between py-[10px] border-b border-[var(--border)] transition-all duration-200 hover:opacity-60"
+          >
+            <div className="flex flex-col gap-0.5">
+              <span className="text-base font-medium text-[var(--text-title)]">CV / Özgeçmiş</span>
+              <span className="text-sm font-light text-[var(--text-subtitle)]">Profil, deneyimler, eğitim ve yetenekleri yönet</span>
+            </div>
+            <ChevronRight />
+          </Link>
         </nav>
       </main>
     </div>

@@ -84,6 +84,8 @@ export interface ProjectData {
   titleEn?: string;
   category: string;
   year: string;
+  /** Company associated with the project from CV experiences */
+  company?: string;
   /** Cover / thumbnail image URL */
   coverImage?: string;
   description?: string;

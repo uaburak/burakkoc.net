@@ -18,15 +18,17 @@ gsap.registerPlugin(ScrollTrigger);
 export default function ScrollReveal({
   children,
   className = "",
+  disabled = false,
 }: {
   children: React.ReactNode;
   className?: string;
+  disabled?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
-      if (!ref.current) return;
+      if (disabled || !ref.current) return;
 
       gsap.from(ref.current, {
         opacity: 0,
@@ -41,7 +43,7 @@ export default function ScrollReveal({
         },
       });
     },
-    { scope: ref }
+    { scope: ref, dependencies: [disabled] }
   );
 
   return (

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FlyingImages, FlyingImagesRef } from "@/components/FlyingImages";
 import { ProjectData } from "@/types/project";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function HomeClient({ initialProjects }: { initialProjects: ProjectData[] }) {
   const router = useRouter();
@@ -57,6 +58,11 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
 
   return (
     <div className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative overflow-hidden flex flex-col">
+      {/* ── Dark/Light Mode Toggle (Absolute) ── */}
+      <div className="absolute top-6 right-6 md:top-8 md:right-8 z-30">
+        <ThemeToggle />
+      </div>
+
       {/* ── Dynamic 3D Flying Images Background ── */}
       <FlyingImages ref={flyingImagesRef} initialProjects={initialProjects} />
 

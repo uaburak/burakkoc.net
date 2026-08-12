@@ -19,15 +19,17 @@ gsap.registerPlugin(ScrollTrigger, SplitText);
 export default function TextScrollingEffect({
   children,
   className = "",
+  disabled = false,
 }: {
   children: React.ReactNode;
   className?: string;
+  disabled?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
-      if (!containerRef.current) return;
+      if (disabled || !containerRef.current) return;
 
       // Select all text elements within the container
       const textElements = containerRef.current.querySelectorAll(
@@ -56,7 +58,7 @@ export default function TextScrollingEffect({
         });
       });
     },
-    { scope: containerRef }
+    { scope: containerRef, dependencies: [disabled] }
   );
 
   // `.line-reveal` stili globals.css'te tanımlı (her instance için <style> basmamak adına).

@@ -143,6 +143,7 @@ export function FigmaBlockEditor({ block, onChange, projectSlug = "unknown" }: F
           {protoTab === "URL" ? (
             <Input
               type="url"
+              bgContext="block"
               value={block.figmaCover ?? ""}
               onChange={(e) => onChange({ figmaCover: e.target.value })}
               placeholder="Prototip Kapak Resmi URL - https://..."
@@ -160,6 +161,7 @@ export function FigmaBlockEditor({ block, onChange, projectSlug = "unknown" }: F
         </div>
         <Input
           type="text"
+          bgContext="block"
           value={block.src ?? ""}
           onChange={(e) => handleSrcChange(e.target.value)}
           placeholder="Figma prototip linki (https://www.figma.com/proto/...)"
@@ -179,6 +181,7 @@ export function FigmaBlockEditor({ block, onChange, projectSlug = "unknown" }: F
           {workspaceTab === "URL" ? (
             <Input
               type="url"
+              bgContext="block"
               value={block.figmaWorkspaceCover ?? ""}
               onChange={(e) => onChange({ figmaWorkspaceCover: e.target.value })}
               placeholder="Pages Kapak Resmi URL - https://..."
@@ -196,6 +199,7 @@ export function FigmaBlockEditor({ block, onChange, projectSlug = "unknown" }: F
         </div>
         <Input
           type="text"
+          bgContext="block"
           value={block.figmaWorkspace ?? ""}
           onChange={(e) => handleWorkspaceChange(e.target.value)}
           placeholder="Figma Pages linki (https://www.figma.com/design/...)"
@@ -205,6 +209,7 @@ export function FigmaBlockEditor({ block, onChange, projectSlug = "unknown" }: F
 
       <Input
         type="text"
+        bgContext="block"
         value={block.caption ?? ""}
         onChange={(e) => onChange({ caption: e.target.value })}
         placeholder="Açıklama — prototipin altında görünür (isteğe bağlı)"

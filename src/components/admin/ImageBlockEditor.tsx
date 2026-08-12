@@ -147,6 +147,7 @@ export function ImageBlockEditor({ block, onChange, projectSlug = "unknown" }: I
         {tab === "URL" ? (
           <Input
             type="url"
+            bgContext="block"
             value={block.src ?? ""}
             onChange={(e) => onChange({ src: e.target.value })}
             placeholder="Resim URL - https://..."
@@ -166,6 +167,7 @@ export function ImageBlockEditor({ block, onChange, projectSlug = "unknown" }: I
       {/* Alt metin */}
       <Input
         type="text"
+        bgContext="block"
         value={block.alt ?? ""}
         onChange={(e) => onChange({ alt: e.target.value })}
         placeholder="Alt Metin"
@@ -175,6 +177,7 @@ export function ImageBlockEditor({ block, onChange, projectSlug = "unknown" }: I
       {/* Açıklama */}
       <Input
         type="text"
+        bgContext="block"
         value={block.caption ?? ""}
         onChange={(e) => onChange({ caption: e.target.value })}
         placeholder="Açıklama"

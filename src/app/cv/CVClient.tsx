@@ -9,8 +9,9 @@ import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 import PageEntrance from "@/components/PageEntrance";
 import { TopBar } from "@/components/TopBar";
-import { listProjects } from "@/lib/firestore";
+import { listProjects, getCVData } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
+import { CVData } from "@/types/cv";
 import { ZoomableImage } from "@/components/ZoomableImage";
 
 function getProjectCoverImage(proj?: ProjectData | null): string | null {
@@ -24,76 +25,6 @@ function getProjectCoverImage(proj?: ProjectData | null): string | null {
   }
   return null;
 }
-
-// ── Data ─────────────────────────────────────────────────────────────────────
-
-const experience = [
-  {
-    year: "Jul 2024 — Present",
-    company: "Anex Tour",
-    role: "UX/UI Designer",
-    description:
-      "Designing user interfaces and experiences for one of Turkey's leading tour operators. Responsible for end-to-end UX design of digital touchpoints across web and mobile platforms.",
-  },
-  {
-    year: "Dec 2022 — Apr 2024",
-    company: "DGTLFACE | Technology Partner",
-    role: "UX/UI Designer",
-    description:
-      "Designed digital products and interfaces for a technology partner studio. Worked across multiple client projects delivering high-fidelity UI designs, prototypes, and design systems.",
-  },
-  {
-    year: "Jun 2022 — Nov 2022",
-    company: "Ideapol Digital Media Agency",
-    role: "Graphic Designer",
-    description:
-      "Created visual assets and design materials for digital media campaigns. Collaborated closely with creative and marketing teams to produce compelling brand communications.",
-  },
-  {
-    year: "Aug 2016 — Nov 2021",
-    company: "Turpaksan Ltd. Şti. Hobby House",
-    role: "Graphic Designer",
-    description:
-      "Developed brand identities, print materials, and digital visuals. Managed multiple design projects simultaneously while maintaining consistent brand standards.",
-  },
-  {
-    year: "Feb 2012 — ∞",
-    company: "Freelance",
-    role: "Graphic Designer",
-    description:
-      "Independent graphic design work for a diverse range of clients. Services include branding, visual identity, print design, and digital illustration.",
-  },
-];
-
-const education = [
-  {
-    year: "2017 — 2019",
-    institution: "Tokat Gazi Osman Paşa Üniversitesi",
-    degree: "Turhal MYO — Grafik Tasarım Bölümü",
-    description:
-      "Associate degree in Graphic Design. Gained a strong foundation in visual communication, typography, and digital design tools.",
-  },
-  {
-    year: "2010 — 2014",
-    institution: "Tokat Otelcilik ve Turizm Meslek Lisesi",
-    degree: "Yiyecek İçecek Hizmetleri Mutfak Bölümü",
-    description:
-      "Vocational high school with a focus on hospitality and food & beverage services.",
-  },
-];
-
-const skillsList = [
-  { name: "Figma", level: 95, iconType: "figma" },
-  { name: "Illustrator", level: 95, iconType: "illustrator" },
-  { name: "Photoshop", level: 90, iconType: "photoshop" },
-  { name: "AI Models", level: 80, iconType: "ai" },
-  { name: "Indesign", level: 45, iconType: "indesign" },
-  { name: "Office", level: 60, iconType: "office" },
-  { name: "After Effect", level: 55, iconType: "aftereffect" },
-  { name: "HTML", level: 65, iconType: "html" },
-  { name: "CSS", level: 80, iconType: "css" },
-  { name: "Tailwind CSS", level: 35, iconType: "tailwind" },
-];
 
 function SkillIcon({ type }: { type: string }) {
   switch (type) {
@@ -170,23 +101,7 @@ function SkillIcon({ type }: { type: string }) {
   }
 }
 
-const hobbies = [
-  "Making / Listening to Music",
-  "Computer Games",
-  "Camping",
-];
-
-const contact = [
-  { label: "Email", value: "info@burakkoc.net", href: "mailto:info@burakkoc.net" },
-  { label: "Website", value: "www.burakkoc.net", href: "https://www.burakkoc.net" },
-  { label: "Instagram", value: "/uaburak", href: "https://instagram.com/uaburak" },
-  { label: "Behance", value: "/uaburak", href: "https://behance.net/uaburak" },
-  { label: "LinkedIn", value: "/uaburak", href: "https://linkedin.com/in/uaburak" },
-  { label: "Dribbble", value: "/burakkoc", href: "https://dribbble.com/burakkoc" },
-];
-
 // ── Icons ─────────────────────────────────────────────────────────────────────
-
 
 function DownloadIcon() {
   return (
@@ -206,9 +121,9 @@ function ExternalLinkIcon() {
 
 // ── Section header ────────────────────────────────────────────────────────────
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, disabled }: { children: React.ReactNode; disabled?: boolean }) {
   return (
-    <TextScrollingEffect>
+    <TextScrollingEffect disabled={disabled}>
       <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)] mb-6 mt-2">
         {children}
       </h2>
@@ -223,22 +138,34 @@ function TimelineRow({
   title,
   subtitle,
   description,
+  onMouseEnter,
+  onMouseLeave,
+  disabled,
 }: {
   year: string;
   title: string;
   subtitle: string;
   description: string;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <ScrollReveal>
-      <div className="flex flex-col sm:flex-row gap-2 sm:gap-8 py-5 border-b border-[var(--border)]">
-        <span className="text-sm font-light text-[var(--text-subtitle)] shrink-0 sm:w-[130px] sm:pt-px">
+    <ScrollReveal disabled={disabled}>
+      <div
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        className="flex flex-col sm:flex-row gap-2 sm:gap-8 py-5 border-b border-[var(--border)] transition-colors duration-200 hover:bg-[var(--bg-2)]/60 cursor-pointer rounded-xl px-3 -mx-3"
+      >
+        <span className="text-sm font-light text-[var(--text-subtitle)] shrink-0 sm:w-[180px] whitespace-nowrap sm:pt-px">
           {year}
         </span>
         <div className="flex flex-col gap-1 flex-1 min-w-0">
           <span className="text-base font-medium text-[var(--text-title)] leading-5">{title}</span>
           <span className="text-sm font-light text-[var(--text-subtitle)]">{subtitle}</span>
-          <p className="text-sm font-light leading-6 text-[var(--text-p)] mt-1">{description}</p>
+          {description && (
+            <p className="text-sm font-light leading-6 text-[var(--text-p)] mt-1">{description}</p>
+          )}
         </div>
       </div>
     </ScrollReveal>
@@ -257,14 +184,262 @@ function SkillTag({ children }: { children: React.ReactNode }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export function CVClient() {
-  const leftSkills = skillsList.slice(0, 5);
-  const rightSkills = skillsList.slice(5, 10);
+export function CVClient({ previewData, isPreview = false }: { previewData?: CVData | null; isPreview?: boolean } = {}) {
+  const [internalCvData, setInternalCvData] = useState<CVData | null>(null);
+  const [projects, setProjects] = useState<ProjectData[]>([]);
+
+  const cvData = previewData ?? internalCvData;
 
   const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
   const footerCardRef = useRef<HTMLDivElement>(null);
   const footerImageRef = useRef<HTMLImageElement>(null);
   const [footerActiveImage, setFooterActiveImage] = useState<string | null>(null);
+
+  const cvCardRef = useRef<HTMLDivElement>(null);
+  const cvImageRef = useRef<HTMLImageElement>(null);
+
+  const profilePreviewRef = useRef<HTMLDivElement>(null);
+  const profilePreviewImgRef = useRef<HTMLImageElement>(null);
+
+  const profileXTo = useRef<gsap.QuickToFunc | null>(null);
+  const profileYTo = useRef<gsap.QuickToFunc | null>(null);
+  const profileRotateTo = useRef<gsap.QuickToFunc | null>(null);
+  const profilePrevMousePos = useRef({ x: 0, y: 0 });
+  const profileIdleTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Experience hover cursor tracking
+  const [expActiveImage, setExpActiveImage] = useState<string | null>(null);
+  const expPreviewRef = useRef<HTMLDivElement>(null);
+  const expPreviewImgRef = useRef<HTMLImageElement>(null);
+
+  const expXTo = useRef<gsap.QuickToFunc | null>(null);
+  const expYTo = useRef<gsap.QuickToFunc | null>(null);
+  const expRotateTo = useRef<gsap.QuickToFunc | null>(null);
+  const expPrevMousePos = useRef({ x: 0, y: 0 });
+  const expIdleTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!previewData) {
+      getCVData()
+        .then((data) => setInternalCvData(data))
+        .catch((err) => console.error("Failed to load CV data:", err));
+    }
+
+    listProjects()
+      .then((projs) => {
+        setProjects(projs);
+        if (projs.length > 0) setFeaturedProject(projs[0]);
+      })
+      .catch((err) => console.error("Failed to fetch projects for CV:", err));
+  }, []);
+
+  useEffect(() => {
+    if (!profilePreviewRef.current) return;
+
+    gsap.set(profilePreviewRef.current, {
+      xPercent: -50,
+      yPercent: -50,
+      opacity: 0,
+      scale: 0.75,
+      pointerEvents: "none",
+    });
+
+    profileXTo.current = gsap.quickTo(profilePreviewRef.current, "x", { duration: 0.35, ease: "power3.out" });
+    profileYTo.current = gsap.quickTo(profilePreviewRef.current, "y", { duration: 0.35, ease: "power3.out" });
+    profileRotateTo.current = gsap.quickTo(profilePreviewRef.current, "rotation", { duration: 0.4, ease: "power3.out" });
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (profileXTo.current && profileYTo.current) {
+        profileXTo.current(e.clientX);
+        profileYTo.current(e.clientY);
+      }
+
+      const deltaX = e.clientX - profilePrevMousePos.current.x;
+      profilePrevMousePos.current = { x: e.clientX, y: e.clientY };
+
+      if (profileRotateTo.current) {
+        const rotation = Math.max(-12, Math.min(12, deltaX * 0.25));
+        profileRotateTo.current(rotation);
+      }
+
+      if (profileIdleTimer.current) clearTimeout(profileIdleTimer.current);
+      profileIdleTimer.current = setTimeout(() => {
+        profileRotateTo.current?.(0);
+      }, 100);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (profileIdleTimer.current) clearTimeout(profileIdleTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!expPreviewRef.current) return;
+
+    gsap.set(expPreviewRef.current, {
+      xPercent: -50,
+      yPercent: -50,
+      opacity: 0,
+      scale: 0.75,
+      pointerEvents: "none",
+    });
+
+    expXTo.current = gsap.quickTo(expPreviewRef.current, "x", { duration: 0.35, ease: "power3.out" });
+    expYTo.current = gsap.quickTo(expPreviewRef.current, "y", { duration: 0.35, ease: "power3.out" });
+    expRotateTo.current = gsap.quickTo(expPreviewRef.current, "rotation", { duration: 0.4, ease: "power3.out" });
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (expXTo.current && expYTo.current) {
+        expXTo.current(e.clientX);
+        expYTo.current(e.clientY);
+      }
+
+      const deltaX = e.clientX - expPrevMousePos.current.x;
+      expPrevMousePos.current = { x: e.clientX, y: e.clientY };
+
+      if (expRotateTo.current) {
+        const rotation = Math.max(-12, Math.min(12, deltaX * 0.25));
+        expRotateTo.current(rotation);
+      }
+
+      if (expIdleTimer.current) clearTimeout(expIdleTimer.current);
+      expIdleTimer.current = setTimeout(() => {
+        expRotateTo.current?.(0);
+      }, 100);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (expIdleTimer.current) clearTimeout(expIdleTimer.current);
+    };
+  }, []);
+
+  const handleMouseEnterExp = (companyName: string) => {
+    const compLower = companyName.trim().toLowerCase();
+    const matchedProject = projects.find(
+      (p) =>
+        p.company?.trim().toLowerCase() === compLower ||
+        compLower.includes(p.company?.trim().toLowerCase() || "___") ||
+        (p.company && compLower.includes(p.company.trim().toLowerCase()))
+    );
+
+    const img = matchedProject ? getProjectCoverImage(matchedProject) : null;
+    if (img) {
+      setExpActiveImage(img);
+      if (expPreviewRef.current) {
+        gsap.to(expPreviewRef.current, {
+          opacity: 1,
+          scale: 1,
+          duration: 0.35,
+          ease: "power2.out",
+          overwrite: "auto",
+        });
+      }
+      if (expPreviewImgRef.current) {
+        gsap.fromTo(
+          expPreviewImgRef.current,
+          { scale: 1.15 },
+          { scale: 1, duration: 0.45, ease: "power2.out" }
+        );
+      }
+    } else {
+      handleMouseLeaveExp();
+    }
+  };
+
+  const handleMouseLeaveExp = () => {
+    if (expPreviewRef.current) {
+      gsap.to(expPreviewRef.current, {
+        opacity: 0,
+        scale: 0.75,
+        duration: 0.3,
+        ease: "power2.out",
+        overwrite: "auto",
+      });
+    }
+  };
+
+  const handleMouseEnterCv = () => {
+    if (cvCardRef.current) {
+      gsap.to(cvCardRef.current, {
+        opacity: 1,
+        scale: 1,
+        duration: 0.4,
+        ease: "power3.out",
+        overwrite: "auto",
+      });
+    }
+    if (cvImageRef.current) {
+      gsap.fromTo(
+        cvImageRef.current,
+        { scale: 1.15 },
+        { scale: 1, duration: 0.45, ease: "power2.out" }
+      );
+    }
+  };
+
+  const handleMouseMoveCv = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!cvCardRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width - 0.5;
+
+    gsap.to(cvCardRef.current, {
+      x: relX * 20,
+      rotation: relX * 6,
+      opacity: 1,
+      scale: 1,
+      duration: 0.3,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+  };
+
+  const handleMouseLeaveCv = () => {
+    if (!cvCardRef.current) return;
+    gsap.to(cvCardRef.current, {
+      opacity: 0,
+      scale: 0.95,
+      x: 0,
+      rotation: 0,
+      duration: 0.35,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+  };
+
+  const handleMouseEnterProfile = () => {
+    if (profilePreviewRef.current) {
+      gsap.to(profilePreviewRef.current, {
+        opacity: 1,
+        scale: 1,
+        duration: 0.35,
+        ease: "power2.out",
+        overwrite: "auto",
+      });
+    }
+    if (profilePreviewImgRef.current) {
+      gsap.fromTo(
+        profilePreviewImgRef.current,
+        { scale: 1.15 },
+        { scale: 1, duration: 0.45, ease: "power2.out" }
+      );
+    }
+  };
+
+  const handleMouseLeaveProfile = () => {
+    if (profilePreviewRef.current) {
+      gsap.to(profilePreviewRef.current, {
+        opacity: 0,
+        scale: 0.75,
+        duration: 0.3,
+        ease: "power2.out",
+        overwrite: "auto",
+      });
+    }
+  };
 
   useEffect(() => {
     listProjects()
@@ -371,90 +546,158 @@ export function CVClient() {
     }
   }, [footerActiveImage]);
 
+  const leftSkills = (cvData?.skillsList || []).slice(0, Math.ceil((cvData?.skillsList || []).length / 2));
+  const rightSkills = (cvData?.skillsList || []).slice(Math.ceil((cvData?.skillsList || []).length / 2));
+
   return (
     <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative overflow-x-hidden">
 
-      {/* ── Left sidebar (xl+) ── */}
+      {/* ── Profile Cursor-Tracking Floating Preview ── */}
       <div
-        className="fixed top-[160px] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex"
-        style={{ left: "calc(50% - 468px - var(--scrollbar-width, 0px) / 2)" }}
+        ref={profilePreviewRef}
+        className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-44 sm:w-48 aspect-square rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
       >
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1 px-[10px] py-[10px] rounded-full font-medium text-base leading-5 text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-95"
-        >
-          <span className="flex items-center justify-center w-5 h-5">
-            <ArrowLeftIcon />
-          </span>
-          <span className="px-1">Home</span>
-        </Link>
+        <img
+          ref={profilePreviewImgRef}
+          src={cvData?.profileImage || "/pp-new-2.jpg"}
+          alt="Burak KOÇ Preview"
+          className="w-full h-full object-cover"
+        />
       </div>
 
+      {/* ── Experience Cursor-Tracking Floating Preview ── */}
+      <div
+        ref={expPreviewRef}
+        className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-[260px] sm:w-[300px] aspect-[16/10] rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
+      >
+        {expActiveImage && (
+          <img
+            ref={expPreviewImgRef}
+            src={expActiveImage}
+            alt="Experience Project Preview"
+            className="w-full h-full object-cover"
+          />
+        )}
+      </div>
+
+      {/* ── Left sidebar (xl+) ── */}
+      {!isPreview && (
+        <div
+          className="fixed top-[160px] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex"
+          style={{ left: "calc(50% - 468px - var(--scrollbar-width, 0px) / 2)" }}
+        >
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1 px-[10px] py-[10px] rounded-full font-medium text-base leading-5 text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-95"
+          >
+            <span className="flex items-center justify-center w-5 h-5">
+              <ArrowLeftIcon />
+            </span>
+            <span className="px-1">Home</span>
+          </Link>
+        </div>
+      )}
+
       {/* ── Top bar (xl altı) — içerik sütunuyla aynı hizada ── */}
-      <TopBar backHref="/" backLabel="Home" showThemeToggle={false} className="xl:hidden" />
+      {!isPreview && (
+        <TopBar backHref="/" backLabel="Home" showThemeToggle={false} className="xl:hidden" />
+      )}
 
       {/* ── Main content ── */}
-      <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
+      <main className={`flex flex-col items-start w-full max-w-[720px] mx-auto ${isPreview ? "px-4 pt-6 pb-12" : "px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]"}`}>
 
         {/* ─── Header ─── */}
         <section className="flex flex-col items-start w-full pt-[10px] pb-10 border-b border-[var(--border)]">
           <div className="flex flex-wrap items-center justify-between w-full gap-4">
             <div className="flex items-center gap-4 min-w-0">
-              <div className="w-[72px] h-[72px] rounded-[20px] bg-[var(--bg-4)] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer">
+              <div
+                onMouseEnter={handleMouseEnterProfile}
+                onMouseLeave={handleMouseLeaveProfile}
+                onClick={handleMouseLeaveProfile}
+                className="w-[72px] h-[72px] rounded-[20px] bg-[var(--bg-4)] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
+              >
                 <ZoomableImage
-                  src="/burak.png"
-                  alt="Burak KOÇ"
+                  src={cvData?.profileImage || "/pp-new-2.jpg"}
+                  alt={cvData?.name || "Burak KOÇ"}
                   className="w-full h-full object-cover"
+                  getStartRect={() => {
+                    if (profilePreviewRef.current) {
+                      const style = window.getComputedStyle(profilePreviewRef.current);
+                      if (parseFloat(style.opacity) > 0.1) {
+                        return profilePreviewRef.current.getBoundingClientRect();
+                      }
+                    }
+                    return null;
+                  }}
                 />
               </div>
-              <TextScrollingEffect className="flex flex-col justify-center gap-0.5 min-w-0">
-                <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">Burak KOÇ</h1>
+
+              <TextScrollingEffect disabled={isPreview} className="flex flex-col justify-center gap-0.5 min-w-0">
+                <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+                  {cvData?.name || "Burak KOÇ"}
+                </h1>
                 <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
-                  UX/UI Designer
+                  {cvData?.role || "UX/UI Designer"}
                 </p>
               </TextScrollingEffect>
             </div>
 
-            <a
-              href="/CV-EN.pdf"
-              download
-              id="cv-download"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-medium text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-95 shrink-0"
-            >
-              <DownloadIcon />
-              Download CV
-            </a>
+            <div className="relative shrink-0" onMouseLeave={handleMouseLeaveCv}>
+              {/* CV Preview Card (Hover) — Butonun altında gösterilir */}
+              <div
+                ref={cvCardRef}
+                className="absolute pointer-events-none hidden md:block w-48 sm:w-56 aspect-[3/4] origin-top rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
+                style={{ top: "calc(100% + 12px)", right: "0%" }}
+              >
+                <img
+                  ref={cvImageRef}
+                  src="/cv-preview.png"
+                  alt="CV Document Preview"
+                  className="w-full h-full object-cover object-top"
+                />
+              </div>
+
+              <a
+                href={cvData?.cvPdfUrl || "/CV-EN.pdf"}
+                download
+                id="cv-download"
+                onMouseEnter={handleMouseEnterCv}
+                onMouseMove={handleMouseMoveCv}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-medium text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-95 shrink-0"
+              >
+                <DownloadIcon />
+                Download CV
+              </a>
+            </div>
           </div>
         </section>
 
         {/* ─── About ─── */}
         <section className="flex flex-col items-start w-full pt-10 pb-10 border-b border-[var(--border)]">
-          <SectionLabel>About</SectionLabel>
-          <TextScrollingEffect>
-            <p className="text-base font-light leading-7 text-[var(--text-p)]">
-              Hello, I was born in Tokat in 1996. Listening to music and playing instruments are
-              great passions of mine. I enjoy exploring different genres and developing my skills
-              with various instruments.
-            </p>
-            <p className="text-base font-light leading-7 text-[var(--text-p)] mt-4">
-              I generally adopt a solution-oriented approach to life, which guides me in both my
-              personal and professional life. Working in an office has always been my priority.
-              When it comes to technology, I prefer using MacOS.
-            </p>
+          <SectionLabel disabled={isPreview}>About</SectionLabel>
+          <TextScrollingEffect disabled={isPreview}>
+            {(cvData?.aboutParagraphs || []).map((paragraph, i) => (
+              <p key={i} className={`text-base font-light leading-7 text-[var(--text-p)] ${i > 0 ? "mt-4" : ""}`}>
+                {paragraph}
+              </p>
+            ))}
           </TextScrollingEffect>
         </section>
 
         {/* ─── Experience ─── */}
         <section className="flex flex-col items-start w-full pt-10 pb-4">
-          <SectionLabel>Experience</SectionLabel>
-          <div className="flex flex-col w-full">
-            {experience.map((item, i) => (
+          <SectionLabel disabled={isPreview}>Experience</SectionLabel>
+          <div className="flex flex-col w-full" onMouseLeave={handleMouseLeaveExp}>
+            {(cvData?.experience || []).map((item, i) => (
               <TimelineRow
-                key={i}
+                key={item.id || i}
                 year={item.year}
                 title={item.role}
                 subtitle={item.company}
                 description={item.description}
+                onMouseEnter={() => handleMouseEnterExp(item.company)}
+                onMouseLeave={handleMouseLeaveExp}
+                disabled={isPreview}
               />
             ))}
           </div>
@@ -462,15 +705,16 @@ export function CVClient() {
 
         {/* ─── Education ─── */}
         <section className="flex flex-col items-start w-full pt-10 pb-4">
-          <SectionLabel>Education</SectionLabel>
+          <SectionLabel disabled={isPreview}>Education</SectionLabel>
           <div className="flex flex-col w-full">
-            {education.map((item, i) => (
+            {(cvData?.education || []).map((item, i) => (
               <TimelineRow
-                key={i}
+                key={item.id || i}
                 year={item.year}
                 title={item.degree}
                 subtitle={item.institution}
                 description={item.description}
+                disabled={isPreview}
               />
             ))}
           </div>
@@ -478,11 +722,11 @@ export function CVClient() {
 
         {/* ─── Skills ─── */}
         <section className="flex flex-col items-start w-full pt-10 pb-10 border-b border-[var(--border)]">
-          <SectionLabel>Skills</SectionLabel>
+          <SectionLabel disabled={isPreview}>Skills</SectionLabel>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-16 gap-y-4 w-full">
             <div className="flex flex-col gap-4">
               {leftSkills.map((skill) => (
-                <ScrollReveal key={skill.name}>
+                <ScrollReveal key={skill.id || skill.name} disabled={isPreview}>
                   <div className="flex items-center justify-between py-1 w-full">
                     <div className="flex items-center gap-3.5">
                       <div className="w-6 h-6 flex items-center justify-center shrink-0">
@@ -504,7 +748,7 @@ export function CVClient() {
             </div>
             <div className="flex flex-col gap-4">
               {rightSkills.map((skill) => (
-                <ScrollReveal key={skill.name}>
+                <ScrollReveal key={skill.id || skill.name} disabled={isPreview}>
                   <div className="flex items-center justify-between py-1 w-full">
                     <div className="flex items-center gap-3.5">
                       <div className="w-6 h-6 flex items-center justify-center shrink-0">
@@ -529,10 +773,10 @@ export function CVClient() {
 
         {/* ─── Hobbies ─── */}
         <section className="flex flex-col items-start w-full pt-10 pb-10 border-b border-[var(--border)]">
-          <SectionLabel>Hobbies</SectionLabel>
-          <ScrollReveal>
+          <SectionLabel disabled={isPreview}>Hobbies</SectionLabel>
+          <ScrollReveal disabled={isPreview}>
             <div className="flex flex-wrap gap-2">
-              {hobbies.map((hobby) => (
+              {(cvData?.hobbies || []).map((hobby) => (
                 <span
                   key={hobby}
                   className="inline-flex items-center px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-light text-[var(--text-p)] transition-colors duration-200 hover:border-[var(--border-hover)]"
@@ -546,10 +790,10 @@ export function CVClient() {
 
         {/* ─── Contact ─── */}
         <section className="flex flex-col items-start w-full pt-10">
-          <SectionLabel>Contact</SectionLabel>
+          <SectionLabel disabled={isPreview}>Contact</SectionLabel>
           <div className="grid w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {contact.map((item) => (
-              <ScrollReveal key={item.label} className="h-full">
+            {(cvData?.contact || []).map((item) => (
+              <ScrollReveal key={item.id || item.label} disabled={isPreview} className="h-full">
                 <a
                   href={item.href}
                   target={item.href.startsWith("mailto") ? undefined : "_blank"}
@@ -573,58 +817,60 @@ export function CVClient() {
           </div>
         </section>
 
-        {/* ─── Footer Navigation ─── */}
-        <div
-          className="flex flex-col gap-12 items-start pt-16 w-full"
-          onMouseLeave={handleMouseLeaveFooter}
-        >
-          <div className="w-full h-px bg-[var(--border)]" />
-          <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-0 w-full">
-            {/* Single Shared Footer Preview Card */}
-            <div
-              ref={footerCardRef}
-              className="absolute pointer-events-none hidden md:block w-1/2 aspect-[16/9] origin-bottom rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
-              style={{ bottom: "calc(100% + 12px)", left: "0%" }}
-            >
-              {footerActiveImage && (
-                <img
-                  ref={footerImageRef}
-                  src={footerActiveImage}
-                  alt="Project Preview"
-                  className="w-full h-full object-cover"
-                />
-              )}
+        {/* ─── Footer Navigation (hidden in admin preview) ─── */}
+        {!isPreview && (
+          <div
+            className="flex flex-col gap-12 items-start pt-16 w-full"
+            onMouseLeave={handleMouseLeaveFooter}
+          >
+            <div className="w-full h-px bg-[var(--border)]" />
+            <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-0 w-full">
+              {/* Single Shared Footer Preview Card */}
+              <div
+                ref={footerCardRef}
+                className="absolute pointer-events-none hidden md:block w-1/2 aspect-[16/9] origin-bottom rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
+                style={{ bottom: "calc(100% + 12px)", left: "0%" }}
+              >
+                {footerActiveImage && (
+                  <img
+                    ref={footerImageRef}
+                    src={footerActiveImage}
+                    alt="Project Preview"
+                    className="w-full h-full object-cover"
+                  />
+                )}
+              </div>
+
+              <Link
+                href="/"
+                onMouseEnter={handleMouseEnterHome}
+                onMouseMove={handleMouseMoveHome}
+                className="relative group flex flex-col gap-0.5 justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+              >
+                <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
+                  Back to
+                </span>
+                <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
+                  Home
+                </span>
+              </Link>
+
+              <Link
+                href="/projects"
+                onMouseEnter={handleMouseEnterProjects}
+                onMouseMove={handleMouseMoveProjects}
+                className="relative group flex flex-col gap-0.5 items-start sm:items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+              >
+                <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
+                  Explore
+                </span>
+                <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
+                  Projects
+                </span>
+              </Link>
             </div>
-
-            <Link
-              href="/"
-              onMouseEnter={handleMouseEnterHome}
-              onMouseMove={handleMouseMoveHome}
-              className="relative group flex flex-col gap-0.5 justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
-            >
-              <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
-                Back to
-              </span>
-              <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
-                Home
-              </span>
-            </Link>
-
-            <Link
-              href="/projects"
-              onMouseEnter={handleMouseEnterProjects}
-              onMouseMove={handleMouseMoveProjects}
-              className="relative group flex flex-col gap-0.5 items-start sm:items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
-            >
-              <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
-                Explore
-              </span>
-              <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
-                Projects
-              </span>
-            </Link>
           </div>
-        </div>
+        )}
 
       </main>
     </PageEntrance>

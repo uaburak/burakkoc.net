@@ -14,6 +14,7 @@ export function VideoBlockEditor({ block, onChange }: VideoBlockEditorProps) {
     <div className="flex flex-col gap-3">
       <Input
         type="url"
+        bgContext="block"
         value={block.src ?? ""}
         onChange={(e) => onChange({ src: e.target.value })}
         placeholder="Video URL — YouTube, Vimeo veya .mp4 / .webm"
@@ -21,6 +22,7 @@ export function VideoBlockEditor({ block, onChange }: VideoBlockEditorProps) {
       />
       <Input
         type="text"
+        bgContext="block"
         value={block.caption ?? ""}
         onChange={(e) => onChange({ caption: e.target.value })}
         placeholder="Açıklama — videonun altında görünür"

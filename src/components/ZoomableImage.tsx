@@ -11,6 +11,7 @@ type ZoomableImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
   badges?: BadgeItem[];
   activeTab?: string;
   onTabChange?: (tab: string) => void;
+  getStartRect?: () => DOMRect | null;
 };
 
 function getEmbedUrl(src: string): string | null {
@@ -67,7 +68,7 @@ function ZoomTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   return null;
 }
 
-export function ZoomableImage({ src, alt, className, style, badges, activeTab, onTabChange, ...props }: ZoomableImageProps) {
+export function ZoomableImage({ src, alt, className, style, badges, activeTab, onTabChange, getStartRect, ...props }: ZoomableImageProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [originalRect, setOriginalRect] = useState<DOMRect | null>(null);
@@ -134,12 +135,17 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     }
 
     const img = e.currentTarget;
-    const rect = img.getBoundingClientRect();
+    const customRect = getStartRect?.();
+    const rect = (customRect && customRect.width > 0 && customRect.height > 0)
+      ? customRect
+      : img.getBoundingClientRect();
     const computedStyle = window.getComputedStyle(img);
     const parentStyle = img.parentElement ? window.getComputedStyle(img.parentElement) : null;
 
     // Detect if parent container has overflow: hidden and has border-radius
-    const borderRadius = parentStyle?.overflow === "hidden" ? parentStyle.borderRadius : computedStyle.borderRadius;
+    const borderRadius = customRect
+      ? "16px"
+      : (parentStyle?.overflow === "hidden" ? parentStyle.borderRadius : computedStyle.borderRadius);
 
     setOriginalRect(rect);
     setOriginalBorderRadius(borderRadius || "0px");
