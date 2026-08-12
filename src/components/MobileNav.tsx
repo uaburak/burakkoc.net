@@ -1,9 +1,52 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { motion, AnimatePresence } from "framer-motion";
+
+// ── SVG Icons ─────────────────────────────────────────────────────────────────
+
+function HomeIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <path
+        d="M3 8.5L10 3L17 8.5V16.5A1 1 0 0116 17.5H4A1 1 0 013 16.5V8.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ProjectsIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="3" y="11" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+      <rect x="11" y="11" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function UserIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M3.5 16.5C3.5 13.5 6.41 11.5 10 11.5C13.59 11.5 16.5 13.5 16.5 16.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+// ── Main Morphing Mobile Navigation ──────────────────────────────────────────
 
 export function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
@@ -15,7 +58,7 @@ export function MobileNav() {
     setIsOpen(false);
   }, [pathname]);
 
-  // Close menu when clicking outside
+  // Close menu on click/touch outside
   useEffect(() => {
     if (!isOpen) return;
 
@@ -34,102 +77,110 @@ export function MobileNav() {
     };
   }, [isOpen]);
 
-  // Don't render on admin routes
   if (pathname?.startsWith("/admin")) {
     return null;
   }
 
+  const handleClose = () => {
+    setIsOpen(false);
+  };
+
   const navLinks = [
-    { href: "/", label: "Home" },
-    { href: "/projects", label: "Projects" },
-    { href: "/cv", label: "CV" },
+    { href: "/", label: "Home", icon: <HomeIcon /> },
+    { href: "/projects", label: "Projects", icon: <ProjectsIcon /> },
+    { href: "/cv", label: "CV", icon: <UserIcon /> },
   ];
+
+  // CLOSED: 104px width, 42px height, full radius on all corners (9999px)
+  // OPEN: calc(100vw - 24px) width, 152px height (fitted strictly to 3 items), 24px radius
+  const targetWidth = !isOpen ? "104px" : "calc(100vw - 24px)";
+  const targetHeight = !isOpen ? "42px" : "152px";
+  const targetRadius = !isOpen ? "9999px" : "24px";
 
   return (
     <div
       ref={menuRef}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 xl:hidden pointer-events-auto"
+      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 xl:hidden pointer-events-auto"
     >
-      {/* ── Floating Popup Menu Card ── */}
-      {isOpen && (
-        <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-[220px] rounded-2xl border border-[var(--border)] bg-[var(--bg-1)]/95 backdrop-blur-xl p-2 shadow-[0_16px_40px_rgba(0,0,0,0.2)] flex flex-col gap-1 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2">
-          {navLinks.map((link) => {
-            const isActive =
-              link.href === "/"
-                ? pathname === "/"
-                : pathname?.startsWith(link.href);
-
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setIsOpen(false)}
-                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors duration-150 ${
-                  isActive
-                    ? "bg-[var(--bg-4)] text-[var(--text-title)] font-semibold"
-                    : "text-[var(--text-subtitle)] hover:text-[var(--text-p)] hover:bg-[var(--bg-3)]"
-                }`}
-              >
-                <span>{link.label}</span>
-                {isActive && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-title)]" />
-                )}
-              </Link>
-            );
-          })}
-
-          <div className="h-px bg-[var(--border)] my-1" />
-
-          <div className="flex items-center justify-between px-3.5 py-2">
-            <span className="text-xs font-medium text-[var(--text-subtitle)]">
-              Theme
-            </span>
-            <ThemeToggle />
-          </div>
-        </div>
-      )}
-
-      {/* ── Sticky Floating Menu Button ── */}
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        aria-label="Toggle navigation menu"
-        className="flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border)] bg-[var(--bg-1)]/90 backdrop-blur-md text-[var(--text-title)] shadow-[0_8px_32px_rgba(0,0,0,0.16)] text-sm font-medium transition-all duration-200 active:scale-95 hover:bg-[var(--bg-4)] cursor-pointer select-none"
+      <motion.div
+        animate={{
+          width: targetWidth,
+          height: targetHeight,
+          borderRadius: targetRadius,
+        }}
+        transition={{
+          type: "spring",
+          damping: 24,
+          stiffness: 340,
+          mass: 0.6,
+        }}
+        className="border border-[var(--border)] bg-[var(--bg-1)] backdrop-blur-xl text-[var(--text-title)] overflow-hidden relative shadow-lg"
+        style={{ originX: 0.5, originY: 1 }}
       >
-        {/* Animated icon (Grid/Bars -> Close X) */}
-        <div className="relative w-4 h-4 flex items-center justify-center">
-          {isOpen ? (
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              className="text-[var(--text-title)]"
-            >
-              <path
-                d="M3 3l8 8M11 3l-8 8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          ) : (
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              className="text-[var(--text-title)]"
-            >
-              <circle cx="3" cy="3" r="1.25" fill="currentColor" />
-              <circle cx="11" cy="3" r="1.25" fill="currentColor" />
-              <circle cx="3" cy="11" r="1.25" fill="currentColor" />
-              <circle cx="11" cy="11" r="1.25" fill="currentColor" />
-            </svg>
-          )}
-        </div>
-        <span>Menu</span>
-      </button>
+        {/* CLOSED STATE: Full Radius Floating Pill Button */}
+        {!isOpen && (
+          <motion.button
+            type="button"
+            onClick={() => setIsOpen(true)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="w-full h-full flex items-center justify-center gap-2 text-sm font-medium select-none cursor-pointer hover:bg-[var(--bg-4)] transition-colors"
+          >
+            <div className="relative w-4 h-4 flex items-center justify-center">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-[var(--text-title)]">
+                <circle cx="3" cy="3" r="1.25" fill="currentColor" />
+                <circle cx="11" cy="3" r="1.25" fill="currentColor" />
+                <circle cx="3" cy="11" r="1.25" fill="currentColor" />
+                <circle cx="11" cy="11" r="1.25" fill="currentColor" />
+              </svg>
+            </div>
+            <span>Menu</span>
+          </motion.button>
+        )}
+
+        {/* OPEN STATE: Equal Padding & Full Radius Navigation Buttons */}
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, delay: 0.05 }}
+            className="absolute inset-0 flex flex-col justify-center max-w-[500px] mx-auto w-full p-2.5"
+          >
+            <div className="flex flex-col gap-1.5">
+              {navLinks.map((link) => {
+                const isActive =
+                  link.href === "/"
+                    ? pathname === "/"
+                    : pathname?.startsWith(link.href);
+
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={handleClose}
+                    className={`flex items-center justify-between px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-150 ${
+                      isActive
+                        ? "bg-[var(--bg-4)] text-[var(--text-title)] font-semibold"
+                        : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-3)]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-[var(--text-subtitle)]">{link.icon}</span>
+                      <span>{link.label}</span>
+                    </div>
+                    {isActive && (
+                      <span className="w-2 h-2 rounded-full bg-[var(--text-title)]" />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </motion.div>
     </div>
   );
 }
