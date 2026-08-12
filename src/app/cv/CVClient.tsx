@@ -598,11 +598,6 @@ export function CVClient({ previewData, isPreview = false }: { previewData?: CVD
         </div>
       )}
 
-      {/* ── Top bar (xl altı) — içerik sütunuyla aynı hizada ── */}
-      {!isPreview && (
-        <TopBar backHref="/" backLabel="Home" showThemeToggle={false} className="xl:hidden" />
-      )}
-
       {/* ── Main content ── */}
       <main className={`flex flex-col items-start w-full max-w-[720px] mx-auto ${isPreview ? "px-4 pt-6 pb-12" : "px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]"}`}>
 

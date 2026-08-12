@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import { BadgeIconType, BadgeItem, BadgePosition, SegmentedSecondTab } from "@/types/project";
 import { PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
+import { cn } from "@/lib/utils";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -194,16 +195,16 @@ function BadgeRow({ badge, isDragging, isOver, onChange, onDelete, onGripPointer
   return (
     <div
       ref={rowRef}
-      className={[
-        "rounded-[14px] border overflow-hidden transition-all duration-150",
-        isDragging ? "opacity-40 scale-[0.98] border-[var(--border)] bg-[var(--bg-4)]" :
-        isOver     ? "border-[var(--border-hover)] bg-[var(--bg-4)] shadow-sm" :
-                     "border-[var(--border)] bg-[var(--bg-4)]",
-      ].join(" ")}
+      className={cn(
+        "rounded-[18px] border overflow-hidden transition-all duration-150",
+        isDragging ? "opacity-40 scale-[0.98] border-[var(--border)] bg-[var(--bg-1)]" :
+        isOver     ? "border-[var(--border-hover)] bg-[var(--bg-1)] shadow-sm" :
+                     "border border-transparent bg-[var(--bg-1)] hover:border-[var(--border-hover)]"
+      )}
     >
       {/* ── Header row ── */}
       <div
-        className={`flex items-center gap-2 px-3 py-2.5 ${canExpand ? "cursor-pointer" : ""}`}
+        className={`flex items-center gap-2 h-10 px-3.5 ${canExpand ? "cursor-pointer" : ""}`}
         onClick={() => canExpand && setOpen((v) => !v)}
       >
         {/* Grip */}
@@ -246,24 +247,25 @@ function BadgeRow({ badge, isDragging, isOver, onChange, onDelete, onGripPointer
           ))}
         </div>
 
-        {/* Delete — X button */}
+        {/* Delete — Traffic light red dot */}
         <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
           title="Kaldır"
-          className="flex items-center justify-center w-6 h-6 rounded-full border border-transparent text-[var(--text-subtitle)] hover:border-red-300/60 hover:text-red-500 hover:bg-red-50/10 transition-colors duration-150 cursor-pointer flex-shrink-0"
-        >
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-            <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-        </button>
+          data-traffic-color="#e20000"
+          data-traffic-icon="trash"
+          className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+          style={{ background: "#e20000" }}
+        />
       </div>
 
       {/* ── Accordion body ── */}
       {canExpand && open && (
-        <div className="px-3 pb-3 pt-2 border-t border-[var(--border)] bg-[var(--bg-2)] flex flex-col gap-2.5">
+        <div className="px-3.5 pb-3 pt-2 border-t border-[var(--border)] bg-white dark:bg-[var(--bg-2)] flex flex-col gap-2.5">
           {(badge.icon === "link" || badge.icon === "external") && (
             <Input
               size="sm"
+              bgContext="block"
               type="url"
               value={badge.href ?? ""}
               onChange={(e) => onChange({ href: e.target.value })}
@@ -362,7 +364,8 @@ export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEdi
       <div className="flex items-center justify-between gap-2">
         <div className="flex-shrink-0">{aspectRatioControl}</div>
         <PillButton
-          size="sm"
+          size="md"
+          bgContext="block"
           onClick={() => setShowPicker((v) => !v)}
           startIcon={
             <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
@@ -376,12 +379,12 @@ export function BadgesEditor({ badges, onChange, aspectRatioControl }: BadgesEdi
 
       {/* Type picker */}
       {showPicker && (
-        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg-4)]">
+        <div className="grid grid-cols-3 gap-1.5 p-2 rounded-[18px] border border-[var(--border)] bg-[var(--bg-1)] shadow-sm">
           {BADGE_DEFS.map(({ type, label, icon }) => (
             <button
               key={type}
               onClick={() => addBadge(type)}
-              className="flex flex-col items-center gap-1.5 p-2.5 rounded-[10px] border border-transparent hover:border-[var(--border-hover)] hover:bg-[var(--bg-5)] transition-all duration-100 cursor-pointer group"
+              className="flex flex-col items-center gap-1.5 p-2.5 rounded-[12px] border border-transparent hover:border-[var(--border-hover)] hover:bg-[var(--bg-4)] transition-all duration-150 cursor-pointer group"
             >
               <span className="text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-100">{icon}</span>
               <span className="text-[10px] font-medium text-[var(--text-subtitle)] group-hover:text-[var(--text-p)] transition-colors duration-100">{label}</span>

@@ -212,12 +212,12 @@ export function CodeHighlight({ code, language = "javascript", className = "" }:
       >
         <pre
           suppressHydrationWarning
-          className="font-mono text-xs sm:text-sm leading-6 text-[var(--text-p)] whitespace-pre p-5 sm:p-6 m-0 min-w-full inline-block"
+          className="font-mono text-xs sm:text-sm leading-6 text-[var(--text-p)] whitespace-pre p-5 sm:p-6 m-0 min-w-full inline-block bg-transparent"
         >
           <code
             suppressHydrationWarning
             ref={codeRef}
-            className={`language-${normalizedLang} inline-block min-w-full pb-2`}
+            className={`language-${normalizedLang} inline-block min-w-full pb-2 bg-transparent`}
           >
             {code}
           </code>

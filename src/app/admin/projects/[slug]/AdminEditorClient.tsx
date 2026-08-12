@@ -13,9 +13,11 @@ import { saveProject, loadProject, getCVData } from "@/lib/firestore";
 import { uploadFile, coverStoragePath } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 import { PillButton } from "@/components/Button";
+import { JsonEditor } from "@/components/admin/JsonEditor";
 import { Input } from "@/components/Input";
 import { Segmented } from "@/components/Segmented";
 import { Select } from "@/components/Select";
+import { Spinner } from "@/components/icons";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -947,6 +949,14 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   const sectionCount = project.items.filter((i) => i.kind === "section").length;
   let sectionIndex = 0;
 
+  if (loadingFromDB) {
+    return (
+      <div className="min-h-screen w-full bg-[var(--bg-1)] flex items-center justify-center">
+        <Spinner className="w-6 h-6 text-[var(--text-subtitle)]" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full">
 
@@ -954,11 +964,8 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       <div className="flex flex-col w-1/2 border-r border-[var(--border)] overflow-y-auto">
         {/* Sticky header */}
         <div className="sticky top-0 z-30 flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-1)]/90 backdrop-blur-md">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Editör</span>
-            <span className="text-sm font-medium text-[var(--text-title)] leading-5 truncate max-w-[220px]">
-              {project.title || "Başlıksız Proje"}
-            </span>
+          <div className="inline-flex items-center h-10 px-3.5 rounded-full border border-[var(--border)] bg-[var(--bg-1)] text-[var(--text-title)] text-sm font-medium select-none truncate max-w-[240px]">
+            {project.title || "Başlıksız Proje"}
           </div>
           <div className="flex items-center gap-2">
             <EditorNavControls />
@@ -1008,7 +1015,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
                 autoResizeDesc();
               }}
               rows={3}
-              className="w-full resize-none overflow-hidden rounded-[18px] border border-[var(--border)] bg-white dark:bg-[var(--bg-2)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] px-4 py-3 text-sm font-light leading-6 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-all duration-150"
+              className="w-full resize-none overflow-hidden rounded-[18px] border border-[var(--border)] bg-[var(--bg-1)] hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] px-4 py-3 text-sm font-light leading-6 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-all duration-150"
             />
 
             {/* Cover image upload — right after the meta fields */}
@@ -1063,27 +1070,16 @@ export function AdminEditorClient({ slug }: { slug: string }) {
             </div>
           </section>
 
-          {/* JSON output */}
-          <details className="group">
-            <summary className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] cursor-pointer select-none list-none hover:text-[var(--text-p)] transition-colors duration-150">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="transition-transform duration-200 group-open:rotate-90">
-                <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              JSON Çıktısı
-            </summary>
-            <pre className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-2)] p-4 font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre-wrap">
-              {JSON.stringify(project, null, 2)}
-            </pre>
-          </details>
+          {/* Editable JSON output */}
+          <JsonEditor value={project} onChange={setProject} />
         </div>
       </div>
 
       {/* ── RIGHT PANEL — Live Preview ── */}
       <div className="flex flex-col w-1/2 overflow-y-auto bg-[var(--bg-1)]">
         <div className="sticky top-0 z-30 flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-1)]/90 backdrop-blur-md">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Önizleme</span>
-            <span className="text-sm font-medium text-[var(--text-title)] leading-5">Canlı görünüm</span>
+          <div className="inline-flex items-center h-10 px-3.5 rounded-full border border-[var(--border)] bg-[var(--bg-1)] text-[var(--text-title)] text-sm font-medium select-none">
+            Canlı görünüm
           </div>
           <div className="flex items-center gap-3">
             {isPublished && (

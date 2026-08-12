@@ -563,20 +563,8 @@ export default function TestPage() {
         </div>
       )}
 
-      {/* ── Mobile top bar ── */}
-      <div className="flex xl:hidden items-center justify-between px-5 pt-8 pb-0">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1 px-3 py-2 rounded-full font-medium text-sm text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)]"
-        >
-          <ArrowLeftIcon className="w-4 h-4" />
-          <span>Home</span>
-        </Link>
-        <ThemeToggle />
-      </div>
-
       {/* ── Main content ── */}
-      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:pt-[160px] xl:pb-[60px]">
+      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
           <div className="flex flex-col items-start w-full pt-[10px]">
             <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
@@ -628,19 +616,19 @@ export default function TestPage() {
         {showNavigation && (prevProject || nextProject) && (
           <div className="flex flex-col gap-12 items-start pt-16 w-full">
             <div className="w-full h-px bg-[var(--border)]" />
-            <div className="flex items-start justify-between w-full gap-4 sm:flex-row flex-col">
-              {prevProject && (
+            <div className="grid grid-cols-2 gap-2 sm:gap-4 items-start w-full">
+              {prevProject ? (
                 <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                   <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">Previous Project</span>
                   <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate opacity-60">{prevProject.title || prevProject.slug}</span>
                 </div>
-              )}
-              {nextProject && (
-                <div className="flex flex-col gap-0.5 items-start sm:items-end flex-1 min-w-0">
+              ) : <div />}
+              {nextProject ? (
+                <div className="flex flex-col gap-0.5 items-end flex-1 min-w-0">
                   <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">Next Project</span>
                   <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate opacity-60">{nextProject.title || nextProject.slug}</span>
                 </div>
-              )}
+              ) : <div />}
             </div>
           </div>
         )}

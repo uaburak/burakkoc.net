@@ -151,9 +151,6 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
         </Link>
       </div>
 
-      {/* ── Top bar (xl altı) ── */}
-      <TopBar backHref="/" backLabel="Home" showThemeToggle={false} className="xl:hidden" />
-
       {/* ── Main content ── */}
       <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         {initialProjects.length === 0 && (
@@ -172,7 +169,7 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
                 key={project.slug}
                 href={`/projects/${project.slug}`}
                 onMouseEnter={() => handleMouseEnterProject(project)}
-                className="group flex items-center justify-between py-[10px] border-b border-[var(--border)] transition-all duration-200 hover:opacity-60"
+                className="group flex items-center justify-between py-[10px] border-b border-[var(--border)] transition-all duration-150 hover:bg-[var(--bg-3)]"
               >
                 <div className="flex flex-col flex-1 min-w-0">
                   <span className="text-base font-medium leading-5 text-[var(--text-title)]">

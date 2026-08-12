@@ -221,7 +221,7 @@ export function CodeBlockEditor({ block, onChange }: CodeBlockEditorProps) {
       </div>
 
       {/* Code textarea */}
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-code)] overflow-hidden">
         <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--border)]">
           <span className="w-2 h-2 rounded-full bg-[var(--border-hover)]" />
           <span className="w-2 h-2 rounded-full bg-[var(--border-hover)]" />

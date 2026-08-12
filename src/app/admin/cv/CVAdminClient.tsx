@@ -13,6 +13,8 @@ import { uploadFile, coverStoragePath } from "@/lib/storage";
 import { CVData } from "@/types/cv";
 import { CVClient } from "@/app/cv/CVClient";
 import { cn } from "@/lib/utils";
+import { JsonEditor } from "@/components/admin/JsonEditor";
+import { Spinner } from "@/components/icons";
 
 function uid() {
   return "id-" + Math.random().toString(36).slice(2, 9);
@@ -142,8 +144,8 @@ function AutoTextarea({
       className={cn(
         "w-full resize-none overflow-hidden rounded-[18px] px-4 py-3 text-sm font-light leading-6 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none focus:border-[var(--border-hover)] transition-all duration-150",
         bgContext === "section"
-          ? "border border-[var(--border)] bg-white dark:bg-[var(--bg-2)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)]"
-          : "border border-transparent bg-[#f2f2f2] dark:bg-[var(--bg-4)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)]"
+          ? "border border-[var(--border)] bg-[var(--bg-1)] hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)]"
+          : "border border-transparent bg-[var(--bg-1)] hover:bg-[var(--bg-1)] hover:border-[var(--border-hover)]"
       )}
     />
   );
@@ -193,6 +195,7 @@ function MediaUploadField({
       {tab === "URL" ? (
         <Input
           type="url"
+          bgContext="block"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
@@ -213,6 +216,7 @@ function MediaUploadField({
           />
           <PillButton
             size="md"
+            bgContext="block"
             onClick={() => fileRef.current?.click()}
             startIcon={
               progress !== null ? (
@@ -281,8 +285,8 @@ export function CVAdminClient() {
 
   if (loading || !cvData) {
     return (
-      <div className="min-h-screen bg-[var(--bg-1)] flex items-center justify-center text-[var(--text-subtitle)]">
-        CV verileri yükleniyor...
+      <div className="min-h-screen w-full bg-[var(--bg-1)] flex items-center justify-center">
+        <Spinner className="w-6 h-6 text-[var(--text-subtitle)]" />
       </div>
     );
   }
@@ -305,7 +309,6 @@ export function CVAdminClient() {
           <span className="text-sm text-[var(--text-subtitle)] font-mono">/admin/cv</span>
         </div>
         <div className="flex items-center gap-3">
-          <EditorNavControls />
           <ThemeToggle />
         </div>
       </div>
@@ -316,13 +319,8 @@ export function CVAdminClient() {
         <div className="flex flex-col w-1/2 border-r border-[var(--border)] overflow-y-auto">
           {/* Sticky Editor Header */}
           <div className="sticky top-0 z-30 flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-1)]/90 backdrop-blur-md">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">
-                Editör
-              </span>
-              <span className="text-sm font-medium text-[var(--text-title)] leading-5 truncate">
-                {cvData.name || "CV Yönetimi"}
-              </span>
+            <div className="inline-flex items-center h-10 px-3.5 rounded-full border border-[var(--border)] bg-[var(--bg-1)] text-[var(--text-title)] text-sm font-medium select-none truncate max-w-[240px]">
+              {cvData.name || "CV Yönetimi"}
             </div>
             <div className="flex items-center gap-2">
               <EditorNavControls />
@@ -758,7 +756,7 @@ export function CVAdminClient() {
                 {cvData.hobbies.map((hobby, index) => (
                   <div
                     key={index}
-                    className="flex items-center gap-2 px-3.5 py-2 rounded-full border border-[var(--border)] bg-[var(--bg-4)]"
+                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-transparent bg-[var(--bg-1)] hover:border-[var(--border-hover)] transition-all duration-150"
                   >
                     <input
                       type="text"
@@ -771,11 +769,17 @@ export function CVAdminClient() {
                       }}
                       className="bg-transparent text-sm font-light text-[var(--text-p)] focus:outline-none w-36 placeholder:text-[var(--text-subtitle)]"
                     />
-                    <TrafficDots
-                      onDelete={() => {
+                    <button
+                      type="button"
+                      onClick={() => {
                         const next = cvData.hobbies.filter((_, i) => i !== index);
                         setCvData({ ...cvData, hobbies: next });
                       }}
+                      title="Kaldır"
+                      data-traffic-color="#e20000"
+                      data-traffic-icon="trash"
+                      className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+                      style={{ background: "#e20000" }}
                     />
                   </div>
                 ))}
@@ -858,30 +862,8 @@ export function CVAdminClient() {
               </div>
             </div>
 
-            {/* JSON Output Debugger */}
-            <details className="group">
-              <summary className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] cursor-pointer select-none list-none hover:text-[var(--text-p)] transition-colors duration-150">
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 12 12"
-                  fill="none"
-                  className="transition-transform duration-200 group-open:rotate-90"
-                >
-                  <path
-                    d="M4 2l4 4-4 4"
-                    stroke="currentColor"
-                    strokeWidth="1.25"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                JSON Çıktısı
-              </summary>
-              <pre className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-2)] p-4 font-mono text-xs leading-6 text-[var(--text-p)] overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(cvData, null, 2)}
-              </pre>
-            </details>
+            {/* Editable JSON Output */}
+            <JsonEditor value={cvData} onChange={setCvData} />
           </div>
         </div>
 
@@ -889,13 +871,8 @@ export function CVAdminClient() {
         <div className="flex flex-col w-1/2 overflow-y-auto bg-[var(--bg-1)] border-l border-[var(--border)]">
           {/* Sticky Preview Header */}
           <div className="sticky top-0 z-30 flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-1)]/90 backdrop-blur-md">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">
-                Önizleme
-              </span>
-              <span className="text-sm font-medium text-[var(--text-title)] leading-5">
-                Canlı görünüm
-              </span>
+            <div className="inline-flex items-center h-10 px-3.5 rounded-full border border-[var(--border)] bg-[var(--bg-1)] text-[var(--text-title)] text-sm font-medium select-none">
+              Canlı görünüm
             </div>
             <div className="flex items-center gap-3">
               <a

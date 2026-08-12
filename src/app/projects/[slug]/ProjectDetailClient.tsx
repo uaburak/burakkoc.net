@@ -322,7 +322,7 @@ function DetailCode({ block }: { block: Block }) {
   return (
     <ScrollReveal>
       <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-        <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden">
+        <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-code)] overflow-hidden">
           {!segBadge && hasPreview && (
             <div className="absolute top-[14px] right-[14px] z-10">
               <Segmented
@@ -334,7 +334,7 @@ function DetailCode({ block }: { block: Block }) {
           )}
 
           {usedTab === "Code" || usedTab === "tab1" ? (
-            <div className="bg-[var(--bg-2)]">
+            <div className="bg-transparent">
               {hasCode ? (
                 <CodeHighlight code={block.content ?? ""} language={block.language ?? "javascript"} />
               ) : (
@@ -464,7 +464,7 @@ function DetailSkeleton() {
         </div>
       </div>
 
-      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 py-10 xl:px-6 xl:pt-[160px] xl:pb-[60px]">
+      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         <div className="w-full pt-[10px] flex flex-col gap-2.5">
           <div className="h-6 w-48 rounded bg-[var(--bg-3)]" />
           <div className="h-4 w-32 rounded bg-[var(--bg-3)]" />
@@ -607,8 +607,12 @@ export function ProjectDetailClient({
   useEffect(() => {
     if (initialProject) {
       setProject(initialProject);
-      if (initialProjects) {
+      if (initialProjects && initialProjects.length > 0) {
         setProjects(initialProjects);
+      } else {
+        listProjects()
+          .then(setProjects)
+          .catch((err) => console.error("Failed to list projects:", err));
       }
       setLoading(false);
       return;
@@ -689,9 +693,6 @@ export function ProjectDetailClient({
         </div>
       )}
 
-      {/* ── Top bar (xl altı) — içerik sütunuyla aynı hizada ── */}
-      <TopBar backHref="/projects" backLabel="Project" showThemeToggle={false} className="xl:hidden" />
-
       {/* ── Main content ── */}
       <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
@@ -748,7 +749,7 @@ export function ProjectDetailClient({
             onMouseLeave={handleMouseLeaveFooter}
           >
             <div className="w-full h-px bg-[var(--border)]" />
-            <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-0 w-full">
+            <div className="relative grid grid-cols-2 gap-2 sm:gap-0 w-full">
               {/* Single Shared Footer Preview Card */}
               <div
                 ref={footerCardRef}
@@ -788,7 +789,7 @@ export function ProjectDetailClient({
                   href={`/projects/${nextProject.slug}`}
                   onMouseEnter={() => handleMouseEnterNext(nextProject)}
                   onMouseMove={handleMouseMoveNext}
-                  className="relative group flex flex-col gap-0.5 items-start sm:items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+                  className="relative group flex flex-col gap-0.5 items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
                 >
                   <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
                     Next

@@ -117,10 +117,10 @@ export function PillButton({
 
   const pillVariantStyle = {
     default: bgContext === "section"
-      ? "border border-[var(--border)] bg-white dark:bg-[var(--bg-2)] text-[var(--text-subtitle)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]"
-      : "border border-transparent bg-white dark:bg-[var(--bg-2)] text-[var(--text-subtitle)] hover:bg-white dark:hover:bg-[var(--bg-2)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]",
+      ? "border border-[var(--border)] bg-[var(--bg-1)] text-[var(--text-subtitle)] hover:bg-[var(--bg-4)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]"
+      : "border border-transparent bg-[var(--bg-1)] text-[var(--text-subtitle)] hover:bg-[var(--bg-1)] hover:text-[var(--text-p)] hover:border-[var(--border-hover)]",
     filled: "border border-[var(--border)] bg-[var(--bg-4)] text-[var(--text-title)] hover:bg-[var(--bg-5)] hover:border-[var(--border-hover)]",
-    ghost: "border border-transparent bg-transparent text-[var(--text-p)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)]",
+    ghost: "border border-transparent bg-transparent text-[var(--text-p)] hover:bg-[var(--bg-4)]",
   }[variant];
 
   return (

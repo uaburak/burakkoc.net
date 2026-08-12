@@ -13,10 +13,12 @@ interface TopBarProps {
   className?: string;
   /** Dark mode butonunun gösterilip gösterilmeyeceği (varsayılan: true). */
   showThemeToggle?: boolean;
+  /** Özel sağ taraf elemanı (ör. Yeni Proje butonu). */
+  rightElement?: React.ReactNode;
 }
 
 /**
- * Sayfa üstü navigasyon çubuğu — geri linki + ThemeToggle.
+ * Sayfa üstü navigasyon çubuğu — geri linki + ThemeToggle veya özel sağ eleman.
  *
  * İçerik sütunuyla aynı kapsayıcıyı (max-w-720 + aynı yatay padding) kullanır,
  * böylece buton kenarları main içeriğiyle birebir aynı hizada durur.
@@ -27,6 +29,7 @@ export function TopBar({
   backLabel,
   className = "",
   showThemeToggle = true,
+  rightElement,
 }: TopBarProps) {
   return (
     <div className={`absolute top-0 left-0 right-0 z-20 pointer-events-none ${className}`}>
@@ -39,11 +42,15 @@ export function TopBar({
             <ArrowLeftIcon className="w-4 h-4" />
             <span>{backLabel}</span>
           </Link>
-          {showThemeToggle && (
+          {rightElement ? (
+            <div className="pointer-events-auto -mr-3">
+              {rightElement}
+            </div>
+          ) : showThemeToggle ? (
             <div className="pointer-events-auto">
               <ThemeToggle />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

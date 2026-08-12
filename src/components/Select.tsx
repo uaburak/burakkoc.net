@@ -109,8 +109,8 @@ export function Select({
         className={cn(
           "w-full flex items-center justify-between gap-2 rounded-full text-[var(--text-p)] cursor-pointer transition-all duration-150 focus:outline-none",
           bgContext === "section"
-            ? "border border-[var(--border)] bg-white dark:bg-[var(--bg-2)] hover:bg-[#f2f2f2] dark:hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)]"
-            : "border border-transparent bg-white dark:bg-[var(--bg-2)] hover:bg-white dark:hover:bg-[var(--bg-2)] hover:border-[var(--border-hover)]",
+            ? "border border-[var(--border)] bg-[var(--bg-1)] hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)]"
+            : "border border-transparent bg-[var(--bg-1)] hover:bg-[var(--bg-1)] hover:border-[var(--border-hover)]",
           open && "border-[var(--border-hover)] ring-2 ring-[var(--border)]/20",
           disabled && "opacity-50 cursor-not-allowed",
           sizeMap[size]

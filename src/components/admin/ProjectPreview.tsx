@@ -300,7 +300,7 @@ function PreviewCode({ block }: { block: Block }) {
 
   return (
     <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden">
+      <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-code)] overflow-hidden">
 
         {/* Built-in segmented (when no segmented badge & preview exists) */}
         {!segBadge && hasPreview && (
@@ -315,7 +315,7 @@ function PreviewCode({ block }: { block: Block }) {
 
         {/* Content area */}
         {usedTab === "Code" || usedTab === "tab1" ? (
-          <div className="bg-[var(--bg-2)]">
+          <div className="bg-transparent">
             {hasCode ? (
               <CodeHighlight code={block.content ?? ""} language={block.language ?? "javascript"} />
             ) : (

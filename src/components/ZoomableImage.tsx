@@ -100,8 +100,9 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
   const calculateTargetRect = useCallback((naturalW: number, naturalH: number) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const maxW = vw * 0.80;
-    const maxH = vh * 0.80;
+    const isMobile = vw < 640;
+    const maxW = isMobile ? vw - 16 : vw * 0.80;
+    const maxH = isMobile ? vh * 0.85 : vh * 0.80;
     const imageRatio = naturalW / naturalH;
     const targetRatio = maxW / maxH;
 
@@ -109,11 +110,11 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     let targetHeight = maxH;
 
     if (imageRatio > targetRatio) {
-      // Image is wider than 85% viewport ratio limit
+      // Image is wider than viewport ratio limit
       targetWidth = maxW;
       targetHeight = maxW / imageRatio;
     } else {
-      // Image is taller than 85% viewport ratio limit
+      // Image is taller than viewport ratio limit
       targetHeight = maxH;
       targetWidth = maxH * imageRatio;
     }

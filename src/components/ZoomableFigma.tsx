@@ -46,8 +46,9 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
   const calculateTargetRect = useCallback((aspectRatioValue: number) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const maxW = vw * 0.85;
-    const maxH = vh * 0.85;
+    const isMobile = vw < 640;
+    const maxW = isMobile ? vw - 16 : vw * 0.85;
+    const maxH = isMobile ? vh * 0.85 : vh * 0.85;
     const targetRatio = maxW / maxH;
 
     let targetWidth = maxW;
