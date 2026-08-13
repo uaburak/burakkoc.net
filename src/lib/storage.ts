@@ -57,6 +57,15 @@ export function coverStoragePath(projectSlug: string, file: File): string {
 }
 
 /**
+ * Generate a storage path for CV media files (profile picture, PDF).
+ * e.g. "cv/profile/1718000000000.jpg" or "cv/pdf/1718000000000.pdf"
+ */
+export function cvStoragePath(folder: string, file: File): string {
+  const ext = file.name.split(".").pop() ?? "bin";
+  return `projects/${folder}/cover/${Date.now()}.${ext}`;
+}
+
+/**
  * Delete all files under the project's storage folder (recursive).
  * Firebase Storage doesn't support folder deletion natively, so we
  * list all items recursively and delete each one.

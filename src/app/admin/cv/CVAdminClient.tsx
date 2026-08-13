@@ -9,7 +9,7 @@ import { Select } from "@/components/Select";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
 import { getCVData, saveCVData } from "@/lib/firestore";
-import { uploadFile, coverStoragePath } from "@/lib/storage";
+import { uploadFile, cvStoragePath } from "@/lib/storage";
 import { CVData } from "@/types/cv";
 import { CVClient } from "@/app/cv/CVClient";
 import { cn } from "@/lib/utils";
@@ -173,7 +173,7 @@ function MediaUploadField({
   const handleFile = async (file: File) => {
     setProgress(0);
     try {
-      const path = coverStoragePath(folderSlug, file);
+      const path = cvStoragePath(folderSlug, file);
       const url = await uploadFile(file, path, setProgress);
       onChange(url);
     } catch (err) {
@@ -320,7 +320,7 @@ export function CVAdminClient() {
           {/* Sticky Editor Header */}
           <div className="sticky top-0 z-30 flex items-center justify-between px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-1)]/90 backdrop-blur-md">
             <div className="inline-flex items-center h-10 px-3.5 rounded-full border border-[var(--border)] bg-[var(--bg-1)] text-[var(--text-title)] text-sm font-medium select-none truncate max-w-[240px]">
-              {cvData.name || "CV Yönetimi"}
+              {cvData.myname || "CV Yönetimi"}
             </div>
             <div className="flex items-center gap-2">
               <EditorNavControls />
@@ -339,16 +339,16 @@ export function CVAdminClient() {
                   <Input
                     size="md"
                     bgContext="block"
-                    placeholder="İsim Soyisim"
-                    value={cvData.name}
-                    onChange={(e) => setCvData({ ...cvData, name: e.target.value })}
+                    placeholder="İsim Soyisim (myname)"
+                    value={cvData.myname ?? ""}
+                    onChange={(e) => setCvData({ ...cvData, myname: e.target.value })}
                   />
                   <Input
                     size="md"
                     bgContext="block"
-                    placeholder="Unvan / Rol"
-                    value={cvData.role}
-                    onChange={(e) => setCvData({ ...cvData, role: e.target.value })}
+                    placeholder="Unvan / Rol (myrole)"
+                    value={cvData.myrole ?? ""}
+                    onChange={(e) => setCvData({ ...cvData, myrole: e.target.value })}
                   />
                 </div>
               </div>
@@ -372,6 +372,17 @@ export function CVAdminClient() {
                   folderSlug="cv-pdf"
                   accept=".pdf"
                   placeholder="CV PDF URL — /CV-EN.pdf"
+                />
+              </div>
+
+              <div className="flex flex-col gap-[10px] p-[12px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-4)]">
+                <PillLabel>CV PDF Hover Önizleme Görseli</PillLabel>
+                <MediaUploadField
+                  value={cvData.cvPreviewImage || ""}
+                  onChange={(url) => setCvData({ ...cvData, cvPreviewImage: url })}
+                  folderSlug="cv-preview"
+                  accept="image/*"
+                  placeholder="Hover Önizleme Görseli URL — https://…"
                 />
               </div>
             </div>

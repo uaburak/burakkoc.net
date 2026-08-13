@@ -29,8 +29,8 @@ export interface CVContact {
 }
 
 export interface CVData {
-  name: string;
-  role: string;
+  myname: string;
+  myrole: string;
   profileImage: string;
   aboutParagraphs: string[];
   experience: CVExperience[];
@@ -39,4 +39,5 @@ export interface CVData {
   hobbies: string[];
   contact: CVContact[];
   cvPdfUrl: string;
+  cvPreviewImage?: string;
 }

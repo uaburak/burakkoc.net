@@ -428,7 +428,7 @@ function DetailBlock({ block }: { block: Block }) {
 function DetailSection({ section }: { section: Section }) {
   return (
     <section id={section.id} className="flex flex-col gap-4 items-start w-full pt-10 scroll-mt-24">
-      {section.blocks.map((block) => (
+      {(section.blocks || []).map((block) => (
         <div key={block.id} className="w-full">
           <DetailBlock block={block} />
         </div>
@@ -483,9 +483,9 @@ function DetailSkeleton() {
 function getProjectCoverImage(proj?: ProjectData | null): string | null {
   if (!proj) return null;
   if (proj.coverImage) return proj.coverImage;
-  for (const item of proj.items) {
+  for (const item of (proj.items || [])) {
     if (item.kind === "section") {
-      const imgBlock = item.blocks.find((b) => b.type === "image" && b.src);
+      const imgBlock = (item.blocks || []).find((b) => b.type === "image" && b.src);
       if (imgBlock?.src) return imgBlock.src;
     }
   }

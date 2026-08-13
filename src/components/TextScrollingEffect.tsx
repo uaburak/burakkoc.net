@@ -36,8 +36,10 @@ export default function TextScrollingEffect({
         "p, h1, h2, h3, h4, h5, h6, li, blockquote"
       );
 
+      const splitInstances: any[] = [];
+
       textElements.forEach((text) => {
-        SplitText.create(text, {
+        const split = SplitText.create(text, {
           type: "lines",
           linesClass: "line-reveal",
           autoSplit: true,
@@ -56,9 +58,18 @@ export default function TextScrollingEffect({
             });
           },
         });
+        splitInstances.push(split);
       });
+
+      return () => {
+        splitInstances.forEach((split) => {
+          try {
+            split.revert();
+          } catch {}
+        });
+      };
     },
-    { scope: containerRef, dependencies: [disabled] }
+    { scope: containerRef, dependencies: [disabled, children] }
   );
 
   // `.line-reveal` stili globals.css'te tanımlı (her instance için <style> basmamak adına).

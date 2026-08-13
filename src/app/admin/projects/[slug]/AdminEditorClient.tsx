@@ -609,16 +609,17 @@ function AddMenu({
 
 // ── Meta Field ────────────────────────────────────────────────────────────────
 
-function MetaField({ value, placeholder, onChange }: {
-  value: string; placeholder: string; onChange: (v: string) => void;
+function MetaField({ value, placeholder, onChange, disabled }: {
+  value: string; placeholder: string; onChange?: (v: string) => void; disabled?: boolean;
 }) {
   return (
     <Input
       type="text"
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => onChange?.(e.target.value)}
       placeholder={placeholder}
       size="md"
+      disabled={disabled}
     />
   );
 }
@@ -905,17 +906,20 @@ export function AdminEditorClient({ slug }: { slug: string }) {
     });
   }
 
-  /** Adds a block to the last section in items (creates a section if none exist) */
+  /** Adds a block to the last section in items (creates a section if none exist or if last item is a divider) */
   function addBlockToLastSection(type: BlockType) {
     setProject((p) => {
-      const lastSectionIdx = [...p.items].map((x, i) => ({ x, i })).reverse().find(({ x }) => x.kind === "section")?.i;
-      if (lastSectionIdx === undefined) {
-        const newSection: PageSection = { ...makeSection(), blocks: [makeBlock(type)] };
-        return { ...p, items: [...p.items, newSection] };
-      }
       const items = [...p.items];
+      const lastItem = items[items.length - 1];
+
+      if (!lastItem || lastItem.kind === "divider") {
+        const newSection: PageSection = { ...makeSection(), blocks: [makeBlock(type)] };
+        return { ...p, items: [...items, newSection] };
+      }
+
+      const lastSectionIdx = items.length - 1;
       const section = { ...(items[lastSectionIdx] as PageSection) };
-      section.blocks = [...section.blocks, makeBlock(type)];
+      section.blocks = [...(section.blocks || []), makeBlock(type)];
       items[lastSectionIdx] = section;
       return { ...p, items };
     });
@@ -991,7 +995,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
                 placeholder={editLang === "en" ? "Title (EN)" : "Başlık (TR)"}
                 onChange={(v) => updateMeta(editLang === "en" ? { titleEn: v } : { title: v })}
               />
-              <MetaField value={project.slug}         placeholder="Slug"            onChange={(v) => updateMeta({ slug: v })} />
+              <MetaField value={project.slug}         placeholder="Slug"            disabled />
               <MetaField value={project.category}     placeholder="Kategori"        onChange={(v) => updateMeta({ category: v })} />
               <MetaField value={project.year}         placeholder="Yıl"             onChange={(v) => updateMeta({ year: v })} />
             </div>

@@ -79,9 +79,9 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
   const handleMouseEnterProject = (project: ProjectData) => {
     let imgUrl = project.coverImage;
     if (!imgUrl) {
-      for (const item of project.items) {
+      for (const item of (project.items || [])) {
         if (item.kind === "section") {
-          const imgBlock = item.blocks.find((b) => b.type === "image" && b.src);
+          const imgBlock = (item.blocks || []).find((b) => b.type === "image" && b.src);
           if (imgBlock?.src) {
             imgUrl = imgBlock.src;
             break;

@@ -123,11 +123,9 @@ function ExternalLinkIcon() {
 
 function SectionLabel({ children, disabled }: { children: React.ReactNode; disabled?: boolean }) {
   return (
-    <TextScrollingEffect disabled={disabled}>
-      <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)] mb-6 mt-2">
-        {children}
-      </h2>
-    </TextScrollingEffect>
+    <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)] mb-6 mt-2">
+      {children}
+    </h2>
   );
 }
 
@@ -184,11 +182,20 @@ function SkillTag({ children }: { children: React.ReactNode }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export function CVClient({ previewData, isPreview = false }: { previewData?: CVData | null; isPreview?: boolean } = {}) {
-  const [internalCvData, setInternalCvData] = useState<CVData | null>(previewData ?? DEFAULT_CV_DATA);
+export function CVClient({
+  initialCvData,
+  previewData,
+  isPreview = false,
+}: {
+  initialCvData?: CVData | null;
+  previewData?: CVData | null;
+  isPreview?: boolean;
+} = {}) {
+  const [internalCvData, setInternalCvData] = useState<CVData | null>(
+    previewData ?? initialCvData ?? DEFAULT_CV_DATA
+  );
   const [projects, setProjects] = useState<ProjectData[]>([]);
-
-  const cvData = previewData ?? internalCvData;
+  const cvData = previewData ?? internalCvData ?? initialCvData ?? DEFAULT_CV_DATA;
 
   const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
   const footerCardRef = useRef<HTMLDivElement>(null);
@@ -231,7 +238,7 @@ export function CVClient({ previewData, isPreview = false }: { previewData?: CVD
         if (projs.length > 0) setFeaturedProject(projs[0]);
       })
       .catch((err) => console.error("Failed to fetch projects for CV:", err));
-  }, []);
+  }, [previewData, initialCvData]);
 
   useEffect(() => {
     if (!profilePreviewRef.current) return;
@@ -482,9 +489,9 @@ export function CVClient({ previewData, isPreview = false }: { previewData?: CVD
   const handleMouseEnterProjects = () => {
     let img = featuredProject?.coverImage || null;
     if (!img && featuredProject) {
-      for (const item of featuredProject.items) {
+      for (const item of (featuredProject.items || [])) {
         if (item.kind === "section") {
-          const imgBlock = item.blocks.find((b) => b.type === "image" && b.src);
+          const imgBlock = (item.blocks || []).find((b) => b.type === "image" && b.src);
           if (imgBlock?.src) {
             img = imgBlock.src;
             break;
@@ -553,17 +560,19 @@ export function CVClient({ previewData, isPreview = false }: { previewData?: CVD
     <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative overflow-x-hidden">
 
       {/* ── Profile Cursor-Tracking Floating Preview ── */}
-      <div
-        ref={profilePreviewRef}
-        className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-44 sm:w-48 aspect-square rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
-      >
-        <img
-          ref={profilePreviewImgRef}
-          src={cvData?.profileImage || "/pp-new-2.jpg"}
-          alt="Burak KOÇ Preview"
-          className="w-full h-full object-cover"
-        />
-      </div>
+      {cvData?.profileImage && (
+        <div
+          ref={profilePreviewRef}
+          className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-44 sm:w-48 aspect-square rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
+        >
+          <img
+            ref={profilePreviewImgRef}
+            src={cvData.profileImage}
+            alt={cvData?.myname ? `${cvData.myname} Preview` : "Profile Preview"}
+            className="w-full h-full object-cover"
+          />
+        </div>
+      )}
 
       {/* ── Experience Cursor-Tracking Floating Preview ── */}
       <div
@@ -605,65 +614,75 @@ export function CVClient({ previewData, isPreview = false }: { previewData?: CVD
         <section className="flex flex-col items-start w-full pt-[10px] pb-10 border-b border-[var(--border)]">
           <div className="flex flex-wrap items-center justify-between w-full gap-4">
             <div className="flex items-center gap-4 min-w-0">
-              <div
-                onMouseEnter={handleMouseEnterProfile}
-                onMouseLeave={handleMouseLeaveProfile}
-                onClick={handleMouseLeaveProfile}
-                className="w-[72px] h-[72px] rounded-[20px] bg-[var(--bg-4)] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
-              >
-                <ZoomableImage
-                  src={cvData?.profileImage || "/pp-new-2.jpg"}
-                  alt={cvData?.name || "Burak KOÇ"}
-                  className="w-full h-full object-cover"
-                  getStartRect={() => {
-                    if (profilePreviewRef.current) {
-                      const style = window.getComputedStyle(profilePreviewRef.current);
-                      if (parseFloat(style.opacity) > 0.1) {
-                        return profilePreviewRef.current.getBoundingClientRect();
+              {cvData?.profileImage && (
+                <div
+                  onMouseEnter={handleMouseEnterProfile}
+                  onMouseLeave={handleMouseLeaveProfile}
+                  onClick={handleMouseLeaveProfile}
+                  className="w-[72px] h-[72px] rounded-[20px] bg-[var(--bg-4)] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
+                >
+                  <ZoomableImage
+                    src={cvData.profileImage}
+                    alt={cvData?.myname || "Profile"}
+                    className="w-full h-full object-cover"
+                    getStartRect={() => {
+                      if (profilePreviewRef.current) {
+                        const style = window.getComputedStyle(profilePreviewRef.current);
+                        if (parseFloat(style.opacity) > 0.1) {
+                          return profilePreviewRef.current.getBoundingClientRect();
+                        }
                       }
-                    }
-                    return null;
-                  }}
-                />
-              </div>
+                      return null;
+                    }}
+                  />
+                </div>
+              )}
 
-              <TextScrollingEffect disabled={isPreview} className="flex flex-col justify-center gap-0.5 min-w-0">
-                <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-                  {cvData?.name || "Burak KOÇ"}
-                </h1>
-                <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
-                  {cvData?.role || "UX/UI Designer"}
-                </p>
-              </TextScrollingEffect>
+              <div className="flex flex-col justify-center gap-0.5 min-w-0">
+                {cvData?.myname && (
+                  <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+                    {cvData.myname}
+                  </h1>
+                )}
+                {cvData?.myrole && (
+                  <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
+                    {cvData.myrole}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div className="relative shrink-0" onMouseLeave={handleMouseLeaveCv}>
-              {/* CV Preview Card (Hover) — Butonun altında gösterilir */}
-              <div
-                ref={cvCardRef}
-                className="absolute pointer-events-none hidden md:block w-48 sm:w-56 aspect-[3/4] origin-top rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
-                style={{ top: "calc(100% + 12px)", right: "0%" }}
-              >
-                <img
-                  ref={cvImageRef}
-                  src="/cv-preview.png"
-                  alt="CV Document Preview"
-                  className="w-full h-full object-cover object-top"
-                />
-              </div>
+            {cvData?.cvPdfUrl && (
+              <div className="relative shrink-0" onMouseLeave={handleMouseLeaveCv}>
+                {/* CV Preview Card (Hover) — Butonun altında gösterilir */}
+                <div
+                  ref={cvCardRef}
+                  className="absolute pointer-events-none hidden md:block w-48 sm:w-56 aspect-[3/4] origin-top rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
+                  style={{ top: "calc(100% + 12px)", right: "0%" }}
+                >
+                  <img
+                    ref={cvImageRef}
+                    src={cvData?.cvPreviewImage || "/cv-preview.png"}
+                    alt="CV Document Preview"
+                    className="w-full h-full object-cover object-top"
+                  />
+                </div>
 
-              <a
-                href={cvData?.cvPdfUrl || "/CV-EN.pdf"}
-                download
-                id="cv-download"
-                onMouseEnter={handleMouseEnterCv}
-                onMouseMove={handleMouseMoveCv}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-medium text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-95 shrink-0"
-              >
-                <DownloadIcon />
-                Download CV
-              </a>
-            </div>
+                <a
+                  href={cvData.cvPdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  id="cv-download"
+                  onMouseEnter={handleMouseEnterCv}
+                  onMouseMove={handleMouseMoveCv}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-medium text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-95 shrink-0"
+                >
+                  <DownloadIcon />
+                  Download CV
+                </a>
+              </div>
+            )}
           </div>
         </section>
 

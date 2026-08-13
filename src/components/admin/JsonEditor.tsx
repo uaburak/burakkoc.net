@@ -8,6 +8,23 @@ interface JsonEditorProps<T> {
   title?: string;
 }
 
+function validateParsedJson(parsed: unknown): boolean {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return false;
+  }
+  const obj = parsed as Record<string, unknown>;
+  if ("items" in obj && !Array.isArray(obj.items)) {
+    return false;
+  }
+  if (Array.isArray(obj.items)) {
+    for (const item of obj.items) {
+      if (typeof item !== "object" || item === null) return false;
+      if (!("kind" in item) || (item.kind !== "section" && item.kind !== "divider")) return false;
+    }
+  }
+  return true;
+}
+
 export function JsonEditor<T extends object>({
   value,
   onChange,
@@ -33,11 +50,11 @@ export function JsonEditor<T extends object>({
 
     try {
       const parsed = JSON.parse(text);
-      if (typeof parsed === "object" && parsed !== null) {
+      if (validateParsedJson(parsed)) {
         setError(null);
         onChange(parsed as T);
       } else {
-        setError("JSON bir obje veya dizi olmalıdır.");
+        setError("JSON nesne biçimi veya sayfa öğeleri (items/kind) geçersiz.");
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Geçersiz JSON biçimi";
