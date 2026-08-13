@@ -639,14 +639,14 @@ export function CVClient({
               )}
 
               <div className="flex flex-col justify-center gap-0.5 min-w-0">
-                {cvData?.myname && (
+                {(cvData?.myname || (cvData as any)?.name) && (
                   <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-                    {cvData.myname}
+                    {cvData?.myname || (cvData as any)?.name}
                   </h1>
                 )}
-                {cvData?.myrole && (
+                {(cvData?.myrole || (cvData as any)?.role) && (
                   <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
-                    {cvData.myrole}
+                    {cvData?.myrole || (cvData as any)?.role}
                   </p>
                 )}
               </div>
