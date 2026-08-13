@@ -191,18 +191,8 @@ export function CVClient({
   previewData?: CVData | null;
   isPreview?: boolean;
 } = {}) {
-  const [fetchedCvData, setFetchedCvData] = useState<CVData | null>(null);
   const [projects, setProjects] = useState<ProjectData[]>([]);
-
-  useEffect(() => {
-    if (!previewData && !initialCvData?.myname) {
-      getCVData()
-        .then((data) => setFetchedCvData(data))
-        .catch((err) => console.error("Failed to load CV data:", err));
-    }
-  }, [initialCvData, previewData]);
-
-  const cvData = previewData || (initialCvData?.myname ? initialCvData : null) || fetchedCvData || initialCvData || DEFAULT_CV_DATA;
+  const cvData = previewData || initialCvData || DEFAULT_CV_DATA;
 
   const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
   const footerCardRef = useRef<HTMLDivElement>(null);
@@ -641,10 +631,7 @@ export function CVClient({
 
               <div className="flex flex-col justify-center gap-0.5 min-w-0">
                 {cvData?.myname && (
-                  <h1
-                    className="w-full text-base font-medium leading-5 text-[var(--text-title)]"
-                    style={{ opacity: 1, transform: "none" }}
-                  >
+                  <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
                     {cvData.myname}
                   </h1>
                 )}
