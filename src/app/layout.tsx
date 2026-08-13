@@ -4,7 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/context/ThemeContext";
 import SmoothScroll from "@/components/SmoothScroll";
 import CustomCursor from "@/components/CustomCursor";
-import { MobileNav } from "@/components/MobileNav";
+import { MobileNavProvider } from "@/components/MobileNav";
 
 // Self-hosted (build sırasında indirilir) → render-blocking Google Fonts isteği yok.
 const inter = Inter({
@@ -38,11 +38,12 @@ export default function RootLayout({
       </head>
       <body>
         <ThemeProvider>
-          <SmoothScroll>
-            {children}
-          </SmoothScroll>
-          <CustomCursor />
-          <MobileNav />
+          <MobileNavProvider>
+            <SmoothScroll>
+              {children}
+            </SmoothScroll>
+            <CustomCursor />
+          </MobileNavProvider>
         </ThemeProvider>
       </body>
     </html>

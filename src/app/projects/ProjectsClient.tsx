@@ -153,6 +153,16 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
 
       {/* ── Main content ── */}
       <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
+        {/* Mobile-only Header Title Block */}
+        <div className="flex flex-col items-start w-full pt-[10px] pb-6 xl:hidden">
+          <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+            Projects
+          </h1>
+          <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
+            Selected works & case studies
+          </p>
+        </div>
+
         {initialProjects.length === 0 && (
           <p className="text-sm font-light text-[var(--text-subtitle)] opacity-50 italic">
             Henüz proje yok.

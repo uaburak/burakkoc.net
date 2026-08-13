@@ -427,11 +427,11 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
 
   // Wait until imagePool loads from Firestore so we have valid URLs to render in JSX
   if (imagePool.length === 0) {
-    return <div className="absolute inset-0 pointer-events-none select-none z-10 w-full h-full" />;
+    return <div className="absolute -inset-[200px] pointer-events-none select-none z-10" />;
   }
 
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-10 w-full h-full">
+    <div className="absolute -inset-[200px] pointer-events-none select-none z-10">
       {Array.from({ length: NUM_ITEMS }).map((_, index) => {
         const slot = GEOMETRIC_SLOTS[index % GEOMETRIC_SLOTS.length];
         const initialZ = 100 + index * (900 / NUM_ITEMS);

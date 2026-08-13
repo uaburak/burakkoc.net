@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTheme } from "@/context/ThemeContext";
 
 // ── SVG Icons ─────────────────────────────────────────────────────────────────
 
@@ -46,44 +47,71 @@ function UserIcon() {
   );
 }
 
-// ── Main Morphing Mobile Navigation ──────────────────────────────────────────
+function GridMenuIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+      <circle cx="3" cy="3" r="1.35" fill="currentColor" />
+      <circle cx="11" cy="3" r="1.35" fill="currentColor" />
+      <circle cx="3" cy="11" r="1.35" fill="currentColor" />
+      <circle cx="11" cy="11" r="1.35" fill="currentColor" />
+    </svg>
+  );
+}
 
-export function MobileNav() {
+function CloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M3.5 3.5l9 9M12.5 3.5l-9 9"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SunMoonIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="10" r="4" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M10 2v2M10 16v2M2 10h2M16 10h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ── Context ───────────────────────────────────────────────────────────────────
+
+type MobileNavContextType = {
+  isOpen: boolean;
+  toggleMenu: () => void;
+  closeMenu: () => void;
+};
+
+const MobileNavContext = createContext<MobileNavContextType>({
+  isOpen: false,
+  toggleMenu: () => {},
+  closeMenu: () => {},
+});
+
+export const useMobileNav = () => useContext(MobileNavContext);
+
+// ── Main Provider Component ───────────────────────────────────────────────────
+
+export function MobileNavProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
-  const menuRef = useRef<HTMLDivElement>(null);
+  const { theme, toggle } = useTheme();
 
   // Close menu on route change
   useEffect(() => {
     setIsOpen(false);
   }, [pathname]);
 
-  // Close menu on click/touch outside
-  useEffect(() => {
-    if (!isOpen) return;
+  const toggleMenu = () => setIsOpen((prev) => !prev);
+  const closeMenu = () => setIsOpen(false);
 
-    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("touchstart", handleClickOutside);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("touchstart", handleClickOutside);
-    };
-  }, [isOpen]);
-
-  if (pathname?.startsWith("/admin")) {
-    return null;
-  }
-
-  const handleClose = () => {
-    setIsOpen(false);
-  };
+  const isAdminPage = pathname?.startsWith("/admin");
 
   const navLinks = [
     { href: "/", label: "Home", icon: <HomeIcon /> },
@@ -91,96 +119,116 @@ export function MobileNav() {
     { href: "/cv", label: "CV", icon: <UserIcon /> },
   ];
 
-  // CLOSED: 52px x 52px icon-only black button with 24px radius (matching drawer radius)
-  // OPEN: calc(100vw - 24px) width, 152px height (fitted strictly to 3 items), 24px radius
-  const targetWidth = !isOpen ? "52px" : "calc(100vw - 24px)";
-  const targetHeight = !isOpen ? "52px" : "152px";
-  const targetRadius = "24px";
-
   return (
-    <div
-      ref={menuRef}
-      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 xl:hidden pointer-events-auto"
-    >
-      <motion.div
-        animate={{
-          width: targetWidth,
-          height: targetHeight,
-          borderRadius: targetRadius,
-        }}
-        transition={{
-          type: "spring",
-          damping: 24,
-          stiffness: 340,
-          mass: 0.6,
-        }}
-        className="border border-[var(--border)] bg-[var(--bg-1)] backdrop-blur-xl text-[var(--text-title)] overflow-hidden relative"
-        style={{ originX: 0.5, originY: 1 }}
-      >
-        {/* CLOSED STATE: Icon-Only White Floating Pill Button */}
-        {!isOpen && (
-          <motion.button
+    <MobileNavContext.Provider value={{ isOpen, toggleMenu, closeMenu }}>
+      <div className="w-full min-h-screen overflow-x-hidden relative">
+
+        {/* ── 1. Website Content (Shifts Left by menu width + 20px page margin) ── */}
+        <motion.div
+          animate={{
+            x: isOpen && !isAdminPage ? "-280px" : "0px",
+          }}
+          transition={{
+            type: "spring",
+            damping: 28,
+            stiffness: 260,
+            mass: 0.7,
+          }}
+          className="w-full min-h-screen relative origin-left"
+          onClick={isOpen ? closeMenu : undefined}
+        >
+          {children}
+        </motion.div>
+
+        {/* ── 2. Menu Panel (Fixed on RIGHT edge `right-0`, slides from right) ── */}
+        <AnimatePresence>
+          {isOpen && !isAdminPage && (
+            <motion.aside
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{
+                type: "spring",
+                damping: 28,
+                stiffness: 260,
+                mass: 0.7,
+              }}
+              className="fixed top-0 right-0 bottom-0 z-40 w-[260px] h-full min-h-screen bg-[var(--bg-3)] border-l border-[var(--border)] p-6 flex flex-col justify-between xl:hidden"
+            >
+              {/* Navigation Links */}
+              <div className="flex flex-col gap-6 pt-16">
+                <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-subtitle)]">
+                  Menu
+                </span>
+
+                <nav className="flex flex-col gap-2">
+                  {navLinks.map((link) => {
+                    const isActive =
+                      link.href === "/"
+                        ? pathname === "/"
+                        : pathname?.startsWith(link.href);
+
+                    return (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        onClick={closeMenu}
+                        className={`flex items-center justify-between px-3.5 py-3 rounded-2xl text-base font-medium transition-all duration-150 ${
+                          isActive
+                            ? "bg-[var(--bg-4)] text-[var(--text-title)] font-semibold"
+                            : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)]/60"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-[var(--text-subtitle)]">{link.icon}</span>
+                          <span>{link.label}</span>
+                        </div>
+                        {isActive && (
+                          <span className="w-2 h-2 rounded-full bg-[var(--text-title)]" />
+                        )}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </div>
+
+              {/* Theme Toggle Button */}
+              <div className="pt-6 border-t border-[var(--border)] flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={toggle}
+                  className="flex items-center justify-between w-full px-3.5 py-2.5 rounded-2xl text-sm font-medium text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)]/60 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <SunMoonIcon />
+                    <span>Theme</span>
+                  </div>
+                  <span className="capitalize text-xs font-semibold px-2.5 py-1 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-[var(--text-title)]">
+                    {theme}
+                  </span>
+                </button>
+              </div>
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        {/* ── 3. Non-Sticky Icon-Only Menu Button (44px, aligned with Title & Subtitle height) ── */}
+        {!isAdminPage && (
+          <button
             type="button"
-            onClick={() => setIsOpen(true)}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="w-full h-full flex items-center justify-center text-[var(--text-title)] select-none cursor-pointer hover:bg-[var(--bg-4)] transition-colors"
-            aria-label="Open Menu"
+            onClick={toggleMenu}
+            className="absolute top-[50px] right-5 z-30 xl:hidden w-11 h-11 bg-transparent border-0 text-[var(--text-title)] flex items-center justify-center active:scale-95 transition-transform cursor-pointer hover:opacity-75"
+            aria-label="Toggle Menu"
           >
-            <div className="relative w-5 h-5 flex items-center justify-center">
-              <svg width="18" height="18" viewBox="0 0 14 14" fill="none" className="text-[var(--text-title)]">
-                <circle cx="3" cy="3" r="1.35" fill="currentColor" />
-                <circle cx="11" cy="3" r="1.35" fill="currentColor" />
-                <circle cx="3" cy="11" r="1.35" fill="currentColor" />
-                <circle cx="11" cy="11" r="1.35" fill="currentColor" />
-              </svg>
-            </div>
-          </motion.button>
+            {isOpen ? <CloseIcon /> : <GridMenuIcon />}
+          </button>
         )}
 
-        {/* OPEN STATE: Equal Padding & Full Radius Navigation Buttons */}
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, delay: 0.05 }}
-            className="absolute inset-0 flex flex-col justify-center max-w-[500px] mx-auto w-full p-2.5"
-          >
-            <div className="flex flex-col gap-1.5">
-              {navLinks.map((link) => {
-                const isActive =
-                  link.href === "/"
-                    ? pathname === "/"
-                    : pathname?.startsWith(link.href);
-
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    onClick={handleClose}
-                    className={`flex items-center justify-between px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-150 ${
-                      isActive
-                        ? "bg-[var(--bg-4)] text-[var(--text-title)] font-semibold"
-                        : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-3)]"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-[var(--text-subtitle)]">{link.icon}</span>
-                      <span>{link.label}</span>
-                    </div>
-                    {isActive && (
-                      <span className="w-2 h-2 rounded-full bg-[var(--text-title)]" />
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
-      </motion.div>
-    </div>
+      </div>
+    </MobileNavContext.Provider>
   );
+}
+
+export function MobileNav() {
+  return null;
 }
