@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, memo } from "react";
+import type { CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { listProjects } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
 
@@ -138,6 +140,26 @@ interface FlyingImagesProps {
   initialProjects?: ProjectData[];
 }
 
+/**
+ * iOS 26 Safari, position:fixed öğeleri "inner viewport"a (status bar ile yüzen
+ * URL bar arasındaki alan) kırpıyor. Bu yüzden katmanı viewport'a değil, döküman
+ * akışına yerleştiriyoruz: dış kapsayıcı absolute + sayfa yüksekliği, iç kapsayıcı
+ * sticky + gerçek ekran yüksekliği. Böylece kırpma sınırı tam ekran kenarına düşer.
+ */
+const measureLayer = () => {
+  const vv = window.visualViewport;
+  const screenHeight = Math.max(
+    window.innerHeight,
+    document.documentElement.clientHeight,
+    vv ? vv.height + vv.offsetTop : 0
+  );
+  return {
+    screenHeight,
+    // body.clientHeight, katmanın kendi taşmasından etkilenmez → ölçüm döngüsü olmaz
+    pageHeight: Math.max(document.body.clientHeight, screenHeight),
+  };
+};
+
 export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>((props, ref) => {
   const [imagePool, setImagePool] = useState<ImageItem[]>(() => {
     if (props.initialProjects && props.initialProjects.length > 0) {
@@ -145,6 +167,7 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
     }
     return [];
   });
+  const [layer, setLayer] = useState<{ screenHeight: number; pageHeight: number } | null>(null);
   const projectsRef = useRef<ProjectData[]>(props.initialProjects || []);
   const poolRef = useRef<ImageItem[]>(
     props.initialProjects && props.initialProjects.length > 0
@@ -159,6 +182,30 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
 
   useEffect(() => {
     isMobileRef.current = window.innerWidth < 768;
+
+    const update = () => {
+      isMobileRef.current = window.innerWidth < 768;
+      setLayer((prev) => {
+        const next = measureLayer();
+        if (prev && prev.screenHeight === next.screenHeight && prev.pageHeight === next.pageHeight) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    update();
+
+    const vv = window.visualViewport;
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+    };
   }, []);
 
   // Scroll and simulated scroll interaction references
@@ -444,13 +491,37 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
     };
   }, [imagePool]);
 
-  // Wait until imagePool loads from Firestore so we have valid URLs to render in JSX
-  if (imagePool.length === 0) {
-    return <div className="fixed -inset-[200px] pointer-events-none select-none z-10" />;
-  }
+  // Katman ölçülene (mount) ve Firestore havuzu dolana kadar hiçbir şey basma
+  if (!layer || imagePool.length === 0) return null;
 
-  return (
-    <div className="fixed -inset-[200px] pointer-events-none select-none z-10">
+  // Dış kapsayıcı: döküman boyunca uzanır, overflow:clip ile taşma sayfaya scroll eklemez.
+  // body static olduğu için containing block ICB → notch/safe-area padding'i yok sayar.
+  const outerStyle: CSSProperties = {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    // 100lvh tabanı: iOS'ta JS ölçümü yüzen URL bar'ın arkasını saymayabiliyor
+    height: `max(${layer.pageHeight}px, 100lvh)`,
+    overflow: "clip",
+    pointerEvents: "none",
+    userSelect: "none",
+    zIndex: 10,
+  };
+
+  // İç kapsayıcı: sticky → sayfa kaydırılsa da gerçek ekran alanında kalır.
+  // (position:fixed burada iOS 26'da yine inner viewport'a kırpılırdı.)
+  const innerStyle: CSSProperties = {
+    position: "sticky",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: `max(${layer.screenHeight}px, 100lvh)`,
+  };
+
+  return createPortal(
+    <div style={outerStyle}>
+      <div style={innerStyle}>
       {Array.from({ length: NUM_ITEMS }).map((_, index) => {
         const slot = GEOMETRIC_SLOTS[index % GEOMETRIC_SLOTS.length];
         const initialZ = 100 + index * (900 / NUM_ITEMS);
@@ -476,6 +547,8 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
             style={{
               left: "50%",
               top: "50%",
+              // Loop mount'tan sonra geldiği için oranı burada da veriyoruz
+              aspectRatio: String(slot.aspectRatio),
               transform: `translate(-50%, -50%) translate3d(${initialPosX}vw, ${initialPosY}vh, 0) scale(${initialScale})`,
               opacity: initialOpacity,
               filter: initialBlur > 0.05 ? `blur(${initialBlur}px)` : undefined,
@@ -494,7 +567,11 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
           </div>
         );
       })}
-    </div>
+        {/* Mobile bottom white gradient overlay (200px) */}
+        <div className="md:hidden absolute bottom-0 left-0 right-0 h-[200px] bg-gradient-to-t from-white to-transparent pointer-events-none z-40" />
+      </div>
+    </div>,
+    document.body
   );
 }));
 

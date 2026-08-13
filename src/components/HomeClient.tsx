@@ -56,8 +56,10 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
     }
   };
 
+  // body'de safe-area padding'i var; yüksekliği 100dvh dersek o padding kadar
+  // taşar ve sayfa gereksiz yere kaydırılabilir hale gelir → insetleri düşüyoruz
   return (
-    <div className="h-screen w-full bg-[var(--bg-1)] transition-colors duration-200 relative flex flex-col touch-none">
+    <div className="min-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full bg-[var(--bg-1)] transition-colors duration-200 relative flex flex-col touch-none">
       {/* ── Dark/Light Mode Toggle (Hidden on Mobile) ── */}
       <div className="absolute top-6 right-6 md:top-8 md:right-8 z-30 hidden md:block">
         <ThemeToggle />

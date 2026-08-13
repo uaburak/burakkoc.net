@@ -90,7 +90,13 @@
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-y: scroll !important;
+  overflow-y: scroll;
+  /* overflow-x: hidden burada YOK — Safari'de position:sticky'yi bozuyor
+     (FlyingImages katmanı sticky'ye dayanıyor). Yatay taşma katmanın kendi
+     overflow:clip'i ile engelleniyor. */
+  min-height: 100%;
+  min-height: 100dvh;
+  background-color: var(--bg-1);
 }
 
 /* ── Selection (Mouse text selection highlight) ──────────── */
@@ -117,6 +123,12 @@ body {
   background-color: var(--bg-1);
   color: var(--text-p);
   transition: background-color 200ms ease, color 200ms ease;
+  min-height: 100dvh;
+  /* iOS Safari safe-area extension — fills behind notch and home indicator */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 /* ── Sayfa giriş animasyonu (PageEntrance) ─────────────────── */
