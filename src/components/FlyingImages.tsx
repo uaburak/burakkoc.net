@@ -567,10 +567,10 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
           </div>
         );
       })}
-        {/* Mobile top white gradient overlay (200px) */}
-        <div className="md:hidden absolute top-0 left-0 right-0 h-[200px] bg-gradient-to-b from-white to-transparent pointer-events-none z-40" />
-        {/* Mobile bottom white gradient overlay (200px) */}
-        <div className="md:hidden absolute bottom-0 left-0 right-0 h-[200px] bg-gradient-to-t from-white to-transparent pointer-events-none z-40" />
+        {/* Mobile top theme gradient overlay (200px) */}
+        <div className="md:hidden absolute top-0 left-0 right-0 h-[200px] bg-gradient-to-b from-[var(--bg-1)] to-transparent pointer-events-none z-40" />
+        {/* Mobile bottom theme gradient overlay (200px) */}
+        <div className="md:hidden absolute bottom-0 left-0 right-0 h-[200px] bg-gradient-to-t from-[var(--bg-1)] to-transparent pointer-events-none z-40" />
       </div>
     </div>,
     document.body
