@@ -180,9 +180,6 @@ function SkillTag({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Module-level in-memory cache to preserve CV data across client-side route transitions
-let memoryCvCache: CVData | null = null;
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function CVClient({
@@ -194,17 +191,8 @@ export function CVClient({
   previewData?: CVData | null;
   isPreview?: boolean;
 } = {}) {
-  const [internalCvData, setInternalCvData] = useState<CVData | null>(null);
   const [projects, setProjects] = useState<ProjectData[]>([]);
-
-  // Prioritize previewData -> initialCvData (if it has valid myname) -> internalCvData -> DEFAULT_CV_DATA
-  const cvData =
-    previewData ??
-    (initialCvData?.myname ? initialCvData : null) ??
-    (internalCvData?.myname ? internalCvData : null) ??
-    initialCvData ??
-    internalCvData ??
-    DEFAULT_CV_DATA;
+  const cvData = previewData || initialCvData || DEFAULT_CV_DATA;
 
   const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
   const footerCardRef = useRef<HTMLDivElement>(null);
@@ -235,22 +223,13 @@ export function CVClient({
   const expIdleTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (!previewData) {
-      getCVData()
-        .then((data) => {
-          memoryCvCache = data;
-          setInternalCvData(data);
-        })
-        .catch((err) => console.error("Failed to load CV data:", err));
-    }
-
     listProjects()
       .then((projs) => {
         setProjects(projs);
         if (projs.length > 0) setFeaturedProject(projs[0]);
       })
       .catch((err) => console.error("Failed to fetch projects for CV:", err));
-  }, [previewData, initialCvData]);
+  }, []);
 
   useEffect(() => {
     if (!profilePreviewRef.current) return;
