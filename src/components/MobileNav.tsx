@@ -121,12 +121,12 @@ export function MobileNavProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <MobileNavContext.Provider value={{ isOpen, toggleMenu, closeMenu }}>
-      <div className="w-full min-h-screen overflow-x-hidden relative">
+      <div className="w-full min-h-screen relative">
 
-        {/* ── 1. Website Content (Shifts Left by menu width + 20px page margin) ── */}
+        {/* ── 1. Website Content (Shifts Left by exact menu width -260px for 0px gap) ── */}
         <motion.div
           animate={{
-            x: isOpen && !isAdminPage ? "-280px" : "0px",
+            x: isOpen && !isAdminPage ? "-260px" : "0px",
           }}
           transition={{
             type: "spring",
@@ -134,13 +134,18 @@ export function MobileNavProvider({ children }: { children: React.ReactNode }) {
             stiffness: 260,
             mass: 0.7,
           }}
-          className="w-full min-h-screen relative origin-left"
+          style={
+            isOpen && !isAdminPage
+              ? ({ "--bg-1": "var(--bg-3)" } as React.CSSProperties)
+              : undefined
+          }
+          className="w-full min-h-screen relative origin-left transition-colors duration-300"
           onClick={isOpen ? closeMenu : undefined}
         >
           {children}
         </motion.div>
 
-        {/* ── 2. Menu Panel (Fixed on RIGHT edge `right-0`, slides from right) ── */}
+        {/* ── 2. Menu Panel (Fixed on RIGHT edge `right-0`, bg-1 white background) ── */}
         <AnimatePresence>
           {isOpen && !isAdminPage && (
             <motion.aside
@@ -153,7 +158,7 @@ export function MobileNavProvider({ children }: { children: React.ReactNode }) {
                 stiffness: 260,
                 mass: 0.7,
               }}
-              className="fixed top-0 right-0 bottom-0 z-40 w-[260px] h-full min-h-screen bg-[var(--bg-3)] border-l border-[var(--border)] p-6 flex flex-col justify-between xl:hidden"
+              className="fixed top-0 right-0 bottom-0 z-40 w-[260px] h-full min-h-screen bg-[var(--bg-1)] border-l border-[var(--border)] p-6 flex flex-col justify-between xl:hidden"
             >
               {/* Navigation Links */}
               <div className="flex flex-col gap-6 pt-16">

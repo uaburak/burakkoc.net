@@ -122,17 +122,16 @@ const filterImagesByCategory = (category: string, projects: ProjectData[]): Imag
 // Custom depth-based opacity curve
 const getOpacityForZ = (z: number): number => {
   if (z > 400) {
-    // Fade in very faintly from 0 (at z=1000) to 0.12 (at z=400)
-    return Math.max(0, ((1000 - z) / 600) * 0.12);
+    // Fade in faintly from 0 (at z=1000) to 0.15 (at z=400)
+    return Math.max(0, ((1000 - z) / 600) * 0.15);
   }
-  if (z >= 130) {
-    // Once it passes the text depth (z <= 400), opacity rises rapidly to 0.9
-    // Range: 400 to 130 (270 units), scaling from 0.12 to 0.9
-    const val = 0.12 + ((400 - z) / 270) * 0.78;
+  if (z >= 40) {
+    // High opacity while flying across and past the screen edges
+    const val = 0.15 + ((400 - z) / 360) * 0.75;
     return Math.min(0.9, val);
   }
-  // Fade out completely as it exits past z=130 to z=90
-  return Math.max(0, ((z - 90) / 40) * 0.9);
+  // Fade out ONLY when 200px outside the screen bounds (z=40 down to z=15)
+  return Math.max(0, ((z - 15) / 25) * 0.9);
 };
 
 interface FlyingImagesProps {
@@ -333,7 +332,7 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
 
         // Reset logic
         if (dz >= 0) {
-          if (item.z3d <= 90) {
+          if (item.z3d <= 15) {
             if (isExitingRef.current) {
               // Do not recycle when exiting
             } else {
@@ -351,7 +350,7 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
               // Do not recycle when exiting
             } else {
               const newItem = createItem(item.id, poolRef.current, false);
-              newItem.z3d = 90;
+              newItem.z3d = 15;
               itemsRef.current[index] = newItem;
 
               const imgEl = imgRefs.current[index];
@@ -364,8 +363,8 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
         const currentItem = itemsRef.current[index];
         const z = currentItem.z3d;
 
-        // If z <= 90, keep it completely transparent and avoid calculation glitches
-        if (z <= 90) {
+        // If z <= 15, keep it completely transparent and avoid calculation glitches
+        if (z <= 15) {
           el.style.opacity = "0";
           return;
         }
@@ -447,11 +446,11 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
 
   // Wait until imagePool loads from Firestore so we have valid URLs to render in JSX
   if (imagePool.length === 0) {
-    return <div className="absolute -inset-[200px] pointer-events-none select-none z-10" />;
+    return <div className="fixed -inset-[200px] pointer-events-none select-none z-10" />;
   }
 
   return (
-    <div className="absolute -inset-[200px] pointer-events-none select-none z-10">
+    <div className="fixed -inset-[200px] pointer-events-none select-none z-10">
       {Array.from({ length: NUM_ITEMS }).map((_, index) => {
         const slot = GEOMETRIC_SLOTS[index % GEOMETRIC_SLOTS.length];
         const initialZ = 100 + index * (900 / NUM_ITEMS);
