@@ -107,18 +107,9 @@ export async function getCVData(): Promise<CVData> {
   const data = snap.data();
   delete data.updatedAt;
 
-  const nameCandidates = [data.myname, data.name, data.fullName];
-  const roleCandidates = [data.myrole, data.role, data.title, data.unvan];
-
-  const foundName = nameCandidates.find((v) => typeof v === "string" && v.trim().length > 0);
-  const foundRole = roleCandidates.find((v) => typeof v === "string" && v.trim().length > 0);
-
-  const myname = foundName ? foundName.trim() : "";
-  const myrole = foundRole ? foundRole.trim() : "";
-
   return {
-    myname,
-    myrole,
+    myname: String(data.myname || data.name || ""),
+    myrole: String(data.myrole || data.role || ""),
     profileImage: data.profileImage ?? "",
     cvPdfUrl: data.cvPdfUrl ?? "",
     cvPreviewImage: data.cvPreviewImage ?? "",
@@ -155,14 +146,10 @@ export async function getCVData(): Promise<CVData> {
 
 export async function saveCVData(data: CVData): Promise<void> {
   const ref = doc(db, CV_COLLECTION, CV_DOC_ID);
-  const myname = data.myname?.trim() || "";
-  const myrole = data.myrole?.trim() || "";
   const cleanData = stripUndefined({
     ...data,
-    myname,
-    myrole,
-    name: myname,
-    role: myrole,
+    myname: data.myname || "",
+    myrole: data.myrole || "",
     updatedAt: serverTimestamp(),
   });
   await setDoc(ref, cleanData);
