@@ -108,8 +108,8 @@ export async function getCVData(): Promise<CVData> {
   delete data.updatedAt;
 
   return {
-    myname: String(data.myname || data.name || ""),
-    myrole: String(data.myrole || data.role || ""),
+    myname: String(data.myname ?? ""),
+    myrole: String(data.myrole ?? ""),
     profileImage: data.profileImage ?? "",
     cvPdfUrl: data.cvPdfUrl ?? "",
     cvPreviewImage: data.cvPreviewImage ?? "",
