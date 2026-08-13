@@ -458,23 +458,23 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
         }
       });
 
-      // Animate the main text (h1) in sync with the images
+      // Animate the hero text in sync with the images
       if (isExitingRef.current) {
-        const h1El = document.querySelector("h1") as HTMLElement;
-        if (h1El) {
+        const heroEl = document.getElementById("hero-title") as HTMLElement;
+        if (heroEl) {
           const textDz = dz * 0.1143;
           textZ = Math.max(6, textZ - textDz);
           const textScale = 110 / textZ;
-          h1El.style.transform = `scale(${textScale})`;
+          heroEl.style.transform = `scale(${textScale})`;
           const textOpacity = Math.max(0, (textZ - 6) / 104);
-          h1El.style.opacity = String(textOpacity);
+          heroEl.style.opacity = String(textOpacity);
         }
         wasExiting = true;
       } else if (wasExiting) {
-        const h1El = document.querySelector("h1") as HTMLElement;
-        if (h1El) {
-          h1El.style.transform = "";
-          h1El.style.opacity = "";
+        const heroEl = document.getElementById("hero-title") as HTMLElement;
+        if (heroEl) {
+          heroEl.style.transform = "";
+          heroEl.style.opacity = "";
         }
         wasExiting = false;
       }
@@ -485,6 +485,11 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
     animationFrameId = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(animationFrameId);
+      const heroEl = document.getElementById("hero-title");
+      if (heroEl) {
+        heroEl.style.transform = "";
+        heroEl.style.opacity = "";
+      }
       window.removeEventListener("wheel", handleWheel);
       window.removeEventListener("touchstart", handleTouchStart);
       window.removeEventListener("touchmove", handleTouchMove);

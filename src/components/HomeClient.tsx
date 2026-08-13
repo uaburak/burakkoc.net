@@ -74,6 +74,7 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
         {/* ── Hero (dikeyde ortalı, ortalanmış) ── */}
         <div className="flex-1 flex items-center justify-center">
           <h1
+            id="hero-title"
             className={`text-[26px] sm:text-[36px] md:text-[44px] leading-[38px] sm:leading-[50px] md:leading-[58px] font-light tracking-tight text-center select-none flex flex-col gap-1.5 md:gap-2 ${isExiting ? "pointer-events-none" : "pointer-events-auto"}`}
           >
             <span className="block">

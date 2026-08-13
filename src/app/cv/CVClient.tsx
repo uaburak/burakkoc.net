@@ -641,7 +641,10 @@ export function CVClient({
 
               <div className="flex flex-col justify-center gap-0.5 min-w-0">
                 {cvData?.myname && (
-                  <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+                  <h1
+                    className="w-full text-base font-medium leading-5 text-[var(--text-title)]"
+                    style={{ opacity: 1, transform: "none" }}
+                  >
                     {cvData.myname}
                   </h1>
                 )}
