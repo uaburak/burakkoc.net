@@ -194,15 +194,17 @@ export function CVClient({
   previewData?: CVData | null;
   isPreview?: boolean;
 } = {}) {
-  if (initialCvData && !memoryCvCache) {
-    memoryCvCache = initialCvData;
-  }
-
-  const [internalCvData, setInternalCvData] = useState<CVData | null>(
-    () => previewData ?? initialCvData ?? memoryCvCache ?? DEFAULT_CV_DATA
-  );
+  const [internalCvData, setInternalCvData] = useState<CVData | null>(null);
   const [projects, setProjects] = useState<ProjectData[]>([]);
-  const cvData = previewData ?? internalCvData ?? initialCvData ?? memoryCvCache ?? DEFAULT_CV_DATA;
+
+  // Prioritize previewData -> initialCvData (if it has valid myname) -> internalCvData -> DEFAULT_CV_DATA
+  const cvData =
+    previewData ??
+    (initialCvData?.myname ? initialCvData : null) ??
+    (internalCvData?.myname ? internalCvData : null) ??
+    initialCvData ??
+    internalCvData ??
+    DEFAULT_CV_DATA;
 
   const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
   const footerCardRef = useRef<HTMLDivElement>(null);
