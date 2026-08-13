@@ -57,7 +57,7 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
   };
 
   return (
-    <div className="fixed inset-0 h-[100dvh] bg-[var(--bg-1)] transition-colors duration-200 overflow-hidden flex flex-col">
+    <div className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative overflow-hidden flex flex-col">
       {/* ── Dark/Light Mode Toggle (Absolute) ── */}
       <div className="absolute top-6 right-6 md:top-8 md:right-8 z-30">
         <ThemeToggle />

@@ -9,7 +9,7 @@ import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 import PageEntrance from "@/components/PageEntrance";
 import { TopBar } from "@/components/TopBar";
-import { listProjects, getCVData } from "@/lib/firestore";
+import { listProjects, getCVData, DEFAULT_CV_DATA } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
 import { CVData } from "@/types/cv";
 import { ZoomableImage } from "@/components/ZoomableImage";
@@ -185,7 +185,7 @@ function SkillTag({ children }: { children: React.ReactNode }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function CVClient({ previewData, isPreview = false }: { previewData?: CVData | null; isPreview?: boolean } = {}) {
-  const [internalCvData, setInternalCvData] = useState<CVData | null>(null);
+  const [internalCvData, setInternalCvData] = useState<CVData | null>(previewData ?? DEFAULT_CV_DATA);
   const [projects, setProjects] = useState<ProjectData[]>([]);
 
   const cvData = previewData ?? internalCvData;

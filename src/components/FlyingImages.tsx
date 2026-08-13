@@ -120,20 +120,19 @@ const filterImagesByCategory = (category: string, projects: ProjectData[]): Imag
 };
 
 // Custom depth-based opacity curve
-const getOpacityForZ = (z: number, isMobile = false): number => {
+const getOpacityForZ = (z: number): number => {
   if (z > 400) {
     // Fade in very faintly from 0 (at z=1000) to 0.12 (at z=400)
     return Math.max(0, ((1000 - z) / 600) * 0.12);
   }
-  const minZ = isMobile ? 45 : 90;
   if (z >= 130) {
     // Once it passes the text depth (z <= 400), opacity rises rapidly to 0.9
     // Range: 400 to 130 (270 units), scaling from 0.12 to 0.9
     const val = 0.12 + ((400 - z) / 270) * 0.78;
     return Math.min(0.9, val);
   }
-  // Fade out completely as it exits past z=130 to minZ
-  return Math.max(0, ((z - minZ) / (130 - minZ)) * 0.9);
+  // Fade out completely as it exits past z=130 to z=90
+  return Math.max(0, ((z - 90) / 40) * 0.9);
 };
 
 interface FlyingImagesProps {
@@ -314,11 +313,9 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
 
         item.z3d -= dz;
 
-        const minZ = isMobileRef.current ? 45 : 90;
-
         // Reset logic
         if (dz >= 0) {
-          if (item.z3d <= minZ) {
+          if (item.z3d <= 90) {
             if (isExitingRef.current) {
               // Do not recycle when exiting
             } else {
@@ -336,7 +333,7 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
               // Do not recycle when exiting
             } else {
               const newItem = createItem(item.id, poolRef.current, false);
-              newItem.z3d = minZ;
+              newItem.z3d = 90;
               itemsRef.current[index] = newItem;
 
               const imgEl = imgRefs.current[index];
@@ -349,8 +346,8 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
         const currentItem = itemsRef.current[index];
         const z = currentItem.z3d;
 
-        // If z <= minZ, keep it completely transparent and avoid calculation glitches
-        if (z <= minZ) {
+        // If z <= 90, keep it completely transparent and avoid calculation glitches
+        if (z <= 90) {
           el.style.opacity = "0";
           return;
         }
@@ -360,26 +357,14 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
         const posX = (currentItem.x3d / z) * fov;
         const posY = (currentItem.y3d / z) * fov;
 
-        // Scale (clamped on desktop to 1.8, allowed up to 2.2 on mobile)
-        const maxScale = isMobileRef.current ? 2.2 : 1.8;
+        // Scale (clamped to a maximum of 1.8 to prevent layout overflow during extreme warp spikes)
+        // Except during exit, where we let it scale up larger as it zooms past the camera
         const scale = isExitingRef.current
           ? (110 / z) * currentItem.scaleMult
-          : Math.min(maxScale, (110 / z) * currentItem.scaleMult);
+          : Math.min(1.8, (110 / z) * currentItem.scaleMult);
 
-        // Base depth opacity
-        const baseOpacity = getOpacityForZ(z, isMobileRef.current);
-
-        // Edge fade on mobile: fade opacity down to 0 before image card touches the screen border
-        let edgeOpacity = 1.0;
-        if (isMobileRef.current) {
-          const absX = Math.abs(posX);
-          const absY = Math.abs(posY);
-          const xFade = Math.max(0, 1 - Math.max(0, absX - 20) / 18);
-          const yFade = Math.max(0, 1 - Math.max(0, absY - 22) / 18);
-          edgeOpacity = Math.min(xFade, yFade);
-        }
-
-        const opacity = baseOpacity * edgeOpacity;
+        // Opacity
+        const opacity = getOpacityForZ(z);
 
         // Blur: far away images are blurry, close are sharp. Speed adds motion blur.
         const warpBlur = (speedMultiplier - 1.0) * 0.4;
@@ -446,7 +431,7 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
   }
 
   return (
-    <div className="absolute -inset-20 md:inset-0 overflow-hidden pointer-events-none select-none z-10">
+    <div className="absolute inset-0 overflow-hidden pointer-events-none select-none z-10 w-full h-full">
       {Array.from({ length: NUM_ITEMS }).map((_, index) => {
         const slot = GEOMETRIC_SLOTS[index % GEOMETRIC_SLOTS.length];
         const initialZ = 100 + index * (900 / NUM_ITEMS);

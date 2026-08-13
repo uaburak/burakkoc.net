@@ -100,7 +100,7 @@ export function MobileNav() {
   return (
     <div
       ref={menuRef}
-      className="fixed bottom-1 left-1/2 -translate-x-1/2 z-50 xl:hidden pointer-events-auto"
+      className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 xl:hidden pointer-events-auto"
     >
       <motion.div
         animate={{
