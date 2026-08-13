@@ -265,7 +265,25 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
       wheelAccumulatorRef.current += e.deltaY * 0.8;
     };
 
+    let touchStartY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length > 0) {
+        touchStartY = e.touches[0].clientY;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 0) {
+        const currentY = e.touches[0].clientY;
+        const deltaY = touchStartY - currentY;
+        touchStartY = currentY;
+        wheelAccumulatorRef.current += deltaY * 2.2;
+      }
+    };
+
     window.addEventListener("wheel", handleWheel, { passive: true });
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
 
     let animationFrameId: number;
     let lastTime = performance.now();
@@ -422,6 +440,8 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
     return () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("wheel", handleWheel);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
     };
   }, [imagePool]);
 
