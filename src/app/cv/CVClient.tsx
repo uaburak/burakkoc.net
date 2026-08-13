@@ -191,8 +191,18 @@ export function CVClient({
   previewData?: CVData | null;
   isPreview?: boolean;
 } = {}) {
+  const [fetchedCvData, setFetchedCvData] = useState<CVData | null>(null);
   const [projects, setProjects] = useState<ProjectData[]>([]);
-  const cvData = previewData || initialCvData || DEFAULT_CV_DATA;
+
+  useEffect(() => {
+    if (!previewData && !initialCvData?.myname) {
+      getCVData()
+        .then((data) => setFetchedCvData(data))
+        .catch((err) => console.error("Failed to load CV data:", err));
+    }
+  }, [initialCvData, previewData]);
+
+  const cvData = previewData || (initialCvData?.myname ? initialCvData : null) || fetchedCvData || initialCvData || DEFAULT_CV_DATA;
 
   const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
   const footerCardRef = useRef<HTMLDivElement>(null);
@@ -551,19 +561,19 @@ export function CVClient({
     <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative overflow-x-hidden">
 
       {/* ── Profile Cursor-Tracking Floating Preview ── */}
-      {cvData?.profileImage && (
-        <div
-          ref={profilePreviewRef}
-          className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-44 sm:w-48 aspect-square rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
-        >
+      <div
+        ref={profilePreviewRef}
+        className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-44 sm:w-48 aspect-square rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)] opacity-0"
+      >
+        {cvData?.profileImage && (
           <img
             ref={profilePreviewImgRef}
             src={cvData.profileImage}
             alt={cvData?.myname ? `${cvData.myname} Preview` : "Profile Preview"}
             className="w-full h-full object-cover"
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ── Experience Cursor-Tracking Floating Preview ── */}
       <div
