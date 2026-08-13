@@ -180,6 +180,9 @@ function SkillTag({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Module-level in-memory cache to preserve CV data across client-side route transitions
+let memoryCvCache: CVData | null = null;
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function CVClient({
@@ -191,11 +194,15 @@ export function CVClient({
   previewData?: CVData | null;
   isPreview?: boolean;
 } = {}) {
+  if (initialCvData && !memoryCvCache) {
+    memoryCvCache = initialCvData;
+  }
+
   const [internalCvData, setInternalCvData] = useState<CVData | null>(
-    previewData ?? initialCvData ?? DEFAULT_CV_DATA
+    () => previewData ?? initialCvData ?? memoryCvCache ?? DEFAULT_CV_DATA
   );
   const [projects, setProjects] = useState<ProjectData[]>([]);
-  const cvData = previewData ?? internalCvData ?? initialCvData ?? DEFAULT_CV_DATA;
+  const cvData = previewData ?? internalCvData ?? initialCvData ?? memoryCvCache ?? DEFAULT_CV_DATA;
 
   const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
   const footerCardRef = useRef<HTMLDivElement>(null);
@@ -228,7 +235,10 @@ export function CVClient({
   useEffect(() => {
     if (!previewData) {
       getCVData()
-        .then((data) => setInternalCvData(data))
+        .then((data) => {
+          memoryCvCache = data;
+          setInternalCvData(data);
+        })
         .catch((err) => console.error("Failed to load CV data:", err));
     }
 

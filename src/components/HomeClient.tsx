@@ -7,6 +7,8 @@ import { FlyingImages, FlyingImagesRef } from "@/components/FlyingImages";
 import { ProjectData } from "@/types/project";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
+import { getCVData } from "@/lib/firestore";
+
 export default function HomeClient({ initialProjects }: { initialProjects: ProjectData[] }) {
   const router = useRouter();
   const flyingImagesRef = useRef<FlyingImagesRef>(null);
@@ -17,6 +19,9 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
     if (isExiting) return;
     setHoveredCategory(category);
     flyingImagesRef.current?.warpTo(category);
+    if (category === "Burak") {
+      getCVData().catch(() => {});
+    }
   };
 
   const handleMouseLeave = () => {
