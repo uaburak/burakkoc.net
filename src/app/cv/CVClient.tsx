@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import gsap from "gsap";
-import { ArrowLeftIcon } from "@/components/icons";
+import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 import PageEntrance from "@/components/PageEntrance";
@@ -13,6 +13,7 @@ import { listProjects, getCVData, DEFAULT_CV_DATA } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
 import { CVData } from "@/types/cv";
 import { ZoomableImage } from "@/components/ZoomableImage";
+import { Footer } from "@/components/Footer";
 
 function getProjectCoverImage(proj?: ProjectData | null): string | null {
   if (!proj) return null;
@@ -123,9 +124,19 @@ function ExternalLinkIcon() {
 
 function SectionLabel({ children, disabled }: { children: React.ReactNode; disabled?: boolean }) {
   return (
-    <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)] mb-6 mt-2">
-      {children}
-    </h2>
+    <TextScrollingEffect disabled={disabled} className="w-full">
+      <h2 className="w-full text-base font-medium leading-5 text-[var(--text-title)] mb-6 mt-2">
+        {children}
+      </h2>
+    </TextScrollingEffect>
+  );
+}
+
+function SectionDivider({ disabled }: { disabled?: boolean }) {
+  return (
+    <ScrollReveal disabled={disabled} className="w-full">
+      <div className="w-full h-px bg-[var(--border)]" />
+    </ScrollReveal>
   );
 }
 
@@ -495,6 +506,7 @@ export function CVClient({
     if (footerCardRef.current) {
       gsap.to(footerCardRef.current, {
         left: "50%",
+        xPercent: -50,
         opacity: img ? 1 : 0,
         scale: 1,
         duration: 0.4,
@@ -511,7 +523,8 @@ export function CVClient({
 
     gsap.to(footerCardRef.current, {
       left: "50%",
-      x: relX * 20,
+      xPercent: -50,
+      x: relX * 40,
       rotation: relX * 6,
       opacity: footerActiveImage ? 1 : 0,
       scale: 1,
@@ -603,14 +616,14 @@ export function CVClient({
 
         {/* ─── Header ─── */}
         <section className="flex flex-col items-start w-full pt-[10px] pb-10 border-b border-[var(--border)]">
-          <div className="flex flex-wrap items-center justify-between w-full gap-4">
-            <div className="flex items-center gap-4 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 min-w-0 w-full sm:w-auto">
               {cvData?.profileImage && (
                 <div
                   onMouseEnter={handleMouseEnterProfile}
                   onMouseLeave={handleMouseLeaveProfile}
                   onClick={handleMouseLeaveProfile}
-                  className="w-[72px] h-[72px] rounded-[20px] bg-[var(--bg-4)] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
+                  className="w-[72px] h-[72px] rounded-[14px] bg-[var(--bg-4)] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
                 >
                   <ZoomableImage
                     src={cvData.profileImage}
@@ -629,22 +642,42 @@ export function CVClient({
                 </div>
               )}
 
-              <div className="flex flex-col justify-center gap-0.5 min-w-0">
-                {cvData?.myname && (
-                  <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-                    {cvData.myname}
-                  </h1>
-                )}
-                {cvData?.myrole && (
-                  <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
-                    {cvData.myrole}
-                  </p>
+              <div className="flex items-center justify-between sm:justify-start w-full sm:w-auto gap-4 min-w-0">
+                <div className="flex flex-col justify-center gap-0.5 min-w-0">
+                  {cvData?.myname && (
+                    <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+                      {cvData.myname}
+                    </h1>
+                  )}
+                  {cvData?.myrole && (
+                    <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
+                      {cvData.myrole}
+                    </p>
+                  )}
+                </div>
+
+                {/* Mobile-only Download CV Button */}
+                {cvData?.cvPdfUrl && (
+                  <div className="sm:hidden relative shrink-0">
+                    <a
+                      href={cvData.cvPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download
+                      id="cv-download-mobile"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-medium text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-95 shrink-0"
+                    >
+                      <DownloadIcon />
+                      Download CV
+                    </a>
+                  </div>
                 )}
               </div>
             </div>
 
+            {/* Desktop Download CV Button */}
             {cvData?.cvPdfUrl && (
-              <div className="relative shrink-0" onMouseLeave={handleMouseLeaveCv}>
+              <div className="hidden sm:block relative shrink-0" onMouseLeave={handleMouseLeaveCv}>
                 {/* CV Preview Card (Hover) — Butonun altında gösterilir */}
                 <div
                   ref={cvCardRef}
@@ -678,7 +711,7 @@ export function CVClient({
         </section>
 
         {/* ─── About ─── */}
-        <section className="flex flex-col items-start w-full pt-10 pb-10 border-b border-[var(--border)]">
+        <section className="flex flex-col items-start w-full pt-10 pb-10">
           <SectionLabel disabled={isPreview}>About</SectionLabel>
           <TextScrollingEffect disabled={isPreview}>
             {(cvData?.aboutParagraphs || []).map((paragraph, i) => (
@@ -688,6 +721,7 @@ export function CVClient({
             ))}
           </TextScrollingEffect>
         </section>
+        <SectionDivider disabled={isPreview} />
 
         {/* ─── Experience ─── */}
         <section className="flex flex-col items-start w-full pt-10 pb-4">
@@ -724,9 +758,10 @@ export function CVClient({
             ))}
           </div>
         </section>
+        <SectionDivider disabled={isPreview} />
 
         {/* ─── Skills ─── */}
-        <section className="flex flex-col items-start w-full pt-10 pb-10 border-b border-[var(--border)]">
+        <section className="flex flex-col items-start w-full pt-10 pb-10">
           <SectionLabel disabled={isPreview}>Skills</SectionLabel>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-16 gap-y-4 w-full">
             <div className="flex flex-col gap-4">
@@ -775,9 +810,10 @@ export function CVClient({
             </div>
           </div>
         </section>
+        <SectionDivider disabled={isPreview} />
 
         {/* ─── Hobbies ─── */}
-        <section className="flex flex-col items-start w-full pt-10 pb-10 border-b border-[var(--border)]">
+        <section className="flex flex-col items-start w-full pt-10 pb-10">
           <SectionLabel disabled={isPreview}>Hobbies</SectionLabel>
           <ScrollReveal disabled={isPreview}>
             <div className="flex flex-wrap gap-2">
@@ -794,7 +830,7 @@ export function CVClient({
         </section>
 
         {/* ─── Contact ─── */}
-        <section className="flex flex-col items-start w-full pt-10">
+        <section className="flex flex-col items-start w-full pt-10 pb-10">
           <SectionLabel disabled={isPreview}>Contact</SectionLabel>
           <div className="grid w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {(cvData?.contact || []).map((item) => (
@@ -822,19 +858,15 @@ export function CVClient({
           </div>
         </section>
 
-        {/* ─── Footer Navigation (hidden in admin preview) ─── */}
+        {/* ─── Footer Navigation ─── */}
         {!isPreview && (
-          <div
-            className="flex flex-col gap-12 items-start pt-16 w-full"
-            onMouseLeave={handleMouseLeaveFooter}
-          >
-            <div className="w-full h-px bg-[var(--border)]" />
-            <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-0 w-full">
+          <Footer onMouseLeave={handleMouseLeaveFooter}>
+            <div className="relative grid grid-cols-2 gap-2 sm:gap-0 w-full">
               {/* Single Shared Footer Preview Card */}
               <div
                 ref={footerCardRef}
-                className="absolute pointer-events-none hidden md:block w-1/2 aspect-[16/9] origin-bottom rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
-                style={{ bottom: "calc(100% + 12px)", left: "0%" }}
+                className="absolute pointer-events-none hidden md:block w-48 sm:w-56 aspect-[16/9] origin-bottom rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
+                style={{ bottom: "calc(100% + 12px)", right: "0%" }}
               >
                 {footerActiveImage && (
                   <img
@@ -846,25 +878,35 @@ export function CVClient({
                 )}
               </div>
 
-              <Link
-                href="/"
-                onMouseEnter={handleMouseEnterHome}
-                onMouseMove={handleMouseMoveHome}
+              <a
+                href={
+                  (cvData?.contact || []).find(
+                    (c) => c.href?.startsWith("mailto") || c.label?.toLowerCase().includes("email")
+                  )?.href || (cvData?.contact?.[0]?.href || "#")
+                }
+                target={
+                  (cvData?.contact || []).find(
+                    (c) => c.href?.startsWith("mailto") || c.label?.toLowerCase().includes("email")
+                  )?.href?.startsWith("mailto")
+                    ? undefined
+                    : "_blank"
+                }
+                rel="noopener noreferrer"
                 className="relative group flex flex-col gap-0.5 justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
               >
-                <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
-                  Back to
+                <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)] truncate w-full">
+                  Get in touch
                 </span>
-                <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
-                  Home
+                <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate w-full">
+                  Contact
                 </span>
-              </Link>
+              </a>
 
               <Link
                 href="/projects"
                 onMouseEnter={handleMouseEnterProjects}
                 onMouseMove={handleMouseMoveProjects}
-                className="relative group flex flex-col gap-0.5 items-start sm:items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+                className="relative group flex flex-col gap-0.5 items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
               >
                 <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
                   Explore
@@ -874,9 +916,8 @@ export function CVClient({
                 </span>
               </Link>
             </div>
-          </div>
+          </Footer>
         )}
-
       </main>
     </PageEntrance>
   );

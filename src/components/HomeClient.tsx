@@ -31,7 +31,7 @@ export default function HomeClient({ initialProjects }: { initialProjects: Proje
     flyingImagesRef.current?.startExitAnimation();
     setTimeout(() => {
       router.push(href);
-    }, 400);
+    }, 200);
   };
 
   const getButtonClass = (category: string) => {
