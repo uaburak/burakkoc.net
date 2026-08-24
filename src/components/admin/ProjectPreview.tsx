@@ -5,6 +5,7 @@ import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem } from 
 import { Segmented } from "@/components/Segmented";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { ZoomableFigma } from "@/components/ZoomableFigma";
+import { ZoomableIframe } from "@/components/ZoomableIframe";
 import { CodeHighlight } from "@/components/CodeHighlight";
 import { ComponentRenderer } from "@/components/demos/ComponentRegistry";
 
@@ -416,6 +417,7 @@ function PreviewBlock({ block, lang }: { block: Block; lang: "tr" | "en" }) {
     case "video":   return <PreviewVideo   block={b} />;
     case "code":    return <PreviewCode    block={b} />;
     case "figma":   return <ZoomableFigma    src={b.src ?? ""} figmaWorkspace={b.figmaWorkspace} figmaCover={b.figmaCover} figmaWorkspaceCover={b.figmaWorkspaceCover} caption={b.caption} lang={lang} />;
+    case "iframe":  return <ZoomableIframe   src={b.src} iframeTabletUrl={b.iframeTabletUrl} iframeMobileUrl={b.iframeMobileUrl} iframeViews={b.iframeViews} iframeCover={b.iframeCover} caption={b.caption} lang={lang} />;
     default:        return null;
   }
 }

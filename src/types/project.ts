@@ -1,6 +1,6 @@
 // ── Block Types (divider removed — it's now a top-level PageItem) ─────────────
 
-export type BlockType = "heading" | "subheading" | "text" | "image" | "video" | "code" | "figma";
+export type BlockType = "heading" | "subheading" | "text" | "image" | "video" | "code" | "figma" | "iframe";
 
 // ── Badge System ─────────────────────────────────────────────────────────────
 
@@ -45,6 +45,11 @@ export interface Block {
   figmaWorkspace?: string;
   figmaCover?: string;
   figmaWorkspaceCover?: string;
+  // Iframe fields
+  iframeViews?: ("desktop" | "tablet" | "mobile")[];
+  iframeTabletUrl?: string;
+  iframeMobileUrl?: string;
+  iframeCover?: string;
   // EN
   contentEn?: string;
   subheadingEn?: string;

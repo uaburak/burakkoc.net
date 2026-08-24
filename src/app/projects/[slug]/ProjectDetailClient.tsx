@@ -12,6 +12,7 @@ import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { ZoomableFigma } from "@/components/ZoomableFigma";
+import { ZoomableIframe } from "@/components/ZoomableIframe";
 import { IconButton } from "@/components/Button";
 import PageEntrance from "@/components/PageEntrance";
 import { TopBar } from "@/components/TopBar";
@@ -421,6 +422,7 @@ function DetailBlock({ block }: { block: Block }) {
     case "video":      return <DetailVideo      block={block} />;
     case "code":       return <DetailCode       block={block} />;
     case "figma":      return <ZoomableFigma    src={block.src ?? ""} figmaWorkspace={block.figmaWorkspace} figmaCover={block.figmaCover} figmaWorkspaceCover={block.figmaWorkspaceCover} caption={block.caption} />;
+    case "iframe":     return <ZoomableIframe   src={block.src} iframeTabletUrl={block.iframeTabletUrl} iframeMobileUrl={block.iframeMobileUrl} iframeViews={block.iframeViews} iframeCover={block.iframeCover} caption={block.caption} />;
     default:           return null;
   }
 }

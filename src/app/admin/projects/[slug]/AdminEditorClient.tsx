@@ -7,6 +7,7 @@ import { ImageBlockEditor } from "@/components/admin/ImageBlockEditor";
 import { VideoBlockEditor } from "@/components/admin/VideoBlockEditor";
 import { CodeBlockEditor }  from "@/components/admin/CodeBlockEditor";
 import { FigmaBlockEditor }  from "@/components/admin/FigmaBlockEditor";
+import { IframeBlockEditor } from "@/components/admin/IframeBlockEditor";
 import { ProjectPreview }   from "@/components/admin/ProjectPreview";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
 import { saveProject, loadProject, getCVData } from "@/lib/firestore";
@@ -121,6 +122,17 @@ const BLOCK_DEFS: {
       </svg>
     ),
   },
+  {
+    type: "iframe",
+    label: "iFrame",
+    description: "Prototip / Canlı Önizleme embed",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M5 7h6M5 9.5h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -196,6 +208,7 @@ function BlockLabel({ type }: { type: BlockType }) {
     video:      "Video",
     code:       "Kod Bloğu",
     figma:      "Figma",
+    iframe:     "iFrame",
   };
   return <PillLabel>{labels[type]}</PillLabel>;
 }
@@ -345,6 +358,7 @@ function BlockRow({
       {block.type === "video" && <VideoBlockEditor block={viewBlock} onChange={handleChange} />}
       {block.type === "code"  && <CodeBlockEditor  block={viewBlock} onChange={handleChange} />}
       {block.type === "figma" && <FigmaBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
+      {block.type === "iframe" && <IframeBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
     </div>
   );
 }

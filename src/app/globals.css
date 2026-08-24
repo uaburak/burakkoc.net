@@ -150,32 +150,52 @@ body {
 }
 
 /* ── Scrollbars ────────────────────────────────────────────── */
-/* Webkit (Chrome, Safari, Edge) */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Webkit (Chrome, Safari, Edge) — exclude iframe from default scrollbar thumb styling */
+*:not(iframe)::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
   background: transparent;
 }
 
-::-webkit-scrollbar-track {
+*:not(iframe)::-webkit-scrollbar-track {
   background: transparent;
   border: none;
   box-shadow: none;
 }
 
-::-webkit-scrollbar-thumb {
+*:not(iframe)::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: 3px;
+  border-radius: 9999px;
   border: none;
   transition: background 200ms ease;
 }
 
-::-webkit-scrollbar-thumb:hover {
+*:not(iframe)::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 
-::-webkit-scrollbar-corner {
+*:not(iframe)::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Explicit iframe scrollbar rules — 100% hide all scrollbars on iframe elements */
+iframe {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+iframe::-webkit-scrollbar,
+iframe::-webkit-scrollbar-thumb,
+iframe::-webkit-scrollbar-track,
+iframe::-webkit-scrollbar-corner {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 /* Firefox */
@@ -425,12 +445,21 @@ pre[class*="language-"] {
   color: #fb923c;
 }
 /* ── Hide native scrollbar for custom scrollbar replacement ── */
-.hide-native-scrollbar {
+.hide-native-scrollbar,
+.no-scrollbar {
   -ms-overflow-style: none !important;
   scrollbar-width: none !important;
 }
-.hide-native-scrollbar::-webkit-scrollbar {
+.hide-native-scrollbar::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar,
+.hide-native-scrollbar::-webkit-scrollbar-thumb,
+.no-scrollbar::-webkit-scrollbar-thumb,
+.hide-native-scrollbar::-webkit-scrollbar-track,
+.no-scrollbar::-webkit-scrollbar-track {
   width: 0 !important;
   height: 0 !important;
   display: none !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }

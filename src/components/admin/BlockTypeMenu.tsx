@@ -54,6 +54,17 @@ const BLOCK_TYPES: { type: BlockType | "divider"; label: string; description: st
     ),
   },
   {
+    type: "iframe",
+    label: "iFrame",
+    description: "Prototip / Canlı Önizleme embed",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M5 7h6M5 9.5h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     type: "divider",
     label: "Bölücü",
     description: "İnce yatay çizgi",
