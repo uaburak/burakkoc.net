@@ -71,27 +71,16 @@ function ZoomTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
 export function ZoomableImage({ src, alt, className, style, badges, activeTab, onTabChange, getStartRect, ...props }: ZoomableImageProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [originalRect, setOriginalRect] = useState<DOMRect | null>(null);
   const [targetRect, setTargetRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [originalBorderRadius, setOriginalBorderRadius] = useState<string>("0px");
   const [localActiveTab, setLocalActiveTab] = useState(activeTab || "");
   const [prevActiveTab, setPrevActiveTab] = useState(activeTab || "");
 
-  // Inner scale for UI indicator/cursor
-  const [innerScale, setInnerScale] = useState(1);
-
-  // High performance direct DOM refs for 60/120fps hardware accelerated pinch & pan
-  const innerScaleRef = useRef<number>(1);
-  const panOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const isDraggingRef = useRef<boolean>(false);
-  const touchStartRef = useRef<{ x: number; y: number; panX: number; panY: number }>({ x: 0, y: 0, panX: 0, panY: 0 });
-  const pinchStartDistRef = useRef<number>(0);
-  const pinchStartScaleRef = useRef<number>(1);
-  const hasMovedRef = useRef<boolean>(false);
-  const rafPendingRef = useRef<boolean>(false);
-
+  const lastTapTimeRef = useRef<number>(0);
+  const lastTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const originalImgRef = useRef<HTMLImageElement>(null);
-  const zoomedImgRef = useRef<HTMLImageElement>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const normalizedActiveTab = activeTab || "";
@@ -110,7 +99,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
   const tab2 = segBadge?.tab2;
   const isTab2 = segBadge && localActiveTab === tab2Label;
 
-  // Calculate coordinates to center and fit the image within the viewport without cropping
+  // Calculate coordinates to center and fit the image within the viewport
   const calculateTargetRect = useCallback((naturalW: number, naturalH: number) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -124,11 +113,9 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     let targetHeight = maxH;
 
     if (imageRatio > targetRatio) {
-      // Image is wider than viewport ratio limit
       targetWidth = maxW;
       targetHeight = maxW / imageRatio;
     } else {
-      // Image is taller than viewport ratio limit
       targetHeight = maxH;
       targetWidth = maxH * imageRatio;
     }
@@ -139,16 +126,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       width: targetWidth,
       height: targetHeight,
     };
-  }, []);
-
-  // Update image DOM transform using rAF for ultra-smooth 60/120fps response
-  const updateZoomedImageTransform = useCallback((scale: number, panX: number, panY: number, animate: boolean = false) => {
-    innerScaleRef.current = scale;
-    panOffsetRef.current = { x: panX, y: panY };
-    if (zoomedImgRef.current) {
-      zoomedImgRef.current.style.transition = animate ? "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)" : "none";
-      zoomedImgRef.current.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`;
-    }
   }, []);
 
   const handleZoom = (e: React.MouseEvent<HTMLImageElement>) => {
@@ -167,7 +144,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     const computedStyle = window.getComputedStyle(img);
     const parentStyle = img.parentElement ? window.getComputedStyle(img.parentElement) : null;
 
-    // Detect if parent container has overflow: hidden and has border-radius
     const borderRadius = customRect
       ? "16px"
       : (parentStyle?.overflow === "hidden" ? parentStyle.borderRadius : computedStyle.borderRadius);
@@ -175,10 +151,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     setOriginalRect(rect);
     setOriginalBorderRadius(borderRadius || "0px");
     setLocalActiveTab(activeTab || tab1Label);
-
-    innerScaleRef.current = 1;
-    panOffsetRef.current = { x: 0, y: 0 };
-    setInnerScale(1);
+    setIsFullscreen(false);
 
     const target = calculateTargetRect(img.naturalWidth || rect.width, img.naturalHeight || rect.height);
     setTargetRect(target);
@@ -192,18 +165,13 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       clearTimeout(closeTimeoutRef.current);
     }
 
-    // Reset inner zoom transform
-    updateZoomedImageTransform(1, 0, 0, true);
-    setInnerScale(1);
-    isDraggingRef.current = false;
+    setIsFullscreen(false);
 
-    // Recalculate original position
     const currentRect = originalImgRef.current.getBoundingClientRect();
     setOriginalRect(currentRect);
 
     setIsExpanded(false);
 
-    // Unmount portal after 400ms transition completes
     closeTimeoutRef.current = setTimeout(() => {
       setIsZoomed(false);
       setOriginalRect(null);
@@ -211,192 +179,29 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       onTabChange?.(localActiveTab);
       closeTimeoutRef.current = null;
     }, 400);
-  }, [isZoomed, localActiveTab, onTabChange, updateZoomedImageTransform]);
+  }, [isZoomed, localActiveTab, onTabChange]);
 
-  // High performance touch gesture handlers for 2-finger pinch & 1-finger pan
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+  const toggleFullscreen = useCallback(() => {
     if (isTab2) return;
-    hasMovedRef.current = false;
+    setIsFullscreen((prev) => !prev);
+  }, [isTab2]);
 
-    if (e.touches.length === 2) {
-      // 2-finger pinch start
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      pinchStartDistRef.current = dist;
-      pinchStartScaleRef.current = innerScaleRef.current;
-
-      touchStartRef.current = {
-        x: (t1.clientX + t2.clientX) / 2,
-        y: (t1.clientY + t2.clientY) / 2,
-        panX: panOffsetRef.current.x,
-        panY: panOffsetRef.current.y,
-      };
-      isDraggingRef.current = true;
-    } else if (e.touches.length === 1 && innerScaleRef.current > 1.05) {
-      // 1-finger pan start
-      const touch = e.touches[0];
-      touchStartRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        panX: panOffsetRef.current.x,
-        panY: panOffsetRef.current.y,
-      };
-      isDraggingRef.current = true;
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (isTab2 || !targetRect) return;
-
-    if (e.touches.length === 2 && pinchStartDistRef.current > 0) {
-      // 2-finger pinch move
-      hasMovedRef.current = true;
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const scaleFactor = dist / pinchStartDistRef.current;
-      const rawScale = pinchStartScaleRef.current * scaleFactor;
-
-      // Allow elastic pinch scaling between 0.8x and 4.5x
-      const newScale = Math.max(0.8, Math.min(4.5, rawScale));
-
-      // Pan adjustment
-      const currentCenterX = (t1.clientX + t2.clientX) / 2;
-      const currentCenterY = (t1.clientY + t2.clientY) / 2;
-      const dx = currentCenterX - touchStartRef.current.x;
-      const dy = currentCenterY - touchStartRef.current.y;
-
-      const scaledW = targetRect.width * newScale;
-      const scaledH = targetRect.height * newScale;
-      const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
-      const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
-
-      const newPanX = Math.max(-maxPanX, Math.min(maxPanX, touchStartRef.current.panX + dx));
-      const newPanY = Math.max(-maxPanY, Math.min(maxPanY, touchStartRef.current.panY + dy));
-
-      if (!rafPendingRef.current) {
-        rafPendingRef.current = true;
-        requestAnimationFrame(() => {
-          updateZoomedImageTransform(newScale, newPanX, newPanY, false);
-          rafPendingRef.current = false;
-        });
-      }
-    } else if (e.touches.length === 1 && innerScaleRef.current > 1.05 && isDraggingRef.current) {
-      // 1-finger pan move
-      const touch = e.touches[0];
-      const dx = touch.clientX - touchStartRef.current.x;
-      const dy = touch.clientY - touchStartRef.current.y;
-
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-        hasMovedRef.current = true;
-      }
-
-      const currentScale = innerScaleRef.current;
-      const scaledW = targetRect.width * currentScale;
-      const scaledH = targetRect.height * currentScale;
-
-      const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
-      const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
-
-      const newPanX = Math.max(-maxPanX, Math.min(maxPanX, touchStartRef.current.panX + dx));
-      const newPanY = Math.max(-maxPanY, Math.min(maxPanY, touchStartRef.current.panY + dy));
-
-      if (!rafPendingRef.current) {
-        rafPendingRef.current = true;
-        requestAnimationFrame(() => {
-          updateZoomedImageTransform(currentScale, newPanX, newPanY, false);
-          rafPendingRef.current = false;
-        });
-      }
-    }
-  };
-
+  // Touch handler for mobile double-tap toggle
   const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (isTab2) return;
-    isDraggingRef.current = false;
-    pinchStartDistRef.current = 0;
+    if (isTab2 || e.changedTouches.length !== 1) return;
+    const touch = e.changedTouches[0];
+    const now = Date.now();
+    const timeDiff = now - lastTapTimeRef.current;
+    const dx = Math.abs(touch.clientX - lastTapPosRef.current.x);
+    const dy = Math.abs(touch.clientY - lastTapPosRef.current.y);
 
-    const currentScale = innerScaleRef.current;
-
-    // Elastic bounce-back for pinch limits
-    if (currentScale < 1.05) {
-      updateZoomedImageTransform(1, 0, 0, true);
-      setInnerScale(1);
-    } else if (currentScale > 4) {
-      if (targetRect) {
-        const scaledW = targetRect.width * 4;
-        const scaledH = targetRect.height * 4;
-        const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
-        const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
-        const clampedX = Math.max(-maxPanX, Math.min(maxPanX, panOffsetRef.current.x));
-        const clampedY = Math.max(-maxPanY, Math.min(maxPanY, panOffsetRef.current.y));
-        updateZoomedImageTransform(4, clampedX, clampedY, true);
-        setInnerScale(4);
-      }
+    if (timeDiff < 300 && dx < 35 && dy < 35) {
+      // Double tap detected!
+      lastTapTimeRef.current = 0;
+      toggleFullscreen();
     } else {
-      setInnerScale(currentScale);
-    }
-
-    // Tap to close modal immediately when not dragged
-    if (!hasMovedRef.current && e.changedTouches.length === 1 && currentScale <= 1.05) {
-      handleClose();
-    }
-  };
-
-  // Mouse handlers for desktop dragging when zoomed
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isTab2) return;
-    hasMovedRef.current = false;
-    if (innerScaleRef.current > 1.05) {
-      touchStartRef.current = {
-        x: e.clientX,
-        y: e.clientY,
-        panX: panOffsetRef.current.x,
-        panY: panOffsetRef.current.y,
-      };
-      isDraggingRef.current = true;
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isTab2 || !isDraggingRef.current || innerScaleRef.current <= 1.05 || !targetRect) return;
-    const dx = e.clientX - touchStartRef.current.x;
-    const dy = e.clientY - touchStartRef.current.y;
-
-    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-      hasMovedRef.current = true;
-    }
-
-    const currentScale = innerScaleRef.current;
-    const scaledW = targetRect.width * currentScale;
-    const scaledH = targetRect.height * currentScale;
-
-    const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
-    const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
-
-    const newPanX = Math.max(-maxPanX, Math.min(maxPanX, touchStartRef.current.panX + dx));
-    const newPanY = Math.max(-maxPanY, Math.min(maxPanY, touchStartRef.current.panY + dy));
-
-    if (!rafPendingRef.current) {
-      rafPendingRef.current = true;
-      requestAnimationFrame(() => {
-        updateZoomedImageTransform(currentScale, newPanX, newPanY, false);
-        rafPendingRef.current = false;
-      });
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (isTab2) return;
-    isDraggingRef.current = false;
-  };
-
-  const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isTab2) return;
-    e.stopPropagation();
-    if (!hasMovedRef.current && innerScaleRef.current <= 1.05) {
-      handleClose();
+      lastTapTimeRef.current = now;
+      lastTapPosRef.current = { x: touch.clientX, y: touch.clientY };
     }
   };
 
@@ -404,7 +209,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
   useEffect(() => {
     if (!isZoomed) return;
 
-    // Pause Lenis smooth scroll so background page cannot scroll at all
     const lenis = (window as any).__lenis;
     if (lenis && typeof lenis.stop === "function") {
       lenis.stop();
@@ -413,7 +217,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     const preventScroll = (e: Event) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest("[data-lenis-prevent]")) {
-        return; // Allow wheel/touchpad scrolling inside zoomed container!
+        return;
       }
       e.preventDefault();
     };
@@ -449,19 +253,23 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     }
   }, [isZoomed, targetRect]);
 
-  // Close on Escape key press
+  // Close on Escape key press (or exit fullscreen first)
   useEffect(() => {
     if (!isZoomed) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        handleClose();
+        if (isFullscreen) {
+          setIsFullscreen(false);
+        } else {
+          handleClose();
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isZoomed, handleClose]);
+  }, [isZoomed, isFullscreen, handleClose]);
 
   // Handle browser resize during zoom
   useEffect(() => {
@@ -478,6 +286,17 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [isZoomed, calculateTargetRect]);
+
+  // Determine active lightbox rect
+  const vw = typeof window !== "undefined" ? window.innerWidth : 0;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 0;
+  const isMobile = vw < 640;
+
+  const fullscreenPadding = isMobile ? 8 : 16;
+  const activeLeft = isFullscreen ? fullscreenPadding : (targetRect?.left ?? 0);
+  const activeTop = isFullscreen ? fullscreenPadding : (targetRect?.top ?? 0);
+  const activeWidth = isFullscreen ? (vw - fullscreenPadding * 2) : (targetRect?.width ?? 0);
+  const activeHeight = isFullscreen ? (vh - fullscreenPadding * 2) : (targetRect?.height ?? 0);
 
   return (
     <>
@@ -505,11 +324,27 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
               className="fixed inset-0 z-[9998] cursor-zoom-out"
               style={{
                 backgroundColor: "var(--bg-1)",
-                opacity: isExpanded ? 0.75 : 0,
+                opacity: isExpanded ? 0.85 : 0,
                 transition: "opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
               }}
               onClick={handleClose}
             />
+
+            {/* Close Button at Top Right */}
+            <button
+              type="button"
+              aria-label="Close lightbox"
+              className="fixed top-5 right-5 z-[10000] p-2.5 rounded-full bg-[var(--bg-2)]/80 backdrop-blur-md border border-[var(--border)] text-[var(--text-title)] hover:bg-[var(--bg-3)] transition-all duration-200 cursor-pointer flex items-center justify-center opacity-100"
+              style={{
+                opacity: isExpanded ? 1 : 0,
+                transition: "opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
+              }}
+              onClick={handleClose}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
 
             {segBadge && (
               <div
@@ -526,42 +361,33 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                   value={localActiveTab}
                   onChange={(tab) => {
                     setLocalActiveTab(tab);
-                    updateZoomedImageTransform(1, 0, 0, true);
-                    setInnerScale(1);
+                    setIsFullscreen(false);
                   }}
                   size="md"
                 />
               </div>
             )}
 
-            {/* Container displaying the natural uncropped aspect ratio fit */}
+            {/* Lightbox Container */}
             <div
               data-lenis-prevent
               className={cn(
-                "fixed z-[9999] select-text overscroll-contain touch-none",
-                isTab2
-                  ? "cursor-default"
-                  : innerScale > 1.05
-                  ? "cursor-grab active:cursor-grabbing"
-                  : "cursor-zoom-out"
+                "fixed z-[9999] select-text overscroll-contain",
+                isTab2 ? "cursor-default" : "cursor-zoom-in"
               )}
               style={{
-                left: isExpanded ? `${targetRect.left}px` : `${originalRect.left}px`,
-                top: isExpanded ? `${targetRect.top}px` : `${originalRect.top}px`,
-                width: isExpanded ? `${targetRect.width}px` : `${originalRect.width}px`,
-                height: isExpanded ? `${targetRect.height}px` : `${originalRect.height}px`,
-                borderRadius: isExpanded ? "32px" : originalBorderRadius,
+                left: isExpanded ? `${activeLeft}px` : `${originalRect.left}px`,
+                top: isExpanded ? `${activeTop}px` : `${originalRect.top}px`,
+                width: isExpanded ? `${activeWidth}px` : `${originalRect.width}px`,
+                height: isExpanded ? `${activeHeight}px` : `${originalRect.height}px`,
+                borderRadius: isExpanded ? (isFullscreen ? "20px" : "32px") : originalBorderRadius,
                 border: "1px solid var(--border)",
                 overflow: "hidden",
-                transition: "left 0.4s cubic-bezier(0.32, 0.72, 0, 1), top 0.4s cubic-bezier(0.32, 0.72, 0, 1), width 0.4s cubic-bezier(0.32, 0.72, 0, 1), height 0.4s cubic-bezier(0.32, 0.72, 0, 1), border-radius 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
+                transition: "all 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
               }}
-              onClick={handleContainerClick}
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
+              onClick={isTab2 ? (e) => e.stopPropagation() : undefined}
+              onDoubleClick={toggleFullscreen}
               onTouchEnd={handleTouchEnd}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
             >
               {isTab2 && tab2 ? (
                 <div className="w-full h-full bg-[var(--bg-2)] overflow-auto" onClick={(e) => e.stopPropagation()}>
@@ -570,14 +396,11 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
-                  ref={zoomedImgRef}
                   src={src}
                   alt={alt}
                   className="w-full h-full object-contain select-none pointer-events-none"
                   style={{
-                    transform: "translate3d(0px, 0px, 0) scale(1)",
-                    transformOrigin: "center center",
-                    willChange: "transform",
+                    transition: "transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
                   }}
                 />
               )}
