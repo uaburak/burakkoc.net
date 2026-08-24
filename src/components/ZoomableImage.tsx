@@ -71,17 +71,11 @@ function ZoomTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
 export function ZoomableImage({ src, alt, className, style, badges, activeTab, onTabChange, getStartRect, ...props }: ZoomableImageProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [originalRect, setOriginalRect] = useState<DOMRect | null>(null);
   const [targetRect, setTargetRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [originalBorderRadius, setOriginalBorderRadius] = useState<string>("0px");
   const [localActiveTab, setLocalActiveTab] = useState(activeTab || "");
   const [prevActiveTab, setPrevActiveTab] = useState(activeTab || "");
-
-  const lastTapTimeRef = useRef<number>(0);
-  const lastTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const originalImgRef = useRef<HTMLImageElement>(null);
-  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const normalizedActiveTab = activeTab || "";
   if (normalizedActiveTab !== prevActiveTab) {
@@ -89,7 +83,10 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     setLocalActiveTab(normalizedActiveTab);
   }
 
-  // Directly check window to avoid setting state in useEffect on mount
+  const originalImgRef = useRef<HTMLImageElement>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Directly check window to avoid setting state in useEffect on mount (prevents linter errors)
   const portalContainer = typeof window !== "undefined" ? document.body : null;
 
   // Segmented badge configurations
@@ -99,13 +96,13 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
   const tab2 = segBadge?.tab2;
   const isTab2 = segBadge && localActiveTab === tab2Label;
 
-  // Calculate coordinates to center and fit the image within the viewport
+  // Calculate coordinates to center and fit the image within the viewport (limited to 85%)
   const calculateTargetRect = useCallback((naturalW: number, naturalH: number) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const isMobile = vw < 640;
-    const maxW = isMobile ? vw - 16 : vw * 0.85;
-    const maxH = isMobile ? vh * 0.85 : vh * 0.85;
+    const maxW = isMobile ? vw - 16 : vw * 0.80;
+    const maxH = isMobile ? vh * 0.85 : vh * 0.80;
     const imageRatio = naturalW / naturalH;
     const targetRatio = maxW / maxH;
 
@@ -113,9 +110,11 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     let targetHeight = maxH;
 
     if (imageRatio > targetRatio) {
+      // Image is wider than viewport ratio limit
       targetWidth = maxW;
       targetHeight = maxW / imageRatio;
     } else {
+      // Image is taller than viewport ratio limit
       targetHeight = maxH;
       targetWidth = maxH * imageRatio;
     }
@@ -144,6 +143,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     const computedStyle = window.getComputedStyle(img);
     const parentStyle = img.parentElement ? window.getComputedStyle(img.parentElement) : null;
 
+    // Detect if parent container has overflow: hidden and has border-radius
     const borderRadius = customRect
       ? "16px"
       : (parentStyle?.overflow === "hidden" ? parentStyle.borderRadius : computedStyle.borderRadius);
@@ -151,7 +151,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     setOriginalRect(rect);
     setOriginalBorderRadius(borderRadius || "0px");
     setLocalActiveTab(activeTab || tab1Label);
-    setIsFullscreen(false);
 
     const target = calculateTargetRect(img.naturalWidth || rect.width, img.naturalHeight || rect.height);
     setTargetRect(target);
@@ -165,13 +164,13 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       clearTimeout(closeTimeoutRef.current);
     }
 
-    setIsFullscreen(false);
-
+    // Recalculate original position in case it shifted slightly (e.g. dynamic layout shifts)
     const currentRect = originalImgRef.current.getBoundingClientRect();
     setOriginalRect(currentRect);
 
     setIsExpanded(false);
 
+    // Unmount portal after the 400ms transition completes
     closeTimeoutRef.current = setTimeout(() => {
       setIsZoomed(false);
       setOriginalRect(null);
@@ -181,34 +180,11 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     }, 400);
   }, [isZoomed, localActiveTab, onTabChange]);
 
-  const toggleFullscreen = useCallback(() => {
-    if (isTab2) return;
-    setIsFullscreen((prev) => !prev);
-  }, [isTab2]);
-
-  // Touch handler for mobile double-tap toggle
-  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (isTab2 || e.changedTouches.length !== 1) return;
-    const touch = e.changedTouches[0];
-    const now = Date.now();
-    const timeDiff = now - lastTapTimeRef.current;
-    const dx = Math.abs(touch.clientX - lastTapPosRef.current.x);
-    const dy = Math.abs(touch.clientY - lastTapPosRef.current.y);
-
-    if (timeDiff < 300 && dx < 35 && dy < 35) {
-      // Double tap detected!
-      lastTapTimeRef.current = 0;
-      toggleFullscreen();
-    } else {
-      lastTapTimeRef.current = now;
-      lastTapPosRef.current = { x: touch.clientX, y: touch.clientY };
-    }
-  };
-
-  // Lock background scrolling while zoomed
+  // Lock background scrolling while zoomed without modifying body layout/padding
   useEffect(() => {
     if (!isZoomed) return;
 
+    // Pause Lenis smooth scroll so background page cannot scroll at all
     const lenis = (window as any).__lenis;
     if (lenis && typeof lenis.stop === "function") {
       lenis.stop();
@@ -217,7 +193,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     const preventScroll = (e: Event) => {
       const target = e.target as HTMLElement | null;
       if (target && target.closest("[data-lenis-prevent]")) {
-        return;
+        return; // Allow wheel/touchpad scrolling inside zoomed container!
       }
       e.preventDefault();
     };
@@ -234,7 +210,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     };
   }, [isZoomed]);
 
-  // Clean up timeouts on unmount
+  // Clean up timeout on unmount
   useEffect(() => {
     return () => {
       if (closeTimeoutRef.current) {
@@ -253,23 +229,19 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     }
   }, [isZoomed, targetRect]);
 
-  // Close on Escape key press (or exit fullscreen first)
+  // Close on Escape key press
   useEffect(() => {
     if (!isZoomed) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (isFullscreen) {
-          setIsFullscreen(false);
-        } else {
-          handleClose();
-        }
+        handleClose();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isZoomed, isFullscreen, handleClose]);
+  }, [isZoomed, handleClose]);
 
   // Handle browser resize during zoom
   useEffect(() => {
@@ -286,17 +258,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [isZoomed, calculateTargetRect]);
-
-  // Determine active lightbox rect
-  const vw = typeof window !== "undefined" ? window.innerWidth : 0;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 0;
-  const isMobile = vw < 640;
-
-  const fullscreenPadding = isMobile ? 8 : 16;
-  const activeLeft = isFullscreen ? fullscreenPadding : (targetRect?.left ?? 0);
-  const activeTop = isFullscreen ? fullscreenPadding : (targetRect?.top ?? 0);
-  const activeWidth = isFullscreen ? (vw - fullscreenPadding * 2) : (targetRect?.width ?? 0);
-  const activeHeight = isFullscreen ? (vh - fullscreenPadding * 2) : (targetRect?.height ?? 0);
 
   return (
     <>
@@ -319,39 +280,23 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       {isZoomed && portalContainer && originalRect && targetRect &&
         createPortal(
           <>
-            {/* Backdrop with smooth fade in/out */}
+            {/* Backdrop with smooth fade in/out (white in light mode, black in dark mode) */}
             <div
               className="fixed inset-0 z-[9998] cursor-zoom-out"
               style={{
                 backgroundColor: "var(--bg-1)",
-                opacity: isExpanded ? 0.85 : 0,
-                transition: "opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
+                opacity: isExpanded ? 0.75 : 0,
+                transition: "opacity 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
               }}
               onClick={handleClose}
             />
-
-            {/* Close Button at Top Right */}
-            <button
-              type="button"
-              aria-label="Close lightbox"
-              className="fixed top-5 right-5 z-[10000] p-2.5 rounded-full bg-[var(--bg-2)]/80 backdrop-blur-md border border-[var(--border)] text-[var(--text-title)] hover:bg-[var(--bg-3)] transition-all duration-200 cursor-pointer flex items-center justify-center opacity-100"
-              style={{
-                opacity: isExpanded ? 1 : 0,
-                transition: "opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
-              }}
-              onClick={handleClose}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
 
             {segBadge && (
               <div
                 className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999]"
                 style={{
                   opacity: isExpanded ? 1 : 0,
-                  transition: "opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
+                  transition: "opacity 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
                   pointerEvents: isExpanded ? "auto" : "none",
                 }}
                 onClick={(e) => e.stopPropagation()}
@@ -359,35 +304,27 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                 <Segmented
                   options={[tab1Label, tab2Label]}
                   value={localActiveTab}
-                  onChange={(tab) => {
-                    setLocalActiveTab(tab);
-                    setIsFullscreen(false);
-                  }}
+                  onChange={setLocalActiveTab}
                   size="md"
                 />
               </div>
             )}
 
-            {/* Lightbox Container */}
+            {/* Cloned container and image performing the FLIP zoom animation */}
             <div
               data-lenis-prevent
-              className={cn(
-                "fixed z-[9999] select-text overscroll-contain",
-                isTab2 ? "cursor-default" : "cursor-zoom-in"
-              )}
+              className={cn("fixed z-[9999] select-text overscroll-contain", isTab2 ? "cursor-default" : "cursor-zoom-out")}
               style={{
-                left: isExpanded ? `${activeLeft}px` : `${originalRect.left}px`,
-                top: isExpanded ? `${activeTop}px` : `${originalRect.top}px`,
-                width: isExpanded ? `${activeWidth}px` : `${originalRect.width}px`,
-                height: isExpanded ? `${activeHeight}px` : `${originalRect.height}px`,
-                borderRadius: isExpanded ? (isFullscreen ? "20px" : "32px") : originalBorderRadius,
+                left: isExpanded ? `${targetRect.left}px` : `${originalRect.left}px`,
+                top: isExpanded ? `${targetRect.top}px` : `${originalRect.top}px`,
+                width: isExpanded ? `${targetRect.width}px` : `${originalRect.width}px`,
+                height: isExpanded ? `${targetRect.height}px` : `${originalRect.height}px`,
+                borderRadius: isExpanded ? "32px" : originalBorderRadius,
                 border: "1px solid var(--border)",
                 overflow: "hidden",
-                transition: "all 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
+                transition: "all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
               }}
-              onClick={isTab2 ? (e) => e.stopPropagation() : undefined}
-              onDoubleClick={toggleFullscreen}
-              onTouchEnd={handleTouchEnd}
+              onClick={isTab2 ? (e) => e.stopPropagation() : handleClose}
             >
               {isTab2 && tab2 ? (
                 <div className="w-full h-full bg-[var(--bg-2)] overflow-auto" onClick={(e) => e.stopPropagation()}>
@@ -398,10 +335,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                 <img
                   src={src}
                   alt={alt}
-                  className="w-full h-full object-contain select-none pointer-events-none"
-                  style={{
-                    transition: "transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
-                  }}
+                  className="w-full h-full object-cover select-none pointer-events-none"
                 />
               )}
             </div>
@@ -412,5 +346,3 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     </>
   );
 }
-
-
