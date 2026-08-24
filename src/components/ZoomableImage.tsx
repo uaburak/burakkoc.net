@@ -72,25 +72,27 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
   const [isZoomed, setIsZoomed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [originalRect, setOriginalRect] = useState<DOMRect | null>(null);
-  const [targetRect, setTargetRect] = useState<{ left: number; top: number; width: number; height: number; maxW: number; maxH: number } | null>(null);
+  const [targetRect, setTargetRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [originalBorderRadius, setOriginalBorderRadius] = useState<string>("0px");
   const [localActiveTab, setLocalActiveTab] = useState(activeTab || "");
   const [prevActiveTab, setPrevActiveTab] = useState(activeTab || "");
 
-  // Inner zoom & pan state when in focus state
+  // Inner scale for UI indicator/cursor
   const [innerScale, setInnerScale] = useState(1);
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
 
-  const lastTapTimeRef = useRef<number>(0);
-  const lastTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // High performance direct DOM refs for 60/120fps hardware accelerated pinch & pan
+  const innerScaleRef = useRef<number>(1);
+  const panOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isDraggingRef = useRef<boolean>(false);
   const touchStartRef = useRef<{ x: number; y: number; panX: number; panY: number }>({ x: 0, y: 0, panX: 0, panY: 0 });
   const pinchStartDistRef = useRef<number>(0);
   const pinchStartScaleRef = useRef<number>(1);
-  const pinchCenterRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const hasMovedRef = useRef<boolean>(false);
-  const isTouchHandledRef = useRef<boolean>(false);
+  const rafPendingRef = useRef<boolean>(false);
+
+  const originalImgRef = useRef<HTMLImageElement>(null);
+  const zoomedImgRef = useRef<HTMLImageElement>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const normalizedActiveTab = activeTab || "";
   if (normalizedActiveTab !== prevActiveTab) {
@@ -98,10 +100,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     setLocalActiveTab(normalizedActiveTab);
   }
 
-  const originalImgRef = useRef<HTMLImageElement>(null);
-  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Directly check window to avoid setting state in useEffect on mount (prevents linter errors)
+  // Directly check window to avoid setting state in useEffect on mount
   const portalContainer = typeof window !== "undefined" ? document.body : null;
 
   // Segmented badge configurations
@@ -111,13 +110,13 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
   const tab2 = segBadge?.tab2;
   const isTab2 = segBadge && localActiveTab === tab2Label;
 
-  // Calculate coordinates to center and fit the image within the viewport (limited to 85%)
+  // Calculate coordinates to center and fit the image within the viewport without cropping
   const calculateTargetRect = useCallback((naturalW: number, naturalH: number) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const isMobile = vw < 640;
-    const maxW = isMobile ? vw - 16 : vw * 0.80;
-    const maxH = isMobile ? vh * 0.85 : vh * 0.80;
+    const maxW = isMobile ? vw - 16 : vw * 0.85;
+    const maxH = isMobile ? vh * 0.85 : vh * 0.85;
     const imageRatio = naturalW / naturalH;
     const targetRatio = maxW / maxH;
 
@@ -139,9 +138,17 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       top: (vh - targetHeight) / 2,
       width: targetWidth,
       height: targetHeight,
-      maxW,
-      maxH,
     };
+  }, []);
+
+  // Update image DOM transform using rAF for ultra-smooth 60/120fps response
+  const updateZoomedImageTransform = useCallback((scale: number, panX: number, panY: number, animate: boolean = false) => {
+    innerScaleRef.current = scale;
+    panOffsetRef.current = { x: panX, y: panY };
+    if (zoomedImgRef.current) {
+      zoomedImgRef.current.style.transition = animate ? "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)" : "none";
+      zoomedImgRef.current.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${scale})`;
+    }
   }, []);
 
   const handleZoom = (e: React.MouseEvent<HTMLImageElement>) => {
@@ -168,8 +175,10 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     setOriginalRect(rect);
     setOriginalBorderRadius(borderRadius || "0px");
     setLocalActiveTab(activeTab || tab1Label);
+
+    innerScaleRef.current = 1;
+    panOffsetRef.current = { x: 0, y: 0 };
     setInnerScale(1);
-    setPanOffset({ x: 0, y: 0 });
 
     const target = calculateTargetRect(img.naturalWidth || rect.width, img.naturalHeight || rect.height);
     setTargetRect(target);
@@ -179,27 +188,22 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
   const handleClose = useCallback(() => {
     if (!isZoomed || !originalImgRef.current) return;
 
-    if (singleTapTimerRef.current) {
-      clearTimeout(singleTapTimerRef.current);
-      singleTapTimerRef.current = null;
-    }
-
     if (closeTimeoutRef.current) {
       clearTimeout(closeTimeoutRef.current);
     }
 
-    // Reset inner zoom
+    // Reset inner zoom transform
+    updateZoomedImageTransform(1, 0, 0, true);
     setInnerScale(1);
-    setPanOffset({ x: 0, y: 0 });
-    setIsDragging(false);
+    isDraggingRef.current = false;
 
-    // Recalculate original position in case it shifted slightly (e.g. dynamic layout shifts)
+    // Recalculate original position
     const currentRect = originalImgRef.current.getBoundingClientRect();
     setOriginalRect(currentRect);
 
     setIsExpanded(false);
 
-    // Unmount portal after the 400ms transition completes
+    // Unmount portal after 400ms transition completes
     closeTimeoutRef.current = setTimeout(() => {
       setIsZoomed(false);
       setOriginalRect(null);
@@ -207,67 +211,9 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       onTabChange?.(localActiveTab);
       closeTimeoutRef.current = null;
     }, 400);
-  }, [isZoomed, localActiveTab, onTabChange]);
+  }, [isZoomed, localActiveTab, onTabChange, updateZoomedImageTransform]);
 
-  // Double-tap and single-tap handler for focus state
-  const handleContainerTap = useCallback((clientX: number, clientY: number, containerRect: DOMRect) => {
-    const now = Date.now();
-    const timeDiff = now - lastTapTimeRef.current;
-    const dx = Math.abs(clientX - lastTapPosRef.current.x);
-    const dy = Math.abs(clientY - lastTapPosRef.current.y);
-
-    if (timeDiff < 300 && dx < 35 && dy < 35) {
-      // Double tap detected!
-      if (singleTapTimerRef.current) {
-        clearTimeout(singleTapTimerRef.current);
-        singleTapTimerRef.current = null;
-      }
-      lastTapTimeRef.current = 0;
-
-      if (innerScale > 1.1) {
-        // Zoom out smoothly back to 1x
-        setInnerScale(1);
-        setPanOffset({ x: 0, y: 0 });
-      } else if (targetRect) {
-        // Zoom in smoothly to 2.5x targeted at tap position
-        const newScale = 2.5;
-        const expandedW = targetRect.maxW;
-        const expandedH = targetRect.maxH;
-
-        const tapX = clientX - containerRect.left;
-        const tapY = clientY - containerRect.top;
-        const centerX = containerRect.width / 2;
-        const centerY = containerRect.height / 2;
-        const targetPanX = -(tapX - centerX) * 1.2;
-        const targetPanY = -(tapY - centerY) * 1.2;
-
-        const scaledW = expandedW * newScale;
-        const scaledH = expandedH * newScale;
-        const maxPanX = Math.max(0, (scaledW - expandedW) / 2);
-        const maxPanY = Math.max(0, (scaledH - expandedH) / 2);
-
-        const clampedX = Math.max(-maxPanX, Math.min(maxPanX, targetPanX));
-        const clampedY = Math.max(-maxPanY, Math.min(maxPanY, targetPanY));
-
-        setInnerScale(newScale);
-        setPanOffset({ x: clampedX, y: clampedY });
-      }
-    } else {
-      // First tap -> start single tap delay timer
-      lastTapTimeRef.current = now;
-      lastTapPosRef.current = { x: clientX, y: clientY };
-
-      if (singleTapTimerRef.current) {
-        clearTimeout(singleTapTimerRef.current);
-      }
-      singleTapTimerRef.current = setTimeout(() => {
-        singleTapTimerRef.current = null;
-        handleClose();
-      }, 250);
-    }
-  }, [innerScale, targetRect, handleClose]);
-
-  // Touch gesture handlers (supporting Pinch-to-Zoom & Pan)
+  // High performance touch gesture handlers for 2-finger pinch & 1-finger pan
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     if (isTab2) return;
     hasMovedRef.current = false;
@@ -278,28 +224,25 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       const t2 = e.touches[1];
       const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
       pinchStartDistRef.current = dist;
-      pinchStartScaleRef.current = innerScale;
-      pinchCenterRef.current = {
-        x: (t1.clientX + t2.clientX) / 2,
-        y: (t1.clientY + t2.clientY) / 2,
-      };
+      pinchStartScaleRef.current = innerScaleRef.current;
+
       touchStartRef.current = {
         x: (t1.clientX + t2.clientX) / 2,
         y: (t1.clientY + t2.clientY) / 2,
-        panX: panOffset.x,
-        panY: panOffset.y,
+        panX: panOffsetRef.current.x,
+        panY: panOffsetRef.current.y,
       };
-      setIsDragging(true);
-    } else if (e.touches.length === 1 && innerScale > 1.05) {
+      isDraggingRef.current = true;
+    } else if (e.touches.length === 1 && innerScaleRef.current > 1.05) {
       // 1-finger pan start
       const touch = e.touches[0];
       touchStartRef.current = {
         x: touch.clientX,
         y: touch.clientY,
-        panX: panOffset.x,
-        panY: panOffset.y,
+        panX: panOffsetRef.current.x,
+        panY: panOffsetRef.current.y,
       };
-      setIsDragging(true);
+      isDraggingRef.current = true;
     }
   };
 
@@ -315,28 +258,31 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       const scaleFactor = dist / pinchStartDistRef.current;
       const rawScale = pinchStartScaleRef.current * scaleFactor;
 
-      // Allow elastic pinch between 0.8x and 4.5x
+      // Allow elastic pinch scaling between 0.8x and 4.5x
       const newScale = Math.max(0.8, Math.min(4.5, rawScale));
-      setInnerScale(newScale);
 
-      // Pan adjustment during pinch
+      // Pan adjustment
       const currentCenterX = (t1.clientX + t2.clientX) / 2;
       const currentCenterY = (t1.clientY + t2.clientY) / 2;
       const dx = currentCenterX - touchStartRef.current.x;
       const dy = currentCenterY - touchStartRef.current.y;
 
-      const expandedW = targetRect.maxW;
-      const expandedH = targetRect.maxH;
-      const scaledW = expandedW * newScale;
-      const scaledH = expandedH * newScale;
-      const maxPanX = Math.max(0, (scaledW - expandedW) / 2);
-      const maxPanY = Math.max(0, (scaledH - expandedH) / 2);
+      const scaledW = targetRect.width * newScale;
+      const scaledH = targetRect.height * newScale;
+      const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
+      const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
 
       const newPanX = Math.max(-maxPanX, Math.min(maxPanX, touchStartRef.current.panX + dx));
       const newPanY = Math.max(-maxPanY, Math.min(maxPanY, touchStartRef.current.panY + dy));
 
-      setPanOffset({ x: newPanX, y: newPanY });
-    } else if (e.touches.length === 1 && innerScale > 1.05 && isDragging) {
+      if (!rafPendingRef.current) {
+        rafPendingRef.current = true;
+        requestAnimationFrame(() => {
+          updateZoomedImageTransform(newScale, newPanX, newPanY, false);
+          rafPendingRef.current = false;
+        });
+      }
+    } else if (e.touches.length === 1 && innerScaleRef.current > 1.05 && isDraggingRef.current) {
       // 1-finger pan move
       const touch = e.touches[0];
       const dx = touch.clientX - touchStartRef.current.x;
@@ -346,65 +292,75 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
         hasMovedRef.current = true;
       }
 
-      const scaleProg = Math.min(1, Math.max(0, (innerScale - 1) / 1.2));
-      const curW = targetRect.width + (targetRect.maxW - targetRect.width) * scaleProg;
-      const curH = targetRect.height + (targetRect.maxH - targetRect.height) * scaleProg;
+      const currentScale = innerScaleRef.current;
+      const scaledW = targetRect.width * currentScale;
+      const scaledH = targetRect.height * currentScale;
 
-      const scaledW = curW * innerScale;
-      const scaledH = curH * innerScale;
-
-      const maxPanX = Math.max(0, (scaledW - curW) / 2);
-      const maxPanY = Math.max(0, (scaledH - curH) / 2);
+      const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
+      const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
 
       const newPanX = Math.max(-maxPanX, Math.min(maxPanX, touchStartRef.current.panX + dx));
       const newPanY = Math.max(-maxPanY, Math.min(maxPanY, touchStartRef.current.panY + dy));
 
-      setPanOffset({ x: newPanX, y: newPanY });
+      if (!rafPendingRef.current) {
+        rafPendingRef.current = true;
+        requestAnimationFrame(() => {
+          updateZoomedImageTransform(currentScale, newPanX, newPanY, false);
+          rafPendingRef.current = false;
+        });
+      }
     }
   };
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
     if (isTab2) return;
-    setIsDragging(false);
+    isDraggingRef.current = false;
     pinchStartDistRef.current = 0;
 
+    const currentScale = innerScaleRef.current;
+
     // Elastic bounce-back for pinch limits
-    if (innerScale < 1.05) {
+    if (currentScale < 1.05) {
+      updateZoomedImageTransform(1, 0, 0, true);
       setInnerScale(1);
-      setPanOffset({ x: 0, y: 0 });
-    } else if (innerScale > 4) {
-      setInnerScale(4);
+    } else if (currentScale > 4) {
+      if (targetRect) {
+        const scaledW = targetRect.width * 4;
+        const scaledH = targetRect.height * 4;
+        const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
+        const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
+        const clampedX = Math.max(-maxPanX, Math.min(maxPanX, panOffsetRef.current.x));
+        const clampedY = Math.max(-maxPanY, Math.min(maxPanY, panOffsetRef.current.y));
+        updateZoomedImageTransform(4, clampedX, clampedY, true);
+        setInnerScale(4);
+      }
+    } else {
+      setInnerScale(currentScale);
     }
 
-    if (!hasMovedRef.current && e.changedTouches.length === 1) {
-      isTouchHandledRef.current = true;
-      setTimeout(() => {
-        isTouchHandledRef.current = false;
-      }, 400);
-
-      const touch = e.changedTouches[0];
-      const containerRect = e.currentTarget.getBoundingClientRect();
-      handleContainerTap(touch.clientX, touch.clientY, containerRect);
+    // Tap to close modal immediately when not dragged
+    if (!hasMovedRef.current && e.changedTouches.length === 1 && currentScale <= 1.05) {
+      handleClose();
     }
   };
 
-  // Mouse handlers (desktop dragging & fallback)
+  // Mouse handlers for desktop dragging when zoomed
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isTab2) return;
     hasMovedRef.current = false;
-    if (innerScale > 1.05) {
+    if (innerScaleRef.current > 1.05) {
       touchStartRef.current = {
         x: e.clientX,
         y: e.clientY,
-        panX: panOffset.x,
-        panY: panOffset.y,
+        panX: panOffsetRef.current.x,
+        panY: panOffsetRef.current.y,
       };
-      setIsDragging(true);
+      isDraggingRef.current = true;
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isTab2 || !isDragging || innerScale <= 1.05 || !targetRect) return;
+    if (isTab2 || !isDraggingRef.current || innerScaleRef.current <= 1.05 || !targetRect) return;
     const dx = e.clientX - touchStartRef.current.x;
     const dy = e.clientY - touchStartRef.current.y;
 
@@ -412,37 +368,39 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       hasMovedRef.current = true;
     }
 
-    const scaleProg = Math.min(1, Math.max(0, (innerScale - 1) / 1.2));
-    const curW = targetRect.width + (targetRect.maxW - targetRect.width) * scaleProg;
-    const curH = targetRect.height + (targetRect.maxH - targetRect.height) * scaleProg;
+    const currentScale = innerScaleRef.current;
+    const scaledW = targetRect.width * currentScale;
+    const scaledH = targetRect.height * currentScale;
 
-    const scaledW = curW * innerScale;
-    const scaledH = curH * innerScale;
-
-    const maxPanX = Math.max(0, (scaledW - curW) / 2);
-    const maxPanY = Math.max(0, (scaledH - curH) / 2);
+    const maxPanX = Math.max(0, (scaledW - targetRect.width) / 2);
+    const maxPanY = Math.max(0, (scaledH - targetRect.height) / 2);
 
     const newPanX = Math.max(-maxPanX, Math.min(maxPanX, touchStartRef.current.panX + dx));
     const newPanY = Math.max(-maxPanY, Math.min(maxPanY, touchStartRef.current.panY + dy));
 
-    setPanOffset({ x: newPanX, y: newPanY });
+    if (!rafPendingRef.current) {
+      rafPendingRef.current = true;
+      requestAnimationFrame(() => {
+        updateZoomedImageTransform(currentScale, newPanX, newPanY, false);
+        rafPendingRef.current = false;
+      });
+    }
   };
 
-  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseUp = () => {
     if (isTab2) return;
-    setIsDragging(false);
+    isDraggingRef.current = false;
   };
 
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (isTab2) return;
     e.stopPropagation();
-    if (isTouchHandledRef.current) return;
-    if (!hasMovedRef.current) {
-      handleContainerTap(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
+    if (!hasMovedRef.current && innerScaleRef.current <= 1.05) {
+      handleClose();
     }
   };
 
-  // Lock background scrolling while zoomed without modifying body layout/padding
+  // Lock background scrolling while zoomed
   useEffect(() => {
     if (!isZoomed) return;
 
@@ -477,9 +435,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     return () => {
       if (closeTimeoutRef.current) {
         clearTimeout(closeTimeoutRef.current);
-      }
-      if (singleTapTimerRef.current) {
-        clearTimeout(singleTapTimerRef.current);
       }
     };
   }, []);
@@ -524,20 +479,6 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     return () => window.removeEventListener("resize", handleResize);
   }, [isZoomed, calculateTargetRect]);
 
-  // Interpolated container frame dimensions based on scale (Apple Photos style smooth expansion)
-  const scaleProgress = targetRect && targetRect.maxH > targetRect.height && !isTab2
-    ? Math.min(1, Math.max(0, (innerScale - 1) / 1.2))
-    : 0;
-
-  const activeW = targetRect
-    ? targetRect.width + (targetRect.maxW - targetRect.width) * scaleProgress
-    : 0;
-  const activeH = targetRect
-    ? targetRect.height + (targetRect.maxH - targetRect.height) * scaleProgress
-    : 0;
-  const activeLeft = typeof window !== "undefined" ? (window.innerWidth - activeW) / 2 : (targetRect?.left ?? 0);
-  const activeTop = typeof window !== "undefined" ? (window.innerHeight - activeH) / 2 : (targetRect?.top ?? 0);
-
   return (
     <>
       {/* Original Image (Layout placeholder) */}
@@ -559,7 +500,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       {isZoomed && portalContainer && originalRect && targetRect &&
         createPortal(
           <>
-            {/* Backdrop with smooth fade in/out (white in light mode, black in dark mode) */}
+            {/* Backdrop with smooth fade in/out */}
             <div
               className="fixed inset-0 z-[9998] cursor-zoom-out"
               style={{
@@ -585,15 +526,15 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                   value={localActiveTab}
                   onChange={(tab) => {
                     setLocalActiveTab(tab);
+                    updateZoomedImageTransform(1, 0, 0, true);
                     setInnerScale(1);
-                    setPanOffset({ x: 0, y: 0 });
                   }}
                   size="md"
                 />
               </div>
             )}
 
-            {/* Cloned container and image performing the FLIP zoom animation */}
+            {/* Container displaying the natural uncropped aspect ratio fit */}
             <div
               data-lenis-prevent
               className={cn(
@@ -605,14 +546,14 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                   : "cursor-zoom-out"
               )}
               style={{
-                left: isExpanded ? `${activeLeft}px` : `${originalRect.left}px`,
-                top: isExpanded ? `${activeTop}px` : `${originalRect.top}px`,
-                width: isExpanded ? `${activeW}px` : `${originalRect.width}px`,
-                height: isExpanded ? `${activeH}px` : `${originalRect.height}px`,
+                left: isExpanded ? `${targetRect.left}px` : `${originalRect.left}px`,
+                top: isExpanded ? `${targetRect.top}px` : `${originalRect.top}px`,
+                width: isExpanded ? `${targetRect.width}px` : `${originalRect.width}px`,
+                height: isExpanded ? `${targetRect.height}px` : `${originalRect.height}px`,
                 borderRadius: isExpanded ? "32px" : originalBorderRadius,
                 border: "1px solid var(--border)",
                 overflow: "hidden",
-                transition: isDragging ? "none" : "all 0.35s cubic-bezier(0.32, 0.72, 0, 1)",
+                transition: "left 0.4s cubic-bezier(0.32, 0.72, 0, 1), top 0.4s cubic-bezier(0.32, 0.72, 0, 1), width 0.4s cubic-bezier(0.32, 0.72, 0, 1), height 0.4s cubic-bezier(0.32, 0.72, 0, 1), border-radius 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
               }}
               onClick={handleContainerClick}
               onTouchStart={handleTouchStart}
@@ -629,13 +570,14 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
+                  ref={zoomedImgRef}
                   src={src}
                   alt={alt}
-                  className="w-full h-full object-cover select-none pointer-events-none"
+                  className="w-full h-full object-contain select-none pointer-events-none"
                   style={{
-                    transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0) scale(${innerScale})`,
-                    transition: isDragging ? "none" : "transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)",
+                    transform: "translate3d(0px, 0px, 0) scale(1)",
                     transformOrigin: "center center",
+                    willChange: "transform",
                   }}
                 />
               )}
@@ -647,4 +589,5 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     </>
   );
 }
+
 
