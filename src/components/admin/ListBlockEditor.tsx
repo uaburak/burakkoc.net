@@ -84,13 +84,30 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
     }
   }
 
-  /* prefix symbol */
-  function prefix(idx: number) {
+  /* render startContent based on list style */
+  function renderStartContent(item: ListItem, idx: number) {
     switch (style) {
-      case "bullet":   return "•";
-      case "numbered": return `${idx + 1}.`;
-      case "dash":     return "—";
-      case "check":    return null; // rendered as checkbox
+      case "bullet":
+        return <span className="w-2 h-2 rounded-full bg-[var(--text-title)] shrink-0 ml-0.5" />;
+      case "numbered":
+        return <span className="text-xs font-medium text-[var(--text-subtitle)] tabular-nums ml-0.5 min-w-[16px]">{idx + 1}.</span>;
+      case "dash":
+        return <span className="text-xs font-medium text-[var(--text-subtitle)] ml-0.5">—</span>;
+      case "check":
+        return (
+          <button
+            type="button"
+            onClick={() => updateItem(idx, { checked: !item.checked })}
+            className="w-[18px] h-[18px] rounded-[5px] border border-[var(--border-hover)] bg-[var(--bg-2)] flex items-center justify-center transition-colors cursor-pointer hover:border-[var(--text-subtitle)] ml-0.5 flex-shrink-0"
+            style={item.checked ? { background: "var(--text-title)", borderColor: "var(--text-title)" } : {}}
+          >
+            {item.checked && (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M2 5.5L4 7.5L8 3" stroke="var(--bg-1)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </button>
+        );
     }
   }
 
@@ -101,71 +118,53 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* items */}
-      <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2.5 w-full">
+      {/* items list */}
+      <div className="flex flex-col gap-1.5 w-full">
         {items.map((item, idx) => (
-          <div key={item.id} className="group flex items-center gap-2">
-            {/* prefix / checkbox */}
-            {style === "check" ? (
+          <Input
+            key={item.id}
+            ref={(el) => { if (el) rowRefs.current.set(idx, el); else rowRefs.current.delete(idx); }}
+            type="text"
+            bgContext="block"
+            value={item.text}
+            onChange={(e) => updateItem(idx, { text: e.target.value })}
+            onKeyDown={(e) => handleKeyDown(e, idx)}
+            placeholder="Liste öğesi…"
+            size="md"
+            className={style === "check" && item.checked ? "line-through opacity-50" : ""}
+            startContent={renderStartContent(item, idx)}
+            endContent={
               <button
                 type="button"
-                onClick={() => updateItem(idx, { checked: !item.checked })}
-                className="flex-shrink-0 w-[18px] h-[18px] rounded-[5px] border border-[var(--border)] bg-[var(--bg-1)] flex items-center justify-center transition-colors duration-150 cursor-pointer hover:border-[var(--border-hover)]"
-                style={item.checked ? { background: "var(--text-title)", borderColor: "var(--text-title)" } : {}}
+                onClick={() => removeItem(idx)}
+                title="Kaldır"
+                className="w-5 h-5 flex items-center justify-center rounded-full text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer flex-shrink-0"
               >
-                {item.checked && (
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <path d="M2 5.5L4 7.5L8 3" stroke="var(--bg-1)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
               </button>
-            ) : (
-              <span className="flex-shrink-0 w-[24px] text-right text-xs font-medium text-[var(--text-subtitle)] select-none">
-                {prefix(idx)}
-              </span>
-            )}
-
-            {/* text input — uses Input component (same as heading) */}
-            <Input
-              ref={(el) => { if (el) rowRefs.current.set(idx, el); else rowRefs.current.delete(idx); }}
-              type="text"
-              bgContext="block"
-              value={item.text}
-              onChange={(e) => updateItem(idx, { text: e.target.value })}
-              onKeyDown={(e) => handleKeyDown(e, idx)}
-              placeholder="Liste öğesi…"
-              size="md"
-              className={style === "check" && item.checked ? "line-through opacity-50" : ""}
-            />
-
-            {/* delete — red traffic dot (same as block/badge delete) */}
-            <button
-              type="button"
-              onClick={() => removeItem(idx)}
-              title="Kaldır"
-              data-traffic-color="#e20000"
-              data-traffic-icon="trash"
-              className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75 opacity-0 group-hover:opacity-100"
-              style={{ background: "#e20000" }}
-            />
-          </div>
+            }
+          />
         ))}
       </div>
 
-      {/* add button — PillButton (same as Badge Ekle) */}
-      <PillButton
-        size="md"
-        bgContext="block"
-        onClick={() => addItem()}
-        startIcon={
-          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-            <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-        }
-      >
-        Öğe Ekle
-      </PillButton>
+      {/* add button — right aligned and compact, exactly like Badge Ekle */}
+      <div className="flex justify-end w-full">
+        <PillButton
+          size="md"
+          bgContext="block"
+          onClick={() => addItem()}
+          startIcon={
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+              <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+            </svg>
+          }
+        >
+          Öğe Ekle
+        </PillButton>
+      </div>
     </div>
   );
 }
