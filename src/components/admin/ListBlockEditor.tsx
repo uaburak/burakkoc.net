@@ -135,16 +135,35 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
             className={style === "check" && item.checked ? "line-through opacity-50" : ""}
             startContent={renderStartContent(item, idx)}
             endContent={
-              <button
-                type="button"
-                onClick={() => removeItem(idx)}
-                title="Kaldır"
-                className="w-5 h-5 flex items-center justify-center rounded-full text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer flex-shrink-0"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => moveItem(idx, -1)}
+                  title="Yukarı taşı"
+                  data-traffic-color="#00e288"
+                  data-traffic-icon="up"
+                  className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+                  style={{ background: "#00e288" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => moveItem(idx, 1)}
+                  title="Aşağı taşı"
+                  data-traffic-color="#e2d300"
+                  data-traffic-icon="down"
+                  className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+                  style={{ background: "#e2d300" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeItem(idx)}
+                  title="Sil"
+                  data-traffic-color="#e20000"
+                  data-traffic-icon="trash"
+                  className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75"
+                  style={{ background: "#e20000" }}
+                />
+              </div>
             }
           />
         ))}
