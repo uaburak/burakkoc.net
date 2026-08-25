@@ -426,7 +426,7 @@ function DetailList({ block }: { block: Block }) {
           return (
             <div
               key={item.id}
-              className="flex items-start gap-2.5 px-4 py-2.5 rounded-[22px] bg-[var(--bg-3)] text-base font-light leading-6 text-[var(--text-p)] transition-colors"
+              className="flex items-start gap-2.5 px-4 py-2.5 rounded-[22px] bg-[var(--bg-4)] text-base font-light leading-6 text-[var(--text-p)] transition-colors"
             >
               {style === "bullet" && (
                 <span className="shrink-0 mt-[8px] w-2 h-2 rounded-full bg-[var(--text-title)]" />
