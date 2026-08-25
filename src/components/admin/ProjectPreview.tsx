@@ -422,24 +422,24 @@ function PreviewList({ block, lang }: { block: Block; lang: "tr" | "en" }) {
         return (
           <div
             key={item.id}
-            className="flex items-center gap-3.5 px-5 py-3.5 rounded-full bg-[var(--bg-4)] text-base font-light leading-6 text-[var(--text-p)] transition-colors"
+            className="flex items-start gap-2.5 px-4 py-2.5 rounded-[22px] bg-[var(--bg-3)] text-base font-light leading-6 text-[var(--text-p)] transition-colors"
           >
             {style === "bullet" && (
-              <span className="shrink-0 w-2 h-2 rounded-full bg-[var(--text-title)]" />
+              <span className="shrink-0 mt-[8px] w-2 h-2 rounded-full bg-[var(--text-title)]" />
             )}
             {style === "numbered" && (
-              <span className="shrink-0 min-w-[20px] text-sm font-medium text-[var(--text-subtitle)] tabular-nums">
+              <span className="shrink-0 mt-[1px] min-w-[20px] text-sm font-medium text-[var(--text-subtitle)] tabular-nums">
                 {idx + 1}.
               </span>
             )}
             {style === "dash" && (
-              <span className="shrink-0 text-sm font-medium text-[var(--text-subtitle)]">
+              <span className="shrink-0 mt-[1px] text-sm font-medium text-[var(--text-subtitle)]">
                 —
               </span>
             )}
             {style === "check" && (
               <span
-                className="shrink-0 w-[18px] h-[18px] rounded-[5px] border flex items-center justify-center transition-colors duration-150"
+                className="shrink-0 mt-[3px] w-[18px] h-[18px] rounded-[5px] border flex items-center justify-center transition-colors duration-150"
                 style={
                   isChecked
                     ? { background: "var(--text-title)", borderColor: "var(--text-title)" }
