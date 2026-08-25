@@ -88,7 +88,7 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
   function renderStartContent(item: ListItem, idx: number) {
     switch (style) {
       case "bullet":
-        return <span className="w-2 h-2 rounded-full bg-[var(--text-title)] shrink-0 ml-0.5" />;
+        return <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-title)] shrink-0 ml-0.5" />;
       case "numbered":
         return <span className="text-xs font-medium text-[var(--text-subtitle)] tabular-nums ml-0.5 min-w-[16px]">{idx + 1}.</span>;
       case "dash":

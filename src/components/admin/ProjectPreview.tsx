@@ -425,7 +425,7 @@ function PreviewList({ block, lang }: { block: Block; lang: "tr" | "en" }) {
             className="flex items-start gap-2.5 px-4 py-2.5 rounded-[22px] bg-[var(--bg-4)] text-base font-light leading-6 text-[var(--text-p)] transition-colors"
           >
             {style === "bullet" && (
-              <span className="shrink-0 mt-[8px] w-2 h-2 rounded-full bg-[var(--text-title)]" />
+              <span className="shrink-0 mt-[9px] w-1.5 h-1.5 rounded-full bg-[var(--text-title)]" />
             )}
             {style === "numbered" && (
               <span className="shrink-0 mt-[1px] min-w-[20px] text-sm font-medium text-[var(--text-subtitle)] tabular-nums">
