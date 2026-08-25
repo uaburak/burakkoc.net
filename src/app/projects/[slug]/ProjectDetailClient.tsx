@@ -419,13 +419,12 @@ function DetailList({ block }: { block: Block }) {
   if (items.length === 0) return null;
 
   return (
-    <ScrollReveal>
-      <div className="flex flex-col gap-2.5 w-full">
-        {items.map((item, idx) => {
-          const isChecked = style === "check" && item.checked;
-          return (
+    <div className="flex flex-col gap-2.5 w-full">
+      {items.map((item, idx) => {
+        const isChecked = style === "check" && item.checked;
+        return (
+          <ScrollReveal key={item.id} className="w-full">
             <div
-              key={item.id}
               className="flex items-start gap-2.5 px-4 py-2.5 rounded-[22px] bg-[var(--bg-4)] text-base font-light leading-6 text-[var(--text-p)] transition-colors"
             >
               {style === "bullet" && (
@@ -470,10 +469,10 @@ function DetailList({ block }: { block: Block }) {
                 {item.text}
               </span>
             </div>
-          );
-        })}
-      </div>
-    </ScrollReveal>
+          </ScrollReveal>
+        );
+      })}
+    </div>
   );
 }
 
