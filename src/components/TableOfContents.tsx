@@ -16,53 +16,75 @@ interface TableOfContentsProps {
 export function TableOfContents({ items }: TableOfContentsProps) {
   const [active, setActive] = useState<string>(items[0]?.id ?? "");
   const containerRef = useRef<HTMLUListElement>(null);
+  const isScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const [dotStyle, setDotStyle] = useState<React.CSSProperties>({
     transform: "translate(0px, 0px)",
     opacity: 0,
   });
 
-  useEffect(() => {
-    const observers: IntersectionObserver[] = [];
+  // Calculate active section based on heading scroll position
+  const updateActiveSection = useCallback(() => {
+    if (isScrollingRef.current || items.length === 0) return;
 
-    items.forEach(({ id }) => {
-      const el = document.getElementById(id);
-      if (!el) return;
+    const scrollY = window.scrollY;
+    const innerHeight = window.innerHeight;
+    const scrollHeight = document.documentElement.scrollHeight;
 
-      const observer = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting) setActive(id);
-        },
-        { rootMargin: "-10% 0px -80% 0px", threshold: 0 }
-      );
+    // 1. If at the bottom of the page, activate the last TOC item
+    if (scrollHeight > innerHeight && innerHeight + scrollY >= scrollHeight - 60) {
+      const lastId = items[items.length - 1].id;
+      setActive((prev) => (prev !== lastId ? lastId : prev));
+      return;
+    }
 
-      observer.observe(el);
-      observers.push(observer);
-    });
+    // 2. Find which heading is currently at or past the alignment line (180px threshold)
+    const threshold = 180;
+    let currentId = items[0]?.id ?? "";
 
-    return () => observers.forEach((o) => o.disconnect());
+    for (const item of items) {
+      const el = document.getElementById(item.id);
+      if (!el) continue;
+      const target = el.querySelector("h1, h2, h3") || el;
+      const rect = target.getBoundingClientRect();
+      if (rect.top <= threshold) {
+        currentId = item.id;
+      } else {
+        break;
+      }
+    }
+
+    setActive((prev) => (prev !== currentId ? currentId : prev));
   }, [items]);
 
   useEffect(() => {
+    updateActiveSection();
+
     const handleScroll = () => {
-      const scrollHeight = document.documentElement.scrollHeight;
-      const innerHeight = window.innerHeight;
-      const scrollY = window.scrollY;
-
-      const isScrollable = scrollHeight > innerHeight;
-      const isAtBottom = isScrollable && (innerHeight + scrollY >= scrollHeight - 30);
-
-      if (isAtBottom && items.length > 0) {
-        const lastId = items[items.length - 1].id;
-        setActive((prev) => (prev !== lastId ? lastId : prev));
-      }
+      updateActiveSection();
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
 
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [items]);
+    // Also register on Lenis scroll if available
+    const lenis = (window as any).__lenis;
+    if (lenis && typeof lenis.on === "function") {
+      lenis.on("scroll", handleScroll);
+    }
 
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (lenis && typeof lenis.off === "function") {
+        lenis.off("scroll", handleScroll);
+      }
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [updateActiveSection]);
+
+  // Sliding indicator dot positioning
   useEffect(() => {
     if (!active || !containerRef.current) {
       setDotStyle((prev) => ({ ...prev, opacity: 0 }));
@@ -76,7 +98,7 @@ export function TableOfContents({ items }: TableOfContentsProps) {
     if (activeEl) {
       const activeTop = activeEl.offsetTop;
       const activeHeight = activeEl.offsetHeight;
-      const dotHeight = 4; // w-1 h-1 is 4px
+      const dotHeight = 4; // 4px dot
       const yOffset = activeTop + (activeHeight - dotHeight) / 2;
 
       // Determine level to set x offset: 5px for level 1, 17px for level 2
@@ -94,9 +116,60 @@ export function TableOfContents({ items }: TableOfContentsProps) {
   }, [active, items]);
 
   const scrollTo = useCallback((id: string) => {
+    if (id === "overview") {
+      setActive("overview");
+      isScrollingRef.current = true;
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+
+      const lenis = (window as any).__lenis;
+      if (lenis && typeof lenis.scrollTo === "function") {
+        lenis.scrollTo(0, {
+          duration: 1.0,
+          easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+          onComplete: () => {
+            scrollTimeoutRef.current = setTimeout(() => {
+              isScrollingRef.current = false;
+            }, 100);
+          },
+        });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        scrollTimeoutRef.current = setTimeout(() => {
+          isScrollingRef.current = false;
+        }, 800);
+      }
+      return;
+    }
+
     const el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // Find the heading element inside the section to align directly to the heading text
+    const target = el.querySelector("h1, h2, h3") || el;
+
+    setActive(id);
+    isScrollingRef.current = true;
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+
+    const lenis = (window as any).__lenis;
+    if (lenis && typeof lenis.scrollTo === "function") {
+      lenis.scrollTo(target, {
+        offset: -170, // Align exactly with the left sidebar back button text (160px top + 10px py)
+        duration: 1.0,
+        easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+        onComplete: () => {
+          scrollTimeoutRef.current = setTimeout(() => {
+            isScrollingRef.current = false;
+          }, 100);
+        },
+      });
+    } else {
+      const top = target.getBoundingClientRect().top + window.scrollY - 170;
+      window.scrollTo({ top, behavior: "smooth" });
+      scrollTimeoutRef.current = setTimeout(() => {
+        isScrollingRef.current = false;
+      }, 800);
+    }
   }, []);
 
   return (
@@ -113,8 +186,9 @@ export function TableOfContents({ items }: TableOfContentsProps) {
             <button
               onClick={() => scrollTo(id)}
               data-id={id}
+              title={label}
               className={cn(
-                "w-full text-left text-sm leading-6 transition-colors duration-200 cursor-pointer rounded-sm font-normal",
+                "w-full text-left text-sm leading-6 transition-colors duration-200 cursor-pointer rounded-sm font-normal truncate block",
                 level === 2 ? "pl-7" : "pl-4",
                 active === id
                   ? "text-[var(--text-title)]"
@@ -129,4 +203,3 @@ export function TableOfContents({ items }: TableOfContentsProps) {
     </nav>
   );
 }
-

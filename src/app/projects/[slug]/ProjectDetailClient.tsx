@@ -752,7 +752,7 @@ export function ProjectDetailClient({
       {/* ── Right TOC sidebar ── */}
       {tocItems.length > 1 && (
         <div
-          className="fixed top-[160px] w-[180px] z-20 hidden xl:block"
+          className="fixed top-[160px] w-[320px] 2xl:w-[260px] max-w-[calc(50vw-400px)] z-20 hidden xl:block"
           style={{ left: "calc(50% + 380px - var(--scrollbar-width, 0px) / 2)" }}
         >
           <TableOfContents items={tocItems} />
