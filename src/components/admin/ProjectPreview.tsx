@@ -416,36 +416,55 @@ function PreviewList({ block, lang }: { block: Block; lang: "tr" | "en" }) {
   if (items.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-1.5 w-full pl-1">
+    <div className="flex flex-col gap-2.5 w-full">
       {items.map((item, idx) => {
         const isChecked = style === "check" && item.checked;
         return (
-          <div key={item.id} className="flex items-start gap-3 text-base font-light leading-7 text-[var(--text-p)]">
+          <div
+            key={item.id}
+            className="flex items-start gap-3.5 px-5 py-3.5 rounded-[22px] bg-[var(--bg-4)] text-base font-light leading-6 text-[var(--text-p)] transition-colors"
+          >
             {style === "bullet" && (
-              <span className="flex-shrink-0 mt-[11px] w-[5px] h-[5px] rounded-full bg-[var(--text-subtitle)]" />
+              <span className="shrink-0 mt-[8px] w-2 h-2 rounded-full bg-[var(--text-title)]" />
             )}
             {style === "numbered" && (
-              <span className="flex-shrink-0 mt-[1px] min-w-[24px] text-sm font-medium text-[var(--text-subtitle)] tabular-nums">{idx + 1}.</span>
+              <span className="shrink-0 mt-[1px] min-w-[20px] text-sm font-medium text-[var(--text-subtitle)] tabular-nums">
+                {idx + 1}.
+              </span>
             )}
             {style === "dash" && (
-              <span className="flex-shrink-0 mt-[1px] text-sm font-medium text-[var(--text-subtitle)]">—</span>
+              <span className="shrink-0 mt-[1px] text-sm font-medium text-[var(--text-subtitle)]">
+                —
+              </span>
             )}
             {style === "check" && (
               <span
-                className="flex-shrink-0 mt-[5px] w-[16px] h-[16px] rounded-[4px] border flex items-center justify-center"
-                style={isChecked
-                  ? { background: "var(--text-title)", borderColor: "var(--text-title)" }
-                  : { borderColor: "var(--border)" }
+                className="shrink-0 mt-[3px] w-[18px] h-[18px] rounded-[5px] border flex items-center justify-center transition-colors duration-150"
+                style={
+                  isChecked
+                    ? { background: "var(--text-title)", borderColor: "var(--text-title)" }
+                    : { borderColor: "var(--border-hover)", background: "var(--bg-1)" }
                 }
               >
                 {isChecked && (
-                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
-                    <path d="M2 5.5L4 7.5L8 3" stroke="var(--bg-1)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path
+                      d="M2 5.5L4 7.5L8 3"
+                      stroke="var(--bg-1)"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 )}
               </span>
             )}
-            <span style={isChecked ? { textDecoration: "line-through", opacity: 0.45 } : {}}>{item.text}</span>
+            <span
+              className="flex-1 min-w-0"
+              style={isChecked ? { textDecoration: "line-through", opacity: 0.5 } : {}}
+            >
+              {item.text}
+            </span>
           </div>
         );
       })}

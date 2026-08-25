@@ -2,19 +2,12 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Block, ListStyle, ListItem } from "@/types/project";
-import { Segmented } from "@/components/Segmented";
+import { Input } from "@/components/Input";
+import { PillButton } from "@/components/Button";
 
 /* ── tiny uid ─────────────────────────────────────────────────────────────── */
 let _c = 0;
 function uid() { return `li-${Date.now().toString(36)}-${(++_c).toString(36)}`; }
-
-/* ── style options ────────────────────────────────────────────────────────── */
-const LIST_STYLES: { value: ListStyle; label: string }[] = [
-  { value: "bullet",   label: "● Bullet" },
-  { value: "numbered", label: "1. Numaralı" },
-  { value: "check",    label: "☑ Checklist" },
-  { value: "dash",     label: "— Dash" },
-];
 
 /* ── props ────────────────────────────────────────────────────────────────── */
 interface ListBlockEditorProps {
@@ -108,21 +101,9 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* style selector */}
-      <div className="flex items-center gap-2">
-        <Segmented
-          options={LIST_STYLES.map((s) => s.label)}
-          defaultValue={LIST_STYLES.find((s) => s.value === style)?.label ?? LIST_STYLES[0].label}
-          onChange={(label) => {
-            const found = LIST_STYLES.find((s) => s.label === label);
-            if (found) onChange({ listStyle: found.value });
-          }}
-        />
-      </div>
-
+    <div className="flex flex-col gap-2">
       {/* items */}
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1.5">
         {items.map((item, idx) => (
           <div key={item.id} className="group flex items-center gap-2">
             {/* prefix / checkbox */}
@@ -145,44 +126,46 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
               </span>
             )}
 
-            {/* text input */}
-            <input
+            {/* text input — uses Input component (same as heading) */}
+            <Input
               ref={(el) => { if (el) rowRefs.current.set(idx, el); else rowRefs.current.delete(idx); }}
               type="text"
+              bgContext="block"
               value={item.text}
               onChange={(e) => updateItem(idx, { text: e.target.value })}
               onKeyDown={(e) => handleKeyDown(e, idx)}
               placeholder="Liste öğesi…"
-              className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm font-light leading-7 text-[var(--text-p)] placeholder:text-[var(--text-subtitle)] focus:outline-none"
-              style={style === "check" && item.checked ? { textDecoration: "line-through", opacity: 0.5 } : {}}
+              size="md"
+              className={style === "check" && item.checked ? "line-through opacity-50" : ""}
             />
 
-            {/* delete button (visible on hover) */}
+            {/* delete — red traffic dot (same as block/badge delete) */}
             <button
               type="button"
               onClick={() => removeItem(idx)}
-              className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-[var(--text-subtitle)] opacity-0 group-hover:opacity-100 hover:text-[var(--text-title)] transition-all duration-150 cursor-pointer"
-              title="Öğeyi sil"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-              </svg>
-            </button>
+              title="Kaldır"
+              data-traffic-color="#e20000"
+              data-traffic-icon="trash"
+              className="w-3 h-3 rounded-full transition-opacity duration-150 cursor-pointer flex-shrink-0 hover:opacity-75 opacity-0 group-hover:opacity-100"
+              style={{ background: "#e20000" }}
+            />
           </div>
         ))}
       </div>
 
-      {/* add button */}
-      <button
-        type="button"
+      {/* add button — PillButton (same as Badge Ekle) */}
+      <PillButton
+        size="md"
+        bgContext="block"
         onClick={() => addItem()}
-        className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-1)] border border-transparent hover:border-[var(--border)] transition-all duration-150 cursor-pointer"
+        startIcon={
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+            <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+        }
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-          <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-        </svg>
         Öğe Ekle
-      </button>
+      </PillButton>
     </div>
   );
 }

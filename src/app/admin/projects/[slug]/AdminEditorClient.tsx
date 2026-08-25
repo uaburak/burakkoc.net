@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Block, BlockType, PageItem, PageSection, PageDivider, ProjectData, Section } from "@/types/project";
+import { Block, BlockType, ListStyle, PageItem, PageSection, PageDivider, ProjectData, Section } from "@/types/project";
 import { TextBlockEditor }  from "@/components/admin/TextBlockEditor";
 import { ImageBlockEditor } from "@/components/admin/ImageBlockEditor";
 import { VideoBlockEditor } from "@/components/admin/VideoBlockEditor";
@@ -25,8 +25,8 @@ import { Spinner } from "@/components/icons";
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
-function makeBlock(type: BlockType): Block {
-  return { id: uid(), type };
+function makeBlock(type: BlockType, extras?: Partial<Block>): Block {
+  return { id: uid(), type, ...extras };
 }
 
 function makeSection(): PageSection {
@@ -383,12 +383,13 @@ function BlockRow({
 
 // ── Per-section Add Block Button ──────────────────────────────────────────────
 
-function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType) => void }) {
+function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType, extras?: Partial<Block>) => void }) {
   const [open, setOpen] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [showListPicker, setShowListPicker] = useState(false);
 
-  function openMenu() { setOpen(true); requestAnimationFrame(() => setVisible(true)); }
-  function close() { setVisible(false); setTimeout(() => setOpen(false), 200); }
+  function openMenu() { setOpen(true); setShowListPicker(false); requestAnimationFrame(() => setVisible(true)); }
+  function close() { setVisible(false); setShowListPicker(false); setTimeout(() => setOpen(false), 200); }
 
   useEffect(() => {
     if (!open) return;
@@ -396,6 +397,13 @@ function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType) => void }) 
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [open]);
+
+  const LIST_STYLE_OPTIONS: { value: ListStyle; label: string; symbol: string }[] = [
+    { value: "bullet",   label: "Bullet",    symbol: "•" },
+    { value: "numbered", label: "Numaralı",  symbol: "1." },
+    { value: "check",    label: "Checklist", symbol: "☑" },
+    { value: "dash",     label: "Dash",      symbol: "—" },
+  ];
 
   return (
     <>
@@ -416,23 +424,57 @@ function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType) => void }) 
             <div style={{ transform: "translate(-50%, -50%)" }}
               className="w-72 rounded-2xl border border-[var(--border)] bg-[var(--bg-2)] shadow-xl overflow-hidden"
             >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-                <span className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Blok Tipi Seç</span>
-                <button onClick={close} className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
-              </div>
-              <div className="p-1.5 flex flex-col gap-0.5 max-h-[360px] overflow-y-auto">
-                {BLOCK_DEFS.map(({ type, label, description, icon }) => (
-                  <button key={type} onClick={() => { onAdd(type); close(); }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
-                  >
-                    <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150">{icon}</span>
-                    <span className="flex flex-col gap-0.5 min-w-0">
-                      <span className="text-sm font-medium leading-4 text-[var(--text-title)]">{label}</span>
-                      <span className="text-xs leading-4 text-[var(--text-subtitle)] truncate">{description}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
+              {!showListPicker ? (
+                /* ── Block type list ── */
+                <>
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+                    <span className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Blok Tipi Seç</span>
+                    <button onClick={close} className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
+                  </div>
+                  <div className="p-1.5 flex flex-col gap-0.5 max-h-[360px] overflow-y-auto">
+                    {BLOCK_DEFS.map(({ type, label, description, icon }) => (
+                      <button key={type} onClick={() => {
+                        if (type === "list") { setShowListPicker(true); return; }
+                        onAdd(type); close();
+                      }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
+                      >
+                        <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150">{icon}</span>
+                        <span className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-sm font-medium leading-4 text-[var(--text-title)]">{label}</span>
+                          <span className="text-xs leading-4 text-[var(--text-subtitle)] truncate">{description}</span>
+                        </span>
+                        {type === "list" && (
+                          <span className="ml-auto text-[var(--text-subtitle)]">
+                            <svg width="8" height="12" viewBox="0 0 8 12" fill="none"><path d="M1.5 1.5L6 6l-4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                /* ── List style sub-menu ── */
+                <>
+                  <div className="flex items-center gap-2 px-3 py-3 border-b border-[var(--border)]">
+                    <button onClick={() => setShowListPicker(false)}
+                      className="flex items-center justify-center w-6 h-6 rounded-lg border border-transparent text-[var(--text-subtitle)] hover:border-[var(--border-hover)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+                    ><BackIcon /></button>
+                    <span className="flex-1 text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Liste Tipi</span>
+                    <button onClick={close} className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
+                  </div>
+                  <div className="p-1.5 flex flex-col gap-0.5">
+                    {LIST_STYLE_OPTIONS.map(({ value, label, symbol }) => (
+                      <button key={value} onClick={() => { onAdd("list", { listStyle: value }); close(); }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
+                      >
+                        <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150 text-sm font-medium">{symbol}</span>
+                        <span className="text-sm font-medium text-[var(--text-title)]">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </>
@@ -458,8 +500,8 @@ function SectionCard({
   function updateBlock(blockId: string, updates: Partial<Block>) {
     onChange({ blocks: section.blocks.map((b) => (b.id === blockId ? { ...b, ...updates } : b)) });
   }
-  function addBlock(type: BlockType) {
-    onChange({ blocks: [...section.blocks, makeBlock(type)] });
+  function addBlock(type: BlockType, extras?: Partial<Block>) {
+    onChange({ blocks: [...section.blocks, makeBlock(type, extras)] });
   }
   function deleteBlock(blockId: string) {
     onChange({ blocks: section.blocks.filter((b) => b.id !== blockId) });
@@ -527,13 +569,13 @@ function DividerPageCard({
 
 // ── Global Add Menu (two-level: Bölüm / Blok / Divider) ──────────────────────
 
-type AddStep = "root" | "block";
+type AddStep = "root" | "block" | "listStyle";
 
 function AddMenu({
   onAddSection, onAddBlock, onAddDivider, onClose,
 }: {
   onAddSection: () => void;
-  onAddBlock: (type: BlockType) => void;
+  onAddBlock: (type: BlockType, extras?: Partial<Block>) => void;
   onAddDivider: () => void;
   onClose: () => void;
 }) {
@@ -557,10 +599,10 @@ function AddMenu({
         <div className="w-72 rounded-2xl border border-[var(--border)] bg-[var(--bg-2)] shadow-xl overflow-hidden">
           <div
             className="flex transition-transform duration-300 ease-in-out"
-            style={{ width: "200%", transform: step === "block" ? "translateX(-50%)" : "translateX(0%)" }}
+            style={{ width: "300%", transform: step === "listStyle" ? "translateX(-66.666%)" : step === "block" ? "translateX(-33.333%)" : "translateX(0%)" }}
           >
             {/* ── Step 1: Root ── */}
-            <div className="w-1/2 flex-shrink-0 flex flex-col">
+            <div className="w-1/3 flex-shrink-0 flex flex-col">
               <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
                 <span className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Ekle</span>
                 <button onClick={onClose} className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
@@ -610,7 +652,7 @@ function AddMenu({
             </div>
 
             {/* ── Step 2: Block types ── */}
-            <div className="w-1/2 flex-shrink-0 flex flex-col">
+            <div className="w-1/3 flex-shrink-0 flex flex-col">
               <div className="flex items-center gap-2 px-3 py-3 border-b border-[var(--border)]">
                 <button onClick={() => setStep("root")}
                   className="flex items-center justify-center w-6 h-6 rounded-lg border border-transparent text-[var(--text-subtitle)] hover:border-[var(--border-hover)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
@@ -620,7 +662,10 @@ function AddMenu({
               </div>
               <div className="p-1.5 flex flex-col gap-0.5 max-h-[340px] overflow-y-auto">
                 {BLOCK_DEFS.map(({ type, label, description, icon }) => (
-                  <button key={type} onClick={() => { onAddBlock(type); onClose(); }}
+                  <button key={type} onClick={() => {
+                    if (type === "list") { setStep("listStyle"); return; }
+                    onAddBlock(type); onClose();
+                  }}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
                   >
                     <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150">{icon}</span>
@@ -628,8 +673,43 @@ function AddMenu({
                       <span className="text-sm font-medium leading-4 text-[var(--text-title)]">{label}</span>
                       <span className="text-xs leading-4 text-[var(--text-subtitle)] truncate">{description}</span>
                     </span>
+                    {type === "list" && (
+                      <span className="ml-auto text-[var(--text-subtitle)]">
+                        <svg width="8" height="12" viewBox="0 0 8 12" fill="none"><path d="M1.5 1.5L6 6l-4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      </span>
+                    )}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* ── Step 3: List style ── */}
+            <div className="w-1/3 flex-shrink-0 flex flex-col">
+              <div className="flex items-center gap-2 px-3 py-3 border-b border-[var(--border)]">
+                <button onClick={() => setStep("block")}
+                  className="flex items-center justify-center w-6 h-6 rounded-lg border border-transparent text-[var(--text-subtitle)] hover:border-[var(--border-hover)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+                ><BackIcon /></button>
+                <span className="flex-1 text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Liste Tipi</span>
+                <button onClick={onClose} className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
+              </div>
+              <div className="p-1.5 flex flex-col gap-0.5">
+                {(["bullet", "numbered", "check", "dash"] as ListStyle[]).map((ls) => {
+                  const labels: Record<ListStyle, [string, string]> = {
+                    bullet:   ["•",  "Bullet"],
+                    numbered: ["1.", "Numaralı"],
+                    check:    ["☑",  "Checklist"],
+                    dash:     ["—",  "Dash"],
+                  };
+                  const [sym, lbl] = labels[ls];
+                  return (
+                    <button key={ls} onClick={() => { onAddBlock("list", { listStyle: ls }); onClose(); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
+                    >
+                      <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150 text-sm font-medium">{sym}</span>
+                      <span className="text-sm font-medium text-[var(--text-title)]">{lbl}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -939,19 +1019,19 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }
 
   /** Adds a block to the last section in items (creates a section if none exist or if last item is a divider) */
-  function addBlockToLastSection(type: BlockType) {
+  function addBlockToLastSection(type: BlockType, extras?: Partial<Block>) {
     setProject((p) => {
       const items = [...p.items];
       const lastItem = items[items.length - 1];
 
       if (!lastItem || lastItem.kind === "divider") {
-        const newSection: PageSection = { ...makeSection(), blocks: [makeBlock(type)] };
+        const newSection: PageSection = { ...makeSection(), blocks: [makeBlock(type, extras)] };
         return { ...p, items: [...items, newSection] };
       }
 
       const lastSectionIdx = items.length - 1;
       const section = { ...(items[lastSectionIdx] as PageSection) };
-      section.blocks = [...(section.blocks || []), makeBlock(type)];
+      section.blocks = [...(section.blocks || []), makeBlock(type, extras)];
       items[lastSectionIdx] = section;
       return { ...p, items };
     });
