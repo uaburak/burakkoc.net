@@ -7,7 +7,7 @@ import { ArrowLeftIcon } from "@/components/icons";
 import { Segmented } from "@/components/Segmented";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
 import { loadProject, listProjects } from "@/lib/firestore";
-import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem } from "@/types/project";
+import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem, ListStyle } from "@/types/project";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
@@ -413,6 +413,55 @@ function DetailDivider() {
   return <div className="w-full h-px bg-[var(--border)] my-2" />;
 }
 
+function DetailList({ block }: { block: Block }) {
+  const items = block.listItems ?? [];
+  const style: ListStyle = block.listStyle ?? "bullet";
+  if (items.length === 0) return null;
+
+  const listClasses = "flex flex-col gap-1.5 w-full pl-1";
+
+  const renderItem = (item: typeof items[number], idx: number) => {
+    const isChecked = style === "check" && item.checked;
+    return (
+      <li key={item.id} className="flex items-start gap-3 text-base font-light leading-7 text-[var(--text-p)]">
+        {style === "bullet" && (
+          <span className="flex-shrink-0 mt-[11px] w-[5px] h-[5px] rounded-full bg-[var(--text-subtitle)]" />
+        )}
+        {style === "numbered" && (
+          <span className="flex-shrink-0 mt-[1px] min-w-[24px] text-sm font-medium text-[var(--text-subtitle)] tabular-nums">{idx + 1}.</span>
+        )}
+        {style === "dash" && (
+          <span className="flex-shrink-0 mt-[1px] text-sm font-medium text-[var(--text-subtitle)]">—</span>
+        )}
+        {style === "check" && (
+          <span
+            className="flex-shrink-0 mt-[5px] w-[16px] h-[16px] rounded-[4px] border flex items-center justify-center transition-colors duration-150"
+            style={isChecked
+              ? { background: "var(--text-title)", borderColor: "var(--text-title)" }
+              : { borderColor: "var(--border)" }
+            }
+          >
+            {isChecked && (
+              <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                <path d="M2 5.5L4 7.5L8 3" stroke="var(--bg-1)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </span>
+        )}
+        <span style={isChecked ? { textDecoration: "line-through", opacity: 0.45 } : {}}>{item.text}</span>
+      </li>
+    );
+  };
+
+  return (
+    <TextScrollingEffect>
+      <div className={listClasses}>
+        {items.map((item, idx) => renderItem(item, idx))}
+      </div>
+    </TextScrollingEffect>
+  );
+}
+
 function DetailBlock({ block }: { block: Block }) {
   switch (block.type) {
     case "heading":    return <DetailHeading    block={block} />;
@@ -423,6 +472,7 @@ function DetailBlock({ block }: { block: Block }) {
     case "code":       return <DetailCode       block={block} />;
     case "figma":      return <ZoomableFigma    src={block.src ?? ""} figmaWorkspace={block.figmaWorkspace} figmaCover={block.figmaCover} figmaWorkspaceCover={block.figmaWorkspaceCover} caption={block.caption} />;
     case "iframe":     return <ZoomableIframe   src={block.src} iframeTabletUrl={block.iframeTabletUrl} iframeMobileUrl={block.iframeMobileUrl} iframeViews={block.iframeViews} iframeCover={block.iframeCover} caption={block.caption} />;
+    case "list":       return <DetailList       block={block} />;
     default:           return null;
   }
 }

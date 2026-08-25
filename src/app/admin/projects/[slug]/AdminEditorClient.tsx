@@ -8,6 +8,7 @@ import { VideoBlockEditor } from "@/components/admin/VideoBlockEditor";
 import { CodeBlockEditor }  from "@/components/admin/CodeBlockEditor";
 import { FigmaBlockEditor }  from "@/components/admin/FigmaBlockEditor";
 import { IframeBlockEditor } from "@/components/admin/IframeBlockEditor";
+import { ListBlockEditor }   from "@/components/admin/ListBlockEditor";
 import { ProjectPreview }   from "@/components/admin/ProjectPreview";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
 import { saveProject, loadProject, getCVData } from "@/lib/firestore";
@@ -133,6 +134,21 @@ const BLOCK_DEFS: {
       </svg>
     ),
   },
+  {
+    type: "list",
+    label: "Liste",
+    description: "Bullet, numaralı veya checklist",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="3" cy="4.5" r="1.25" fill="currentColor" />
+        <path d="M6 4.5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="3" cy="8" r="1.25" fill="currentColor" />
+        <path d="M6 8h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="3" cy="11.5" r="1.25" fill="currentColor" />
+        <path d="M6 11.5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -209,6 +225,7 @@ function BlockLabel({ type }: { type: BlockType }) {
     code:       "Kod Bloğu",
     figma:      "Figma",
     iframe:     "iFrame",
+    list:       "Liste",
   };
   return <PillLabel>{labels[type]}</PillLabel>;
 }
@@ -359,6 +376,7 @@ function BlockRow({
       {block.type === "code"  && <CodeBlockEditor  block={viewBlock} onChange={handleChange} />}
       {block.type === "figma" && <FigmaBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
       {block.type === "iframe" && <IframeBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
+      {block.type === "list"   && <ListBlockEditor   block={viewBlock} onChange={handleChange} />}
     </div>
   );
 }

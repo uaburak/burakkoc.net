@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem } from "@/types/project";
+import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem, ListStyle } from "@/types/project";
 import { Segmented } from "@/components/Segmented";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { ZoomableFigma } from "@/components/ZoomableFigma";
@@ -407,6 +407,52 @@ function resolveBlock(block: Block, lang: "tr" | "en"): Block {
   };
 }
 
+function PreviewList({ block, lang }: { block: Block; lang: "tr" | "en" }) {
+  const items = (block.listItems ?? []).map((it) => ({
+    ...it,
+    text: lang === "en" ? (it.textEn ?? it.text) : it.text,
+  }));
+  const style: ListStyle = block.listStyle ?? "bullet";
+  if (items.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1.5 w-full pl-1">
+      {items.map((item, idx) => {
+        const isChecked = style === "check" && item.checked;
+        return (
+          <div key={item.id} className="flex items-start gap-3 text-base font-light leading-7 text-[var(--text-p)]">
+            {style === "bullet" && (
+              <span className="flex-shrink-0 mt-[11px] w-[5px] h-[5px] rounded-full bg-[var(--text-subtitle)]" />
+            )}
+            {style === "numbered" && (
+              <span className="flex-shrink-0 mt-[1px] min-w-[24px] text-sm font-medium text-[var(--text-subtitle)] tabular-nums">{idx + 1}.</span>
+            )}
+            {style === "dash" && (
+              <span className="flex-shrink-0 mt-[1px] text-sm font-medium text-[var(--text-subtitle)]">—</span>
+            )}
+            {style === "check" && (
+              <span
+                className="flex-shrink-0 mt-[5px] w-[16px] h-[16px] rounded-[4px] border flex items-center justify-center"
+                style={isChecked
+                  ? { background: "var(--text-title)", borderColor: "var(--text-title)" }
+                  : { borderColor: "var(--border)" }
+                }
+              >
+                {isChecked && (
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                    <path d="M2 5.5L4 7.5L8 3" stroke="var(--bg-1)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </span>
+            )}
+            <span style={isChecked ? { textDecoration: "line-through", opacity: 0.45 } : {}}>{item.text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PreviewBlock({ block, lang }: { block: Block; lang: "tr" | "en" }) {
   const b = resolveBlock(block, lang);
   switch (b.type) {
@@ -418,6 +464,7 @@ function PreviewBlock({ block, lang }: { block: Block; lang: "tr" | "en" }) {
     case "code":    return <PreviewCode    block={b} />;
     case "figma":   return <ZoomableFigma    src={b.src ?? ""} figmaWorkspace={b.figmaWorkspace} figmaCover={b.figmaCover} figmaWorkspaceCover={b.figmaWorkspaceCover} caption={b.caption} lang={lang} />;
     case "iframe":  return <ZoomableIframe   src={b.src} iframeTabletUrl={b.iframeTabletUrl} iframeMobileUrl={b.iframeMobileUrl} iframeViews={b.iframeViews} iframeCover={b.iframeCover} caption={b.caption} lang={lang} />;
+    case "list":    return <PreviewList      block={b} lang={lang} />;
     default:        return null;
   }
 }

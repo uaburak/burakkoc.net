@@ -1,6 +1,17 @@
 // ── Block Types (divider removed — it's now a top-level PageItem) ─────────────
 
-export type BlockType = "heading" | "subheading" | "text" | "image" | "video" | "code" | "figma" | "iframe";
+export type BlockType = "heading" | "subheading" | "text" | "image" | "video" | "code" | "figma" | "iframe" | "list";
+
+// ── List Block ───────────────────────────────────────────────────────────────
+
+export type ListStyle = "bullet" | "numbered" | "check" | "dash";
+
+export interface ListItem {
+  id: string;
+  text: string;
+  textEn?: string;
+  checked?: boolean; // only relevant for "check" style
+}
 
 // ── Badge System ─────────────────────────────────────────────────────────────
 
@@ -45,6 +56,9 @@ export interface Block {
   figmaWorkspace?: string;
   figmaCover?: string;
   figmaWorkspaceCover?: string;
+  // List fields
+  listStyle?: ListStyle;
+  listItems?: ListItem[];
   // Iframe fields
   iframeViews?: ("desktop" | "tablet" | "mobile")[];
   iframeTabletUrl?: string;
