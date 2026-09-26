@@ -9,6 +9,9 @@ import { CodeBlockEditor }  from "@/components/admin/CodeBlockEditor";
 import { FigmaBlockEditor }  from "@/components/admin/FigmaBlockEditor";
 import { IframeBlockEditor } from "@/components/admin/IframeBlockEditor";
 import { ListBlockEditor }   from "@/components/admin/ListBlockEditor";
+import { CaseStudyBlockEditor, createCaseStudyBlockDefaults } from "@/components/admin/CaseStudyBlockEditor";
+import { isCaseStudyBlock } from "@/components/project/CaseStudyBlocks";
+import { createProjectTemplate } from "@/lib/projectTemplate";
 import { ProjectPreview }   from "@/components/admin/ProjectPreview";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
 import { saveProject, loadProject, getCVData } from "@/lib/firestore";
@@ -26,7 +29,7 @@ import { Spinner } from "@/components/icons";
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
 function makeBlock(type: BlockType, extras?: Partial<Block>): Block {
-  return { id: uid(), type, ...extras };
+  return { id: uid(), type, ...createCaseStudyBlockDefaults(type), ...extras };
 }
 
 function makeSection(): PageSection {
@@ -81,6 +84,83 @@ const BLOCK_DEFS: {
     ),
   },
   {
+    type: "quote",
+    label: "Alıntı",
+    description: "Kullanıcı sözü veya öne çıkan ifade",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M6.5 4.5H4.2A1.7 1.7 0 002.5 6.2V8.5h3.5V12H2.5m11-7.5h-2.3a1.7 1.7 0 00-1.7 1.7V8.5H13V12H9.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "info",
+    label: "Proje Künyesi",
+    description: "Rol, süre, ekip gibi bilgiler",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M4.5 6h2M9 6h2.5M4.5 10h2M9 10h2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "stats",
+    label: "Metrikler",
+    description: "Sonuçları büyük rakamlarla göster",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M3 13.5V9M8 13.5V3M13 13.5V6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "cards",
+    label: "Kartlar",
+    description: "Özellik, sorun veya çözüm ızgarası",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="9" y="1.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="1.5" y="9" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="9" y="9" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    type: "steps",
+    label: "Süreç",
+    description: "Numaralı adımlar / zaman çizelgesi",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="4" cy="3.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="4" cy="12.5" r="1.75" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M4 5.25v5.5M8 3.5h6M8 12.5h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "tags",
+    label: "Etiketler",
+    description: "Araçlar, teknolojiler, platformlar",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M2 2.5v4.2c0 .4.16.78.44 1.06l5.8 5.8a1.5 1.5 0 002.12 0l3.08-3.08a1.5 1.5 0 000-2.12l-5.8-5.8A1.5 1.5 0 006.58 2H2.5a.5.5 0 00-.5.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+        <circle cx="5" cy="5" r="1" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    type: "links",
+    label: "Bağlantılar",
+    description: "Mağaza, canlı site, GitHub…",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M6.5 9.5l3-3M5.5 7.5l-1.3 1.3a2.4 2.4 0 003.4 3.4l1.3-1.3M10.5 8.5l1.3-1.3a2.4 2.4 0 00-3.4-3.4L7.1 5.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     type: "image",
     label: "Resim",
     description: "URL ile görsel",
@@ -89,6 +169,28 @@ const BLOCK_DEFS: {
         <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
         <circle cx="5.5" cy="6" r="1.5" stroke="currentColor" strokeWidth="1.25" />
         <path d="M1.5 11l3.5-3 2.5 2.5 2-2 4 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "gallery",
+    label: "Galeri",
+    description: "2–4 sütunlu görsel ızgarası",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="3" width="5.75" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="8.75" y="3" width="5.75" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    type: "compare",
+    label: "Önce / Sonra",
+    description: "Sürüklenebilir karşılaştırma",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M8 2.5v11M5.5 6.5L4 8l1.5 1.5M10.5 6.5L12 8l-1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -149,7 +251,153 @@ const BLOCK_DEFS: {
       </svg>
     ),
   },
+  {
+    type: "callout",
+    label: "Not Kutusu",
+    description: "İçgörü, ipucu veya uyarı",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M5 6.5v3M8 6.5h3M8 9.5h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "accordion",
+    label: "Açılır Detaylar",
+    description: "Tıklayınca açılan başlıklar",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="2" width="13" height="4.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="1.5" y="9.5" width="13" height="4.5" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M10.5 3.75l1 1 1-1M10.5 11.25l1 1 1-1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "mockup",
+    label: "Cihaz Çerçevesi",
+    description: "Telefon, tarayıcı veya tablet içinde ekran",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="4.5" y="1.5" width="7" height="13" rx="2" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M7 3.5h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "split",
+    label: "Görsel + Metin",
+    description: "Yan yana görsel ve açıklama",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="3" width="6.5" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M10 5h4.5M10 8h4.5M10 11h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "table",
+    label: "Tablo",
+    description: "Karşılaştırma, rakip analizi (✓ / ✗)",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M1.5 6h13M6 6v7.5" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    ),
+  },
+  {
+    type: "bars",
+    label: "Anket Grafiği",
+    description: "Yüzdeli çubuklar — test ve anket sonuçları",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M2 4h10M2 8h7M2 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "persona",
+    label: "Persona",
+    description: "Kullanıcı profili, hedefler, zorluklar",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="5.5" r="2.75" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M2.75 14c.6-2.6 2.7-4.25 5.25-4.25S12.65 11.4 13.25 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "team",
+    label: "Ekip",
+    description: "Kişiler, roller ve profil bağlantıları",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="5.5" cy="5.5" r="2.25" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="11" cy="6" r="1.75" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M1.5 13.5c.4-2.2 2-3.5 4-3.5s3.6 1.3 4 3.5M10.5 10c1.8-.2 3.4.9 3.9 3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "palette",
+    label: "Renk Paleti",
+    description: "Renk örnekleri ve kodları",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="5" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="11" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="8" cy="11" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+    ),
+  },
 ];
+
+/** Block menu sections — every BLOCK_DEFS type appears exactly once. */
+const BLOCK_GROUPS: { label: string; types: BlockType[] }[] = [
+  { label: "Metin",        types: ["heading", "text", "list", "quote", "callout", "accordion"] },
+  { label: "Medya",        types: ["image", "gallery", "mockup", "compare", "split", "video", "figma", "iframe", "code"] },
+  { label: "Yapı & Veri",  types: ["info", "stats", "cards", "steps", "table", "bars", "tags", "links"] },
+  { label: "Araştırma & Tasarım", types: ["persona", "team", "palette"] },
+];
+
+/** Grouped block type picker used by both add menus. `list` opens its style sub-menu. */
+function BlockTypeList({ onPick, onPickList }: { onPick: (type: BlockType) => void; onPickList: () => void }) {
+  return (
+    <div className="p-1.5 flex flex-col gap-0.5 max-h-[420px] overflow-y-auto">
+      {BLOCK_GROUPS.map((group) => (
+        <div key={group.label} className="flex flex-col gap-0.5">
+          <span className="px-3 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">
+            {group.label}
+          </span>
+          {group.types.map((t) => {
+            const def = BLOCK_DEFS.find((d) => d.type === t);
+            if (!def) return null;
+            return (
+              <button
+                key={t}
+                onClick={() => (t === "list" ? onPickList() : onPick(t))}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
+              >
+                <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150">{def.icon}</span>
+                <span className="flex flex-col gap-0.5 min-w-0">
+                  <span className="text-sm font-medium leading-4 text-[var(--text-title)]">{def.label}</span>
+                  <span className="text-xs leading-4 text-[var(--text-subtitle)] truncate">{def.description}</span>
+                </span>
+                {t === "list" && (
+                  <span className="ml-auto text-[var(--text-subtitle)]">
+                    <svg width="8" height="12" viewBox="0 0 8 12" fill="none"><path d="M1.5 1.5L6 6l-4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
@@ -226,6 +474,24 @@ function BlockLabel({ type }: { type: BlockType }) {
     figma:      "Figma",
     iframe:     "iFrame",
     list:       "Liste",
+    info:       "Proje Künyesi",
+    stats:      "Metrikler",
+    cards:      "Kartlar",
+    steps:      "Süreç",
+    quote:      "Alıntı",
+    gallery:    "Galeri",
+    compare:    "Önce / Sonra",
+    links:      "Bağlantılar",
+    tags:       "Etiketler",
+    callout:    "Not Kutusu",
+    accordion:  "Açılır Detaylar",
+    mockup:     "Cihaz Çerçevesi",
+    split:      "Görsel + Metin",
+    table:      "Tablo",
+    bars:       "Anket Grafiği",
+    persona:    "Persona",
+    team:       "Ekip",
+    palette:    "Renk Paleti",
   };
   return <PillLabel>{labels[type]}</PillLabel>;
 }
@@ -377,6 +643,7 @@ function BlockRow({
       {block.type === "figma" && <FigmaBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
       {block.type === "iframe" && <IframeBlockEditor block={viewBlock} onChange={handleChange} projectSlug={projectSlug} />}
       {block.type === "list"   && <ListBlockEditor   block={viewBlock} onChange={handleChange} />}
+      {isCaseStudyBlock(block.type) && <CaseStudyBlockEditor block={block} onChange={onChange} lang={lang} projectSlug={projectSlug} />}
     </div>
   );
 }
@@ -431,27 +698,7 @@ function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType, extras?: Pa
                     <span className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Blok Tipi Seç</span>
                     <button onClick={close} className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
                   </div>
-                  <div className="p-1.5 flex flex-col gap-0.5 max-h-[360px] overflow-y-auto">
-                    {BLOCK_DEFS.map(({ type, label, description, icon }) => (
-                      <button key={type} onClick={() => {
-                        if (type === "list") { setShowListPicker(true); return; }
-                        onAdd(type); close();
-                      }}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
-                      >
-                        <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150">{icon}</span>
-                        <span className="flex flex-col gap-0.5 min-w-0">
-                          <span className="text-sm font-medium leading-4 text-[var(--text-title)]">{label}</span>
-                          <span className="text-xs leading-4 text-[var(--text-subtitle)] truncate">{description}</span>
-                        </span>
-                        {type === "list" && (
-                          <span className="ml-auto text-[var(--text-subtitle)]">
-                            <svg width="8" height="12" viewBox="0 0 8 12" fill="none"><path d="M1.5 1.5L6 6l-4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                  <BlockTypeList onPick={(type) => { onAdd(type); close(); }} onPickList={() => setShowListPicker(true)} />
                 </>
               ) : (
                 /* ── List style sub-menu ── */
@@ -660,27 +907,7 @@ function AddMenu({
                 <span className="flex-1 text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Blok Tipi</span>
                 <button onClick={onClose} className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
               </div>
-              <div className="p-1.5 flex flex-col gap-0.5 max-h-[340px] overflow-y-auto">
-                {BLOCK_DEFS.map(({ type, label, description, icon }) => (
-                  <button key={type} onClick={() => {
-                    if (type === "list") { setStep("listStyle"); return; }
-                    onAddBlock(type); onClose();
-                  }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors duration-150 hover:bg-[var(--bg-4)] group cursor-pointer"
-                  >
-                    <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-3)] text-[var(--text-subtitle)] group-hover:text-[var(--text-title)] transition-colors duration-150">{icon}</span>
-                    <span className="flex flex-col gap-0.5 min-w-0">
-                      <span className="text-sm font-medium leading-4 text-[var(--text-title)]">{label}</span>
-                      <span className="text-xs leading-4 text-[var(--text-subtitle)] truncate">{description}</span>
-                    </span>
-                    {type === "list" && (
-                      <span className="ml-auto text-[var(--text-subtitle)]">
-                        <svg width="8" height="12" viewBox="0 0 8 12" fill="none"><path d="M1.5 1.5L6 6l-4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <BlockTypeList onPick={(type) => { onAddBlock(type); onClose(); }} onPickList={() => setStep("listStyle")} />
             </div>
 
             {/* ── Step 3: List style ── */}
@@ -1004,6 +1231,20 @@ export function AdminEditorClient({ slug }: { slug: string }) {
     setProject((p) => ({ ...p, items: [...p.items, makeDivider()] }));
   }
 
+  /** Fills an empty project with the case-study template; keeps meta the user already entered. */
+  function loadTemplate() {
+    const template = createProjectTemplate();
+    setProject((p) => ({
+      ...p,
+      title: p.title || template.title,
+      category: p.category || template.category,
+      year: p.year || template.year,
+      description: p.description || template.description,
+      coverImage: p.coverImage || template.coverImage,
+      items: template.items,
+    }));
+  }
+
   function deleteItem(id: string) {
     setProject((p) => ({ ...p, items: p.items.filter((i) => i.id !== id) }));
   }
@@ -1150,7 +1391,10 @@ export function AdminEditorClient({ slug }: { slug: string }) {
             {project.items.length === 0 && (
               <div className="flex flex-col items-center gap-2 py-8 rounded-2xl border border-dashed border-[var(--border)] text-center">
                 <p className="text-sm text-[var(--text-subtitle)] opacity-50 select-none">Henüz içerik yok</p>
-                <p className="text-xs text-[var(--text-subtitle)] opacity-40 select-none">Yukarıdaki Ekle butonunu kullanın</p>
+                <p className="text-xs text-[var(--text-subtitle)] opacity-40 select-none">Yukarıdaki Ekle butonunu kullanın ya da şablonla başlayın</p>
+                <PillButton size="md" onClick={loadTemplate} className="mt-2">
+                  Şablondan başla
+                </PillButton>
               </div>
             )}
 

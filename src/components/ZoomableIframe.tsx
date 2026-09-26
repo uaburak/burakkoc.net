@@ -14,6 +14,8 @@ interface ZoomableIframeProps {
   iframeCover?: string;
   caption?: string;
   lang?: "tr" | "en";
+  /** Scroll reveal; off in the admin preview, whose panel scrolls independently of the window */
+  animate?: boolean;
 }
 
 type DeviceMode = "desktop" | "tablet" | "mobile";
@@ -99,6 +101,7 @@ export function ZoomableIframe({
   iframeCover,
   caption,
   lang = "tr",
+  animate = true,
 }: ZoomableIframeProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -269,7 +272,7 @@ export function ZoomableIframe({
 
   if (!currentUrl && !src) {
     return (
-      <ScrollReveal>
+      <ScrollReveal disabled={!animate}>
         <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
           <div className="relative w-full rounded-[32px] border border-dashed border-[var(--border)] bg-[var(--bg-2)] aspect-video flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">
             {lang === "en" ? "iFrame URL not found" : "iFrame adresi bulunamadı"}
@@ -296,7 +299,7 @@ export function ZoomableIframe({
   return (
     <>
       {/* Inline Placeholder View */}
-      <ScrollReveal>
+      <ScrollReveal disabled={!animate}>
         <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
           <div
             ref={placeholderRef}

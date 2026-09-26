@@ -18,6 +18,8 @@ import PageEntrance from "@/components/PageEntrance";
 import { TopBar } from "@/components/TopBar";
 import { CodeHighlight } from "@/components/CodeHighlight";
 import { ComponentRenderer } from "@/components/demos/ComponentRegistry";
+import { CaseStudyBlock } from "@/components/project/CaseStudyBlocks";
+import { RichText } from "@/components/project/RichText";
 
 // ── SVG Icons ──────────────────────────────────────────────────
 
@@ -202,7 +204,7 @@ function DetailText({ block }: { block: Block }) {
   return (
     <TextScrollingEffect>
       <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-        {block.content}
+        <RichText text={block.content} />
       </p>
     </TextScrollingEffect>
   );
@@ -283,7 +285,11 @@ function DetailVideo({ block }: { block: Block }) {
           {!isTab2 ? (
             embedUrl ? (
               isRaw ? (
-                <video src={embedUrl} controls className="w-full h-full object-cover" />
+                block.videoLoop ? (
+                  <video src={embedUrl} autoPlay muted loop playsInline className="w-full h-full object-cover" />
+                ) : (
+                  <video src={embedUrl} controls className="w-full h-full object-cover" />
+                )
               ) : (
                 <iframe src={embedUrl} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={block.caption ?? "Video"} />
               )
@@ -487,7 +493,7 @@ function DetailBlock({ block }: { block: Block }) {
     case "figma":      return <ZoomableFigma    src={block.src ?? ""} figmaWorkspace={block.figmaWorkspace} figmaCover={block.figmaCover} figmaWorkspaceCover={block.figmaWorkspaceCover} caption={block.caption} />;
     case "iframe":     return <ZoomableIframe   src={block.src} iframeTabletUrl={block.iframeTabletUrl} iframeMobileUrl={block.iframeMobileUrl} iframeViews={block.iframeViews} iframeCover={block.iframeCover} caption={block.caption} />;
     case "list":       return <DetailList       block={block} />;
-    default:           return null;
+    default:           return <CaseStudyBlock   block={block} animate />;
   }
 }
 
@@ -558,6 +564,177 @@ function getProjectCoverImage(proj?: ProjectData | null): string | null {
   return null;
 }
 
+interface ProjectDetailFooterNavProps {
+  prevProject: ProjectData | null;
+  nextProject: ProjectData | null;
+}
+
+function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFooterNavProps) {
+  const prevImg = getProjectCoverImage(prevProject);
+  const nextImg = getProjectCoverImage(nextProject);
+
+  const footerCardRef = useRef<HTMLDivElement>(null);
+  const prevImgWrapperRef = useRef<HTMLDivElement>(null);
+  const nextImgWrapperRef = useRef<HTMLDivElement>(null);
+  const quickXRef = useRef<((val: number) => void) | null>(null);
+  const quickRotRef = useRef<((val: number) => void) | null>(null);
+
+  useEffect(() => {
+    if (!footerCardRef.current) return;
+    quickXRef.current = gsap.quickTo(footerCardRef.current, "x", {
+      duration: 0.25,
+      ease: "power2.out",
+    });
+    quickRotRef.current = gsap.quickTo(footerCardRef.current, "rotation", {
+      duration: 0.25,
+      ease: "power2.out",
+    });
+  }, []);
+
+  const handleMouseEnterPrev = () => {
+    if (!footerCardRef.current) return;
+    if (prevImgWrapperRef.current) prevImgWrapperRef.current.style.opacity = "1";
+    if (nextImgWrapperRef.current) nextImgWrapperRef.current.style.opacity = "0";
+
+    gsap.to(footerCardRef.current, {
+      xPercent: 0,
+      opacity: 1,
+      scale: 1,
+      duration: 0.35,
+      ease: "power3.out",
+      overwrite: "auto",
+    });
+  };
+
+  const handleMouseMovePrev = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width - 0.5;
+    quickXRef.current?.(relX * 16);
+    quickRotRef.current?.(relX * 4);
+  };
+
+  const handleMouseEnterNext = () => {
+    if (!footerCardRef.current) return;
+    if (prevImgWrapperRef.current) prevImgWrapperRef.current.style.opacity = "0";
+    if (nextImgWrapperRef.current) nextImgWrapperRef.current.style.opacity = "1";
+
+    gsap.to(footerCardRef.current, {
+      xPercent: 100,
+      opacity: 1,
+      scale: 1,
+      duration: 0.35,
+      ease: "power3.out",
+      overwrite: "auto",
+    });
+  };
+
+  const handleMouseMoveNext = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = (e.clientX - rect.left) / rect.width - 0.5;
+    quickXRef.current?.(relX * 16);
+    quickRotRef.current?.(relX * 4);
+  };
+
+  const handleMouseLeaveFooter = () => {
+    if (!footerCardRef.current) return;
+    quickXRef.current?.(0);
+    quickRotRef.current?.(0);
+    gsap.to(footerCardRef.current, {
+      opacity: 0,
+      scale: 0.95,
+      duration: 0.3,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+  };
+
+  if (!prevProject && !nextProject) return null;
+
+  return (
+    <div
+      className="flex flex-col gap-12 items-start pt-16 w-full"
+      onMouseLeave={handleMouseLeaveFooter}
+    >
+      <div className="w-full h-px bg-[var(--border)]" />
+      <div className="relative grid grid-cols-2 gap-2 sm:gap-0 w-full">
+        {/* Single Shared Footer Preview Card - Accelerated via GPU xPercent & transform */}
+        <div
+          ref={footerCardRef}
+          className="absolute pointer-events-none hidden md:block w-1/2 aspect-[16/9] origin-bottom rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
+          style={{ bottom: "calc(100% + 12px)", left: 0 }}
+        >
+          {prevImg && (
+            <div
+              ref={prevImgWrapperRef}
+              className="absolute inset-0 transition-opacity duration-200"
+              style={{ opacity: 0 }}
+            >
+              <img
+                src={prevImg}
+                alt={prevProject?.title || "Previous Project"}
+                className="w-full h-full object-cover"
+                loading="eager"
+                decoding="async"
+              />
+            </div>
+          )}
+          {nextImg && (
+            <div
+              ref={nextImgWrapperRef}
+              className="absolute inset-0 transition-opacity duration-200"
+              style={{ opacity: 0 }}
+            >
+              <img
+                src={nextImg}
+                alt={nextProject?.title || "Next Project"}
+                className="w-full h-full object-cover"
+                loading="eager"
+                decoding="async"
+              />
+            </div>
+          )}
+        </div>
+
+        {prevProject ? (
+          <Link
+            href={`/projects/${prevProject.slug}`}
+            onMouseEnter={handleMouseEnterPrev}
+            onMouseMove={handleMouseMovePrev}
+            className="relative group flex flex-col gap-0.5 justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-colors duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+          >
+            <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
+              Previous
+            </span>
+            <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
+              {prevProject.title || prevProject.slug}
+            </span>
+          </Link>
+        ) : (
+          <div />
+        )}
+
+        {nextProject ? (
+          <Link
+            href={`/projects/${nextProject.slug}`}
+            onMouseEnter={handleMouseEnterNext}
+            onMouseMove={handleMouseMoveNext}
+            className="relative group flex flex-col gap-0.5 items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-colors duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
+          >
+            <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
+              Next
+            </span>
+            <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
+              {nextProject.title || nextProject.slug}
+            </span>
+          </Link>
+        ) : (
+          <div />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Client Component ─────────────────────────────────────────────────────
 
 interface ProjectDetailClientProps {
@@ -574,101 +751,6 @@ export function ProjectDetailClient({
   const [project, setProject] = useState<ProjectData | null>(initialProject || null);
   const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);
   const [loading, setLoading] = useState(!initialProject);
-
-  const footerCardRef = useRef<HTMLDivElement>(null);
-  const footerImageRef = useRef<HTMLImageElement>(null);
-  const [footerActiveImage, setFooterActiveImage] = useState<string | null>(null);
-
-  const handleMouseEnterPrev = (proj: ProjectData) => {
-    const img = getProjectCoverImage(proj);
-    if (!img) return;
-    setFooterActiveImage(img);
-
-    if (footerCardRef.current) {
-      gsap.to(footerCardRef.current, {
-        left: "0%",
-        opacity: 1,
-        scale: 1,
-        duration: 0.4,
-        ease: "power3.out",
-        overwrite: "auto",
-      });
-    }
-  };
-
-  const handleMouseMovePrev = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!footerCardRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relX = (e.clientX - rect.left) / rect.width - 0.5;
-
-    gsap.to(footerCardRef.current, {
-      left: "0%",
-      x: relX * 20,
-      rotation: relX * 6,
-      opacity: 1,
-      scale: 1,
-      duration: 0.3,
-      ease: "power2.out",
-      overwrite: "auto",
-    });
-  };
-
-  const handleMouseEnterNext = (proj: ProjectData) => {
-    const img = getProjectCoverImage(proj);
-    if (!img) return;
-    setFooterActiveImage(img);
-
-    if (footerCardRef.current) {
-      gsap.to(footerCardRef.current, {
-        left: "50%",
-        opacity: 1,
-        scale: 1,
-        duration: 0.4,
-        ease: "power3.out",
-        overwrite: "auto",
-      });
-    }
-  };
-
-  const handleMouseMoveNext = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!footerCardRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relX = (e.clientX - rect.left) / rect.width - 0.5;
-
-    gsap.to(footerCardRef.current, {
-      left: "50%",
-      x: relX * 20,
-      rotation: relX * 6,
-      opacity: 1,
-      scale: 1,
-      duration: 0.3,
-      ease: "power2.out",
-      overwrite: "auto",
-    });
-  };
-
-  const handleMouseLeaveFooter = () => {
-    if (!footerCardRef.current) return;
-    gsap.to(footerCardRef.current, {
-      opacity: 0,
-      scale: 0.95,
-      x: 0,
-      rotation: 0,
-      duration: 0.35,
-      ease: "power2.out",
-      overwrite: "auto",
-    });
-  };
-
-  useEffect(() => {
-    if (footerActiveImage && footerImageRef.current) {
-      gsap.fromTo(
-        footerImageRef.current,
-        { scale: 1.15 },
-        { scale: 1, duration: 0.45, ease: "power2.out" }
-      );
-    }
-  }, [footerActiveImage]);
 
   useEffect(() => {
     if (initialProject) {
@@ -809,66 +891,11 @@ export function ProjectDetailClient({
           )
         )}
 
-        {showNavigation && (prevProject || nextProject) && (
-          <div
-            className="flex flex-col gap-12 items-start pt-16 w-full"
-            onMouseLeave={handleMouseLeaveFooter}
-          >
-            <div className="w-full h-px bg-[var(--border)]" />
-            <div className="relative grid grid-cols-2 gap-2 sm:gap-0 w-full">
-              {/* Single Shared Footer Preview Card */}
-              <div
-                ref={footerCardRef}
-                className="absolute pointer-events-none hidden md:block w-1/2 aspect-[16/9] origin-bottom rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
-                style={{ bottom: "calc(100% + 12px)", left: "0%" }}
-              >
-                {footerActiveImage && (
-                  <img
-                    ref={footerImageRef}
-                    src={footerActiveImage}
-                    alt="Project Preview"
-                    className="w-full h-full object-cover"
-                  />
-                )}
-              </div>
-
-              {prevProject ? (
-                <Link
-                  href={`/projects/${prevProject.slug}`}
-                  onMouseEnter={() => handleMouseEnterPrev(prevProject)}
-                  onMouseMove={handleMouseMovePrev}
-                  className="relative group flex flex-col gap-0.5 justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
-                >
-                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
-                    Previous
-                  </span>
-                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
-                    {prevProject.title || prevProject.slug}
-                  </span>
-                </Link>
-              ) : (
-                <div />
-              )}
-
-              {nextProject ? (
-                <Link
-                  href={`/projects/${nextProject.slug}`}
-                  onMouseEnter={() => handleMouseEnterNext(nextProject)}
-                  onMouseMove={handleMouseMoveNext}
-                  className="relative group flex flex-col gap-0.5 items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
-                >
-                  <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
-                    Next
-                  </span>
-                  <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
-                    {nextProject.title || nextProject.slug}
-                  </span>
-                </Link>
-              ) : (
-                <div />
-              )}
-            </div>
-          </div>
+        {showNavigation && (
+          <ProjectDetailFooterNav
+            prevProject={prevProject}
+            nextProject={nextProject}
+          />
         )}
       </main>
     </PageEntrance>

@@ -13,6 +13,8 @@ interface ZoomableFigmaProps {
   figmaWorkspaceCover?: string;
   caption?: string;
   lang?: "tr" | "en";
+  /** Scroll reveal; off in the admin preview, whose panel scrolls independently of the window */
+  animate?: boolean;
 }
 
 function getFigmaEmbedUrl(url: string): string {
@@ -26,7 +28,7 @@ function getFigmaEmbedUrl(url: string): string {
   return cleanUrl;
 }
 
-export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceCover, caption, lang = "tr" }: ZoomableFigmaProps) {
+export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceCover, caption, lang = "tr", animate = true }: ZoomableFigmaProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [originalRect, setOriginalRect] = useState<DOMRect | null>(null);
@@ -183,7 +185,7 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
 
   if (!hasAnyLink) {
     return (
-      <ScrollReveal>
+      <ScrollReveal disabled={!animate}>
         <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
           <div className="relative w-full rounded-[32px] border border-dashed border-[var(--border)] bg-[var(--bg-2)] aspect-video flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">
             {lang === "en" ? "Figma prototype URL not found" : "Figma prototip adresi bulunamadı"}
@@ -196,7 +198,7 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
   return (
     <>
       {/* Inline Placeholder */}
-      <ScrollReveal>
+      <ScrollReveal disabled={!animate}>
         <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
           <div
             ref={placeholderRef}

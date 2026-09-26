@@ -1,6 +1,67 @@
 // ── Block Types (divider removed — it's now a top-level PageItem) ─────────────
 
-export type BlockType = "heading" | "subheading" | "text" | "image" | "video" | "code" | "figma" | "iframe" | "list";
+export type BlockType =
+  | "heading" | "subheading" | "text" | "image" | "video" | "code" | "figma" | "iframe" | "list"
+  // Case-study blocks — rendered by components/project/CaseStudyBlocks.tsx
+  | "info" | "stats" | "cards" | "steps" | "quote" | "gallery" | "compare" | "links" | "tags"
+  | "callout" | "accordion" | "mockup" | "split" | "table" | "bars" | "persona" | "team" | "palette";
+
+/** callout → note | insight | tip | warning · mockup → phone | browser | tablet · split → left | right (image side) */
+export type BlockVariant =
+  | "note" | "insight" | "tip" | "warning"
+  | "phone" | "browser" | "tablet"
+  | "left" | "right";
+
+/** One table row. Rows are objects (not string[][]) because Firestore rejects nested arrays. */
+export interface TableRow {
+  id: string;
+  cells: string[];
+  cellsEn?: string[];
+}
+
+export type AspectRatio = "16/9" | "4/3" | "1/1" | "3/4" | "9/16";
+
+// ── Entry (shared row type for case-study blocks) ────────────────────────────
+//
+// Each case-study block stores its rows in `Block.entries`. Which fields a row
+// uses depends on the block type:
+//   info    → label, value            (Rol · Ürün Tasarımcısı)
+//   stats   → value, label            (%40 · Dönüşüm artışı)
+//   cards   → eyebrow?, title, text
+//   steps   → eyebrow?, title, text
+//   gallery → src, alt, caption?
+//   compare → src, alt, label         (entries[0] = önce, entries[1] = sonra)
+//   links   → label, href, icon
+//   tags    → label
+//   accordion → title, text
+//   mockup  → src, alt, label?        (label = browser address bar)
+//   bars    → label, value (0–100), text?
+//   persona → label, text             (group title + one item per line)
+//   team    → src?, title, text, href?
+//   palette → label, value (CSS color), text?
+
+export type LinkIconType = "web" | "appstore" | "playstore" | "github" | "figma" | "behance" | "external";
+
+export interface BlockEntry {
+  id: string;
+  label?: string;
+  labelEn?: string;
+  value?: string;
+  valueEn?: string;
+  eyebrow?: string;
+  eyebrowEn?: string;
+  title?: string;
+  titleEn?: string;
+  text?: string;
+  textEn?: string;
+  src?: string;
+  alt?: string;
+  altEn?: string;
+  caption?: string;
+  captionEn?: string;
+  href?: string;
+  icon?: LinkIconType;
+}
 
 // ── List Block ───────────────────────────────────────────────────────────────
 
@@ -51,7 +112,7 @@ export interface Block {
   src?: string;
   alt?: string;
   caption?: string;
-  aspectRatio?: "16/9" | "4/3" | "1/1";
+  aspectRatio?: AspectRatio;
   badges?: BadgeItem[];
   figmaWorkspace?: string;
   figmaCover?: string;
@@ -64,6 +125,24 @@ export interface Block {
   iframeTabletUrl?: string;
   iframeMobileUrl?: string;
   iframeCover?: string;
+  // Case-study block fields
+  entries?: BlockEntry[];
+  /** Grid column count for stats / cards / gallery */
+  columns?: 2 | 3 | 4;
+  /** Quote attribution */
+  author?: string;
+  authorRole?: string;
+  authorRoleEn?: string;
+  /** Block title for callout, split, persona (name) and bars (question) */
+  title?: string;
+  titleEn?: string;
+  variant?: BlockVariant;
+  /** Table block */
+  tableRows?: TableRow[];
+  /** First table row is rendered as the header (default true) */
+  tableHeader?: boolean;
+  /** Video block: autoplay muted loop without controls (mp4 / webm only) */
+  videoLoop?: boolean;
   // EN
   contentEn?: string;
   subheadingEn?: string;

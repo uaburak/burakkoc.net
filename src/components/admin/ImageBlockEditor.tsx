@@ -16,7 +16,7 @@ interface ImageBlockEditorProps {
 
 // ── Upload zone — compact: click to pick, shows filename after upload ─────────
 
-function UploadZone({
+export function UploadZone({
   blockId,
   projectSlug,
   currentSrc,
