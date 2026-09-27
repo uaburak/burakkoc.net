@@ -402,24 +402,36 @@ function flattenLegacyBlocks(blocks: any[]): Block[] {
 }
 
 /**
+ * A frame's layout as an auto layout, as every frame is one: a frame saved
+ * before it had a flow — one Fill column, no rows set, no child put in a cell
+ * — is a vertical stack, which lays its children out the same.
+ */
+export function asAutoLayout(grid: GridSettings | undefined, children: Omit<Placeable, "id">[]): GridSettings {
+  if (grid?.flow) return grid;
+  const [column, ...more] = columnTracks(grid);
+  const stack = more.length === 0 && column.size === "fill" && rowTracks(grid).length === 0 && !hasPlacedCells(children);
+  return stack ? { ...grid, flow: "vertical", columns: undefined, columnTracks: undefined, rows: undefined } : grid ?? {};
+}
+
+/**
  * A stored section in the current shape. Sections saved before groups existed
  * hold their components directly (`blocks`): they become one full-width group,
- * which looks exactly like before on the page.
+ * which looks exactly like before on the page. Its frames are auto layouts
+ * (see asAutoLayout).
  */
 export function normalizeSection(raw: any): PageSection {
   const id = String(raw?.id || Math.random().toString(36).slice(2, 10));
   const groups: Group[] = Array.isArray(raw?.groups)
-    ? raw.groups.map((g: any, i: number) => ({
-        ...g,
-        id: String(g?.id || `${id}-g${i + 1}`),
-        blocks: Array.isArray(g?.blocks) ? g.blocks : [],
-      }))
+    ? raw.groups.map((g: any, i: number) => {
+        const blocks = Array.isArray(g?.blocks) ? g.blocks : [];
+        return { ...g, id: String(g?.id || `${id}-g${i + 1}`), grid: asAutoLayout(g?.grid, blocks), blocks };
+      })
     : Array.isArray(raw?.blocks)
-      ? [{ id: `${id}-g1`, blocks: flattenLegacyBlocks(raw.blocks) }]
+      ? [{ id: `${id}-g1`, grid: { flow: "vertical" }, blocks: flattenLegacyBlocks(raw.blocks) }]
       : [];
   const { blocks: _legacy, ...rest } = raw ?? {};
   void _legacy;
-  return { ...rest, id, kind: "section", groups };
+  return { ...rest, id, kind: "section", grid: asAutoLayout(raw?.grid, groups), groups };
 }
 
 /** Page items in the current shape (anything that isn't a divider is a section). */
