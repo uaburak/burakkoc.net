@@ -337,7 +337,7 @@ function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: Gri
         bgContext="block"
         options={counts}
         value={String(count)}
-        onChange={(v) => onChange(Number(v) <= 1 ? { ...grid, columns: undefined, align: undefined } : withColumnCount(grid, Number(v)))}
+        onChange={(v) => onChange(withColumnCount(grid, Number(v)))}
         className="w-[72px]"
       />
       {count > 1 && presets.length > 0 && (
@@ -347,7 +347,8 @@ function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: Gri
           value={presets.some((p) => layoutName(p) === current) ? current : ""}
           onChange={(label) => {
             const preset = presets.find((p) => layoutName(p) === label);
-            if (preset) onChange({ ...grid, columns: preset });
+            // A preset is in twelfths: it replaces any column sizes set in the live editor.
+            if (preset) onChange({ ...grid, columns: preset, columnTracks: undefined });
           }}
         />
       )}

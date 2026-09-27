@@ -1,4 +1,4 @@
-import type { Block, GridSettings, Group, LayoutFlow, PageItem, PageSection } from "@/types/project";
+import type { Block, GridSettings, GridTrack, Group, LayoutFlow, PageItem, PageSection } from "@/types/project";
 
 /**
  * Page structure helpers: Bölüm (section) › Blok (group) › Bileşen (block).
@@ -37,13 +37,35 @@ export const GRID_PRESETS: Record<number, number[][]> = {
 /** Most rows a grid can be set to have (its children may still need more). */
 export const MAX_ROWS = 12;
 
+const isTrack = (t: GridTrack | undefined): t is GridTrack => t?.size === "fill" || t?.size === "hug" || t?.size === "fixed";
+
 /**
- * How many rows the grid was set to have — 0 when unset. Those rows stay
- * where they are even when empty; the rows after them close up when empty.
+ * The grid's columns, as Figma's grid: each Fixed, Fill or Hug (GridTrack).
+ * Columns stored as twelfths (`columns`, from before) are Fill columns with
+ * those shares — the same widths. One Fill column unless set.
  */
-export function gridRows(grid?: GridSettings): number {
+export function columnTracks(grid?: GridSettings): GridTrack[] {
+  const tracks = grid?.columnTracks?.filter(isTrack);
+  if (tracks?.length) return tracks.slice(0, MAX_COLUMNS);
+  const columns = grid?.columns?.filter((c) => Number.isFinite(c) && c > 0);
+  return columns?.length ? columns.map((fr) => ({ size: "fill", fr })) : [{ size: "fill" }];
+}
+
+/**
+ * The rows the grid was set to have (each Fixed, Fill or Hug) — they stay
+ * where they are even when empty; the rows after them close up when empty.
+ * None unless set: as many Hug rows as its children need.
+ */
+export function rowTracks(grid?: GridSettings): GridTrack[] {
+  const tracks = grid?.rowTracks?.filter(isTrack);
+  if (tracks?.length) return tracks.slice(0, MAX_ROWS);
   const rows = Number(grid?.rows);
-  return Number.isFinite(rows) && rows >= 1 ? Math.min(MAX_ROWS, Math.round(rows)) : 0;
+  return Number.isFinite(rows) && rows >= 1 ? Array.from({ length: Math.min(MAX_ROWS, Math.round(rows)) }, (): GridTrack => ({ size: "hug" })) : [];
+}
+
+/** How many rows the grid was set to have — 0 when unset (see rowTracks). */
+export function gridRows(grid?: GridSettings): number {
+  return rowTracks(grid).length;
 }
 
 /** How it lays out its children (see LayoutFlow) — on its grid unless set. */
@@ -61,31 +83,35 @@ export function placedByHand(grid: GridSettings | undefined, children: Omit<Plac
   return gridFlow(grid) === "grid" && hasPlacedCells(children);
 }
 
-/** The grid's column widths — one full-width column unless set. */
+/** Each column's share, for drawing the grid in small: a Fill column its share, the others one. */
 export function gridColumns(grid?: GridSettings): number[] {
-  const columns = grid?.columns?.filter((c) => Number.isFinite(c) && c > 0);
-  return columns?.length ? columns : [GRID_UNITS];
+  return columnTracks(grid).map((t) => (t.size === "fill" ? t.fr ?? 1 : 1));
 }
 
-/** Sets how many columns the grid has; widths are spread evenly. */
+/** Sets how many columns the grid has: new ones Fill, the others as they were (Fill ones even out). */
 export function withColumnCount(grid: GridSettings | undefined, count: number): GridSettings {
   const n = Math.min(MAX_COLUMNS, Math.max(1, Math.round(count)));
-  return { ...grid, columns: evenSpans(n) };
+  const tracks = columnTracks(grid).map((t): GridTrack => (t.size === "fill" ? { size: "fill" } : t));
+  const next = Array.from({ length: n }, (_, i): GridTrack => tracks[i] ?? { size: "fill" });
+  const plain = n === 1 && next[0].size === "fill";
+  return { ...grid, columns: undefined, columnTracks: plain ? undefined : next };
 }
 
-/**
- * Sets one column's width; the difference goes to (or comes from) its right
- * neighbour — the left one for the last column — so the row stays at 12.
- */
-export function withColumnWidth(grid: GridSettings | undefined, index: number, width: number): GridSettings {
-  const columns = [...gridColumns(grid)];
-  if (columns.length < 2 || index < 0 || index >= columns.length) return { ...grid, columns };
-  const neighbour = index < columns.length - 1 ? index + 1 : index - 1;
-  const pair = columns[index] + columns[neighbour];
-  const next = Math.min(pair - 1, Math.max(1, Math.round(width)));
-  columns[index] = next;
-  columns[neighbour] = pair - next;
-  return { ...grid, columns };
+/** Sets how many rows the grid has: new ones Hug, the others as they were. */
+export function withRowCount(grid: GridSettings | undefined, count: number): GridSettings {
+  const n = Math.min(MAX_ROWS, Math.max(1, Math.round(count)));
+  const tracks = rowTracks(grid);
+  return { ...grid, rows: undefined, rowTracks: Array.from({ length: n }, (_, i): GridTrack => tracks[i] ?? { size: "hug" }) };
+}
+
+/** Sets one column's or row's size. */
+export function withTrack(grid: GridSettings | undefined, axis: "column" | "row", index: number, track: GridTrack): GridSettings {
+  if (axis === "column") {
+    const tracks = columnTracks(grid).map((t, i) => (i === index ? track : t));
+    return { ...grid, columns: undefined, columnTracks: tracks };
+  }
+  const tracks = rowTracks(grid).map((t, i) => (i === index ? track : t));
+  return { ...grid, rows: undefined, rowTracks: tracks };
 }
 
 /** How many columns a child covers, within the grid it sits on — up to the row's end from column `col`. */

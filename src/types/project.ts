@@ -156,6 +156,17 @@ export interface Absolute {
   y: number;
 }
 
+/**
+ * A column or row of a grid, as in Figma's grid auto layout: Fixed (`px`),
+ * Fill (a share of the free space — `fr`, 1 unless set) or Hug (as big as
+ * its content).
+ */
+export interface GridTrack {
+  size: SizeMode;
+  px?: number;
+  fr?: number;
+}
+
 /** How a section lays out its groups, or a group its components. */
 export interface GridSettings {
   /** Default "grid" */
@@ -170,6 +181,10 @@ export interface GridSettings {
    * wrap to a new line. One full-width column when unset.
    */
   columns?: number[];
+  /** Its columns (Figma's grid) — win over `columns`, which were twelfths */
+  columnTracks?: GridTrack[];
+  /** Its rows (Figma's grid): they stay even when empty — win over `rows` */
+  rowTracks?: GridTrack[];
   /**
    * How many rows it has — they stay even when empty, so a child can be put
    * in any of their cells. More rows are added when the children need them;

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, GridSettings, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
-import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, layoutName, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
+import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { IconButton, PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
@@ -900,7 +900,7 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
         <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className={handleClass} />
         <ChromeLabel onClick={onSelect}>
           {groupName(group, index)}
-          {gridFlow(group.grid) === "grid" && columns.length > 1 && <span className="font-normal opacity-80 tabular-nums">{layoutName(columns)}</span>}
+          {gridFlow(group.grid) === "grid" && (count > 1 || rows > 1) && <span className="font-normal opacity-80 tabular-nums">{count}×{rowCount(blockCells, rows)}</span>}
         </ChromeLabel>
         <ToolButton label="Bloğa bileşen ekle" onClick={() => onInsert()}>{Icons.plus}</ToolButton>
         <ToolButton label="Bloğu çoğalt" onClick={() => actions.duplicateGroup(group.id)}>{Icons.duplicate}</ToolButton>

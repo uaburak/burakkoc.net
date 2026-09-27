@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import type { Absolute, CellAlign, GridAlign, GridGap, GridSettings, LayoutFlow, PageSection, Sizing } from "@/types/project";
+import type { Absolute, CellAlign, GridAlign, GridGap, GridSettings, GridTrack, LayoutFlow, PageSection, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
-import { gridColumns, gridFlow, gridRows, layoutCells, type Cell } from "@/lib/projectLayout";
+import { columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, type Cell } from "@/lib/projectLayout";
 import { FillHeightContext, ProjectBlock } from "@/components/project/CoreBlocks";
 
 /**
@@ -32,6 +32,17 @@ const ALIGN_CONTENT: Record<GridAlign, string | false> = { start: false, center:
 /** Where a child narrower than its cell sits (from md up; small screens stack everything full width). */
 const JUSTIFY_SELF: Record<GridAlign, string> = { start: "md:justify-self-start", center: "md:justify-self-center", end: "md:justify-self-end" };
 const ALIGN_SELF: Record<GridAlign, string> = { start: "md:self-start", center: "md:self-center", end: "md:self-end" };
+
+/**
+ * A column or row of a grid (Figma's grid): Fixed px; Fill a share of the
+ * free space; Hug as big as its content — a column never wider than the
+ * grid, a row as tall as its tallest child.
+ */
+function trackCss(track: GridTrack, axis: "column" | "row") {
+  if (track.size === "fixed") return `${Math.max(0, Math.round(track.px ?? 0))}px`;
+  if (track.size === "hug") return axis === "column" ? "fit-content(100%)" : "auto";
+  return `minmax(0,${track.fr ?? 1}fr)`;
+}
 
 /** Stacked / side by side: along the flow (from md up; small screens stack everything full width). */
 const JUSTIFY_CONTENT: Record<GridAlign, string> = { start: "md:justify-start", center: "md:justify-center", end: "md:justify-end" };
@@ -78,9 +89,11 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
       style: { ...(wrap ? { columnGap: px(gaps.column), rowGap: px(gaps.row) } : { gap: px(across ? gaps.column : gaps.row) }), ...padding } as CSSProperties,
     };
   }
+  const rows = rowTracks(grid);
   return {
     className: cn(
       "relative grid w-full grid-cols-1 md:grid-cols-(--grid-cols)",
+      rows.length > 0 && "md:grid-rows-(--grid-rows)",
       GAP_CLASS[grid?.gap ?? "md"],
       ALIGN_CLASS[grid?.align ?? "start"],
       ALIGN_CONTENT[grid?.align ?? "start"],
@@ -88,7 +101,9 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
       clip
     ),
     style: {
-      "--grid-cols": gridColumns(grid).map((c) => `minmax(0,${c}fr)`).join(" "),
+      "--grid-cols": columnTracks(grid).map((t) => trackCss(t, "column")).join(" "),
+      // Its set rows; more are added as the children need them, each as tall as its content.
+      ...(rows.length > 0 ? { "--grid-rows": rows.map((t) => trackCss(t, "row")).join(" ") } : {}),
       columnGap: px(grid?.columnGap),
       rowGap: px(grid?.rowGap),
       ...padding,

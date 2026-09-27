@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, LayoutFlow, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
+import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, LayoutFlow, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
@@ -10,7 +10,7 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
+import { MAX_COLUMNS, MAX_ROWS, columnTracks, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
  * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
@@ -847,16 +847,98 @@ const FLOWS: { value: LayoutFlow; label: string; icon: ReactNode }[] = [
   { value: "grid", label: "Izgara — sütun ve satırlar", icon: Glyphs.flowGrid },
 ];
 
+const TRACK_MODES: { value: SizeMode; label: string }[] = [
+  { value: "fixed", label: "Fixed" },
+  { value: "fill", label: "Fill" },
+  { value: "hug", label: "Hug" },
+];
+
+/**
+ * The columns or rows of a grid as Figma shows them: a field each — its size
+ * now in px; typing or scrubbing a number makes it Fixed — ending in its mode
+ * (Fixed · Fill · Hug), as the W / H fields.
+ */
+function TrackFields({ label, axis, tracks, measured, onChange }: {
+  label: string;
+  axis: "column" | "row";
+  tracks: GridTrack[];
+  /** Their sizes on the canvas now (px) */
+  measured: number[];
+  onChange: (index: number, track: GridTrack) => void;
+}) {
+  const noun = axis === "column" ? "sütun" : "satır";
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
+      <div className="grid grid-cols-3 gap-2">
+        {tracks.map((t, i) => {
+          const now = Math.round(measured[i] ?? t.px ?? 0);
+          const name = t.size === "fill" ? (t.fr && t.fr !== 1 ? `Fill ${t.fr}` : "Fill") : t.size === "hug" ? "Hug" : undefined;
+          return (
+            <NumberField
+              key={i}
+              label={`${i + 1}. ${noun}`}
+              prefix={<span className="w-3 text-center">{i + 1}</span>}
+              value={t.size === "fixed" ? Math.round(t.px ?? now) : null}
+              placeholder={name}
+              fallback={now}
+              min={0}
+              max={4000}
+              onChange={(px) => onChange(i, { size: "fixed", px })}
+              suffix={
+                <FieldMenu
+                  label={`${i + 1}. ${noun}: Fixed, Fill ya da Hug`}
+                  items={TRACK_MODES.map((m) => ({
+                    label: m.label,
+                    hint: m.value === "fixed" ? `${now} px` : undefined,
+                    checked: m.value === t.size,
+                    onSelect: () => onChange(i, m.value === "fixed" ? { size: "fixed", px: now } : { size: m.value }),
+                  }))}
+                />
+              }
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** The sizes (px) a grid's columns and rows have on the canvas now, measured again whenever `revision` changes. */
+function useRenderedTracks(selector: string, revision: string) {
+  const [tracks, setTracks] = useState<{ columns: number[]; rows: number[] }>({ columns: [], rows: [] });
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(`main ${selector}`);
+    if (!el) return;
+    const sizes = (template: string) => template.split(" ").map((v) => parseFloat(v)).filter((n) => Number.isFinite(n));
+    const measure = () => {
+      const style = getComputedStyle(el);
+      const next = { columns: sizes(style.gridTemplateColumns), rows: sizes(style.gridTemplateRows) };
+      setTracks((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    };
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    const first = window.setTimeout(measure, 0);
+    return () => {
+      resize.disconnect();
+      window.clearTimeout(first);
+    };
+  }, [selector, revision]);
+  return tracks;
+}
+
 /**
  * How a section lays out its Bloks — or a Blok its components, Figma's
  * "Auto layout": stacked, side by side or on a grid. On a grid: the column
- * and row counts, a preset layout and each column's width (twelfths — its
- * neighbour gives or takes). Then the alignment box — where its content sits
+ * and row counts, and each column's and row's size (Fixed · Fill · Hug, as
+ * Figma's grid). Then the alignment box — where its content sits
  * in it — with the gap(s) beside it (stacked / side by side: one, or Auto —
  * the free space shared out), and the padding inside (px).
  */
-function GridFields({ grid, cells, onAlign, onChange }: {
+function GridFields({ grid, measure, cells, onAlign, onChange }: {
   grid?: GridSettings;
+  /** Finds its frame on the canvas, for the sizes its columns and rows have now */
+  measure: string;
   /** Its children's cells (layoutCells) */
   cells: Cell[];
   /** Where its content sits in it (the alignment box) */
@@ -867,8 +949,8 @@ function GridFields({ grid, cells, onAlign, onChange }: {
   const count = columns.length;
   // It can't have fewer rows than its children take up now.
   const minRows = Math.max(1, ...cells.map((c) => c.row));
-  const presets = GRID_PRESETS[count];
-  const current = layoutName(columns);
+  const rowList = rowTracks(grid);
+  const measured = useRenderedTracks(measure, JSON.stringify(grid ?? {}));
   const gaps = gridGaps(grid);
   const setCount = (n: number) => onChange(n <= 1 ? { ...grid, columns: undefined } : withColumnCount(grid, n));
   const flow = gridFlow(grid);
@@ -908,54 +990,18 @@ function GridFields({ grid, cells, onAlign, onChange }: {
             min={minRows}
             max={Math.max(MAX_ROWS, minRows)}
             suffix="satır"
-            onChange={(rows) => onChange({ ...grid, rows })}
+            onChange={(rows) => onChange(withRowCount(grid, rows))}
           />
         </div>
       )}
-      {flow === "grid" && count > 1 && presets && (
-        <div className="flex flex-wrap gap-1.5">
-          {presets.map((preset) => {
-            const active = layoutName(preset) === current;
-            return (
-              <button
-                key={layoutName(preset)}
-                type="button"
-                title={`${preset.join(" · ")} / ${GRID_UNITS}`}
-                aria-pressed={active}
-                onClick={() => onChange({ ...grid, columns: preset })}
-                className={cn(
-                  "flex gap-0.5 w-[52px] h-6 p-1 rounded-[6px] bg-[var(--bg-4)] border cursor-pointer transition-colors",
-                  active ? "border-[var(--text-subtitle)]" : "border-transparent hover:border-[var(--border-hover)]"
-                )}
-              >
-                {preset.map((w, i) => (
-                  <span
-                    key={i}
-                    className={cn("basis-0 rounded-[2px]", active ? "bg-[var(--text-subtitle)]" : "bg-[var(--bg-5)]")}
-                    style={{ flexGrow: w }}
-                  />
-                ))}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {flow === "grid" && count > 1 && (
+      {flow === "grid" && (count > 1 || rowList.length > 0) && (
         <>
-          <div className="grid grid-cols-3 gap-2">
-            {columns.map((w, i) => (
-              <NumberField
-                key={i}
-                label={`${i + 1}. sütunun genişliği`}
-                prefix={<span className="w-3 text-center">{i + 1}</span>}
-                value={w}
-                min={1}
-                max={GRID_UNITS - 1}
-                suffix={`/${GRID_UNITS}`}
-                onChange={(width) => onChange(withColumnWidth(grid, i, width))}
-              />
-            ))}
-          </div>
+          {count > 1 && (
+            <TrackFields label="Sütunlar" axis="column" tracks={columnTracks(grid)} measured={measured.columns} onChange={(i, track) => onChange(withTrack(grid, "column", i, track))} />
+          )}
+          {rowList.length > 0 && (
+            <TrackFields label="Satırlar" axis="row" tracks={rowList} measured={measured.rows} onChange={(i, track) => onChange(withTrack(grid, "row", i, track))} />
+          )}
         </>
       )}
       {/* As in Figma's Auto layout: the box on the left, the gaps beside it; the padding under them (px). */}
@@ -1528,6 +1574,7 @@ export function SectionInspector({ section, onChange, onAlign, onSelectGroup, on
       <SizeGroup size={section.size} measure={`[data-section-id="${section.id}"] > [data-section-frame]`} heightModes={["fixed", "hug"]} onChange={(size) => onChange({ size })} />
       <GridFields
         grid={section.grid}
+        measure={`[data-section-id="${section.id}"] > [data-section-frame]`}
         cells={cellsOf(section.groups, section.grid)}
         onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
@@ -1582,6 +1629,7 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
       <SizeGroup size={group.size} measure={`[data-group-id="${group.id}"]`} onChange={(size) => onChange({ size })} />
       <GridFields
         grid={group.grid}
+        measure={`[data-group-id="${group.id}"]`}
         cells={cellsOf(group.blocks, group.grid)}
         onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
