@@ -340,8 +340,14 @@ export type PageItem = PageSection | PageDivider;
 /** The text fields of an item that show as layers (see BlockEntry). */
 export type ItemTextField = "label" | "value" | "eyebrow" | "title" | "text" | "caption";
 
-/** A text layer of an item: its size in the item's layout, and where it sits there when narrower. */
+/**
+ * A text layer of an item: the atom giving it its look (see DesignAtom), its
+ * size in the item's layout and where it sits there when narrower — the atom
+ * says how the text looks, the item where and how big its box is.
+ */
 export interface TextLayerDesign {
+  /** Its atom's id — its type's own one when unset (or gone) */
+  atom?: string;
   size?: Sizing;
   align?: CellAlign;
 }

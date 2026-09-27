@@ -95,6 +95,8 @@ export interface EditableTextProps {
    * field, as `data-text-layer`.
    */
   layer?: string;
+  /** The atom giving it its look (see DesignAtom), as `data-atom` — its typography comes from there */
+  atom?: string;
   style?: CSSProperties;
 }
 
@@ -111,6 +113,7 @@ export function EditableText({
   onBackspaceEmpty,
   display,
   layer,
+  atom,
   style,
 }: EditableTextProps) {
   const [editing, setEditing] = useState(autoEdit);
@@ -136,7 +139,7 @@ export function EditableText({
 
   if (!onChange) {
     if (!value) return null;
-    return <Tag className={className} style={style}>{content}</Tag>;
+    return <Tag data-atom={atom} className={className} style={style}>{content}</Tag>;
   }
 
   // The two modes are separate elements (distinct keys). The editing element's
@@ -147,6 +150,7 @@ export function EditableText({
       <Tag
         key="view"
         data-text-layer={layer}
+        data-atom={atom}
         className={className}
         style={style}
         onDoubleClick={(e: React.MouseEvent) => {
@@ -178,6 +182,7 @@ export function EditableText({
       key="edit"
       ref={ref}
       data-text-layer={layer}
+      data-atom={atom}
       style={style}
       contentEditable={PLAINTEXT_ONLY ? "plaintext-only" : true}
       suppressContentEditableWarning

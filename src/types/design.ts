@@ -25,3 +25,35 @@ export interface DesignVariable {
   /** The site's own CSS token it drives (--bg-1, --text-title…): the starting variables */
   token?: string;
 }
+
+// ── Atoms (site-wide) ─────────────────────────────────────────────────────────
+//
+// As Atomic Design's atoms: the smallest pieces the site is built of — a
+// heading, a text, a label, a value. An atom carries its own look (a text's
+// typography); where it sits and how big its box is are up to what holds it
+// (for now its component's item — see TextLayerDesign). Each of its values is
+// its own or bound to a variable, as in Figma: change the variable, and every
+// atom bound to it changes; change the atom, and every text using it changes,
+// on every page. Each atom is a CSS rule on its texts (see atomsCss).
+
+/** What an atom is — a piece of text, for now. */
+export type AtomKind = "text";
+
+/** A text atom's typography: each value its own, or a variable's (see VariableValue). */
+export interface Typography {
+  /** px — or a size variable */
+  fontSize: VariableValue;
+  /** 100–900 — or a weight variable */
+  fontWeight: VariableValue;
+  /** px — or a size variable */
+  lineHeight: VariableValue;
+  /** A colour variable (its light and dark values), or a colour of its own (the same in both themes) */
+  color: VariableValue;
+}
+
+export interface DesignAtom extends Typography {
+  id: string;
+  /** Its name: "Etiket" — "/" makes groups, as a variable's */
+  name: string;
+  kind: AtomKind;
+}

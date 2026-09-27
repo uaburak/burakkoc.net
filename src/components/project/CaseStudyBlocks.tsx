@@ -158,13 +158,15 @@ function Entries({
 /**
  * The layout of a component laid out by its main component (ComponentDesign),
  * at every width: its frame (how it lays out its items), each item's frame
- * and size, and a text layer's size and place in its item — as styles.
+ * and size, and a text layer's size and place in its item — as styles — and
+ * the atom giving that text its look.
  */
 function designFrame(design: ResolvedDesign) {
   return {
     frame: innerLayoutStyle(design.layout),
     item: { ...innerLayoutStyle(design.item.layout), ...innerChildStyle(design.item.size, undefined, gridFlow(design.layout)) },
     text: (field: ItemTextField) => innerChildStyle(design.texts[field]?.size, design.texts[field]?.align, gridFlow(design.item.layout)),
+    atom: (field: ItemTextField) => design.texts[field]?.atom,
   };
 }
 
@@ -187,9 +189,9 @@ function InfoBlock({ block, preview, edit }: RenderProps) {
       itemStyle={layout.item}
       render={(e) => (
         <>
-          <EditableText as="dt" layer="label" className="text-sm font-normal leading-5 text-[var(--text-subtitle)]" style={label}
+          <EditableText as="dt" layer="label" atom={layout.atom("label")} style={label}
             value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Etiket" />
-          <EditableText as="dd" layer="value" rich className="text-base font-normal leading-6 text-[var(--text-title)] break-words" style={value}
+          <EditableText as="dd" layer="value" atom={layout.atom("value")} rich className="break-words" style={value}
             value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="Değer" />
         </>
       )}

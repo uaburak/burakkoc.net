@@ -2,8 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useDndMonitor } from "@dnd-kit/core";
-import { Block, BlockType, ComponentDesign, ComponentDesigns, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
-import type { DesignVariable, VariableKind } from "@/types/design";
+import { Block, BlockType, ComponentDesign, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { PillButton } from "@/components/Button";
@@ -30,6 +29,7 @@ import {
   SizeGroup,
   TextLayerInspector,
   VariableInspector,
+  AtomInspector,
   canMoveItem,
   duplicateItem,
   freeSize,
@@ -42,9 +42,11 @@ import {
   addEntry,
   itemNoun,
 } from "@/components/admin/LiveInspector";
-import { DESIGNED_TYPES, resolveDesign } from "@/components/project/componentDesign";
-import { DesignVariablesStyle } from "@/components/project/designVariables";
+import { DESIGNED_TYPES, atomUses, resolveDesign } from "@/components/project/componentDesign";
+import { DesignSystemStyle } from "@/components/project/designSystem";
 import { VariablesPanel } from "@/components/admin/VariablesPanel";
+import { AtomsPanel } from "@/components/admin/AtomsPanel";
+import type { DesignSystem } from "@/components/admin/useDesignSystem";
 import { BLOCK_DEFS, BLOCK_GROUPS, BLOCK_LABELS, BlockPickerDialog, GROUP_TONE, SECTION_TONE, blockTone, uid } from "@/components/admin/blockCatalog";
 import {
   GroupBlocks,
@@ -107,9 +109,11 @@ type Selection =
     }
   | { kind: "divider"; dividerId: string }
   /** A design variable (see DesignVariable), picked in the Değişkenler tab */
-  | { kind: "variable"; variableId: string };
+  | { kind: "variable"; variableId: string }
+  /** An atom (see DesignAtom), picked in the Atomlar tab or from a text layer */
+  | { kind: "atom"; atomId: string };
 /** The left panel's tabs; the inspector (Düzenle) has a panel of its own, on the right. */
-type Tab = "layers" | "components" | "variables" | "theme" | "publish";
+type Tab = "layers" | "components" | "variables" | "atoms" | "theme" | "publish";
 /** Pieces of the project overview that behave like blocks. */
 type OverviewPart = "title" | "description" | "cover";
 
@@ -156,6 +160,14 @@ const RailIcons = {
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
       <path d="M10 2.75l6.25 3.6v7.3L10 17.25l-6.25-3.6v-7.3L10 2.75z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
       <circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  ),
+  // Atoms: a nucleus and its orbits.
+  atoms: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <ellipse cx="10" cy="10" rx="7.25" ry="3" stroke="currentColor" strokeWidth="1.5" transform="rotate(-30 10 10)" />
+      <ellipse cx="10" cy="10" rx="7.25" ry="3" stroke="currentColor" strokeWidth="1.5" transform="rotate(30 10 10)" />
+      <circle cx="10" cy="10" r="1.5" fill="currentColor" />
     </svg>
   ),
   publish: (
@@ -1992,30 +2004,22 @@ const TAB_TITLES: Record<Tab, string> = {
   layers: "Katmanlar",
   components: "Bileşenler",
   variables: "Değişkenler",
+  atoms: "Atomlar",
   theme: "Tema",
   publish: "Yayın",
 };
 
-export function LiveEditor({ project, lang, slug, companies, actions, designs, onDesign, variables, isStartingVariable, onVariable, onAddVariable, onRemoveVariable, onLoadTemplate }: {
+export function LiveEditor({ project, lang, slug, companies, actions, system, onLoadTemplate }: {
   project: ProjectData;
   lang: Lang;
   slug: string;
   companies: string[];
   actions: EditorActions;
-  /** The site's main components (see ComponentDesign) */
-  designs: ComponentDesigns;
-  /** Changes a type's main component — every instance, on every page */
-  onDesign: (type: BlockType, design: ComponentDesign) => void;
-  /** The site's design variables (see DesignVariable) */
-  variables: DesignVariable[];
-  /** One of the site's own tokens (it can only go back to its value, not be deleted) */
-  isStartingVariable: (id: string) => boolean;
-  onVariable: (variable: DesignVariable) => void;
-  /** Adds a variable of that kind; returns its id */
-  onAddVariable: (kind: VariableKind) => string;
-  onRemoveVariable: (id: string) => void;
+  /** The site's design system: its variables, atoms and main components — changes go to every page */
+  system: DesignSystem;
   onLoadTemplate: () => void;
 }) {
+  const { designs, variables, atoms } = system;
   const [tab, setTab] = useState<Tab>("layers");
   const [rawSelection, setSelection] = useState<Selection>({ kind: "none" });
   // Where the component picker adds: a Blok, after one of its components or at its end.
@@ -2066,6 +2070,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
       ? selection.itemId
       : null;
   const selectedVariable = rawSelection.kind === "variable" ? variables.find((v) => v.id === rawSelection.variableId) ?? null : null;
+  const selectedAtom = rawSelection.kind === "atom" ? atoms.find((a) => a.id === rawSelection.atomId) ?? null : null;
   // A text layer of that item — of a component laid out by its main component.
   const selectedText =
     selection.kind === "block" && selectedItemId && selection.text && selectedBlock && textLayersOf(selectedBlock.block.type).some((t) => t.field === selection.text)
@@ -2307,16 +2312,42 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
   } else if (selectedVariable) {
     const { id } = selectedVariable;
     inspectorTitle = selectedVariable.name;
-    inspectorActions = isStartingVariable(id)
-      ? <LayerButton label="Sitenin değerine dön" onClick={() => onRemoveVariable(id)}>{Icons.reset}</LayerButton>
-      : <LayerButton label="Değişkeni sil" onClick={() => { onRemoveVariable(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
+    inspectorActions = system.isStartingVariable(id)
+      ? <LayerButton label="Sitenin değerine dön" onClick={() => system.removeVariable(id)}>{Icons.reset}</LayerButton>
+      : <LayerButton label="Değişkeni sil" onClick={() => { system.removeVariable(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
+  } else if (selectedAtom) {
+    const { id } = selectedAtom;
+    inspectorTitle = selectedAtom.name;
+    inspectorActions = system.isStartingAtom(id)
+      ? <LayerButton label="Sitenin görünüşüne dön" onClick={() => system.removeAtom(id)}>{Icons.reset}</LayerButton>
+      : <LayerButton label="Atomu sil" onClick={() => { system.removeAtom(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
   }
 
   // The selected component's main component (see ComponentDesign), if its type has one; changes go to it — every instance.
-  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs) : null;
+  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs, atoms) : null;
   const setMain = (patch: ComponentDesign) => {
-    if (selectedBlock) onDesign(selectedBlock.block.type, { ...designs[selectedBlock.block.type], ...patch });
+    if (selectedBlock) system.setDesign(selectedBlock.block.type, { ...designs[selectedBlock.block.type], ...patch });
   };
+  /** Opens an atom — from a text layer using it — in its tab and the inspector. */
+  const openAtom = (atomId: string) => {
+    setTab("atoms");
+    select({ kind: "atom", atomId });
+  };
+  /**
+   * Where the selected atom is used — each text layer selecting that text in
+   * the first of its component's instances on this page (with an item).
+   */
+  const selectedAtomUses = selectedAtom
+    ? (atomUses(designs, atoms).get(selectedAtom.id) ?? []).map(({ type, field }) => {
+        const found = sectionsOf(project.items).flatMap(sectionBlocks).find((block) => block.type === type && (block.entries?.length ?? 0) > 0);
+        const itemId = found?.entries?.[0]?.id;
+        return {
+          type,
+          field,
+          onSelect: found && itemId ? () => select({ kind: "block", blockId: found.id, itemId, text: field }, { scroll: true }) : undefined,
+        };
+      })
+    : [];
 
   // The selection's size under its line (SizeBadge), in its level's colour — not while the page is the compact list.
   let badge: BadgeTarget | null = null;
@@ -2350,6 +2381,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
           <RailButton icon={RailIcons.components} label="Bileşenler" active={tab === "components"} onClick={() => setTab("components")} />
           <RailButton icon={RailIcons.theme} label="Tema" active={tab === "theme"} onClick={() => setTab("theme")} />
           <RailButton icon={RailIcons.variables} label="Değişkenler" active={tab === "variables"} onClick={() => setTab("variables")} />
+          <RailButton icon={RailIcons.atoms} label="Atomlar" active={tab === "atoms"} onClick={() => setTab("atoms")} />
           <RailButton icon={RailIcons.publish} label="Yayın" active={tab === "publish"} onClick={() => setTab("publish")} />
         </nav>
 
@@ -2399,7 +2431,17 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
                 variables={variables}
                 selectedId={selection.kind === "variable" ? selection.variableId : null}
                 onSelect={(variableId) => select({ kind: "variable", variableId })}
-                onAdd={(kind) => select({ kind: "variable", variableId: onAddVariable(kind) })}
+                onAdd={(kind) => select({ kind: "variable", variableId: system.addVariable(kind) })}
+              />
+            )}
+
+            {tab === "atoms" && (
+              <AtomsPanel
+                atoms={atoms}
+                variables={variables}
+                selectedId={selection.kind === "atom" ? selection.atomId : null}
+                onSelect={(atomId) => select({ kind: "atom", atomId })}
+                onAdd={(kind) => select({ kind: "atom", atomId: system.addAtom(kind) })}
               />
             )}
 
@@ -2422,7 +2464,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
           // No native image / link dragging — reordering is done with dnd-kit.
           onDragStart={(e) => e.preventDefault()}
         >
-          <DesignVariablesStyle />
+          <DesignSystemStyle />
           {/* `relative`: the size badge (SizeBadge) is placed in it; `isolate`: the canvas's layers stay above its background. */}
           <main
             className={cn("relative isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40", reordering && REORDER_ROOM)}
@@ -2560,8 +2602,11 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
                     itemId={selectedItemId}
                     field={selectedText}
                     design={blockDesign}
+                    atoms={atoms}
+                    variables={variables}
                     lang={lang}
                     onDesign={(layer) => setMain({ texts: { ...designs[selectedBlock.block.type]?.texts, [selectedText]: layer } })}
+                    onOpenAtom={openAtom}
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
                   />
                 ) : selectedItemId ? (
@@ -2637,7 +2682,9 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
             ) : selection.kind === "divider" ? (
               <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Seçip sürükleyerek taşıyabilirsin.</p>
             ) : selectedVariable ? (
-              <VariableInspector variable={selectedVariable} variables={variables} onChange={onVariable} />
+              <VariableInspector variable={selectedVariable} variables={variables} onChange={system.setVariable} />
+            ) : selectedAtom ? (
+              <AtomInspector atom={selectedAtom} variables={variables} uses={selectedAtomUses} onChange={system.setAtom} />
             ) : (
               // Nothing selected: the inspector is never empty — it shows the project settings.
               <ProjectInspector project={project} lang={lang} slug={slug} companies={companies} onChange={actions.updateMeta} />

@@ -32,7 +32,7 @@ const ADD: { kind: VariableKind; label: string }[] = [
 ];
 
 /** A name's group ("Metin/Başlık" → "Metin") and its own part ("Başlık"). */
-function splitName(name: string): [string, string] {
+export function splitName(name: string): [string, string] {
   const at = name.lastIndexOf("/");
   return at < 0 ? ["", name] : [name.slice(0, at), name.slice(at + 1)];
 }

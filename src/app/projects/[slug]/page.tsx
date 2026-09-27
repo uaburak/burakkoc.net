@@ -1,5 +1,5 @@
 import { ProjectDetailClient } from "./ProjectDetailClient";
-import { loadComponentDesigns, loadDesignVariables, loadProject, listProjects } from "@/lib/firestore";
+import { loadComponentDesigns, loadDesignAtoms, loadDesignVariables, loadProject, listProjects } from "@/lib/firestore";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -42,7 +42,13 @@ export async function generateMetadata({ params }: Props) {
 export default async function ProjectDetailPage({ params }: Props) {
   const { slug } = await params;
   // Paralel çek — Firestore istekleri birbirini beklemesin.
-  const [project, projects, designs, variables] = await Promise.all([loadProject(slug), listProjects(), loadComponentDesigns(), loadDesignVariables()]);
+  const [project, projects, designs, variables, atoms] = await Promise.all([
+    loadProject(slug),
+    listProjects(),
+    loadComponentDesigns(),
+    loadDesignVariables(),
+    loadDesignAtoms(),
+  ]);
 
   return (
     <ProjectDetailClient
@@ -51,6 +57,7 @@ export default async function ProjectDetailPage({ params }: Props) {
       initialProjects={projects}
       designs={designs}
       variables={variables}
+      atoms={atoms}
     />
   );
 }

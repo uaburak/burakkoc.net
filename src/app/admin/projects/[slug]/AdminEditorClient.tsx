@@ -3,10 +3,9 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { BlockType, ComponentDesign, ComponentDesigns, ProjectData } from "@/types/project";
+import { ProjectData } from "@/types/project";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
-import { saveProject, loadProject, getCVData, loadComponentDesigns, saveComponentDesigns, loadDesignVariables, saveDesignVariables } from "@/lib/firestore";
-import type { DesignVariable, VariableKind } from "@/types/design";
+import { saveProject, loadProject, getCVData } from "@/lib/firestore";
 import { createProjectTemplate } from "@/lib/projectTemplate";
 import { PillButton } from "@/components/Button";
 import { Segmented } from "@/components/Segmented";
@@ -18,9 +17,8 @@ import { LiveEditor } from "@/components/admin/LiveEditor";
 import { ProjectDndProvider } from "@/components/admin/ProjectDnd";
 import { useEditorActions } from "@/components/admin/editorActions";
 import { normalizeItems } from "@/lib/projectLayout";
-import { ComponentDesignContext } from "@/components/project/componentDesign";
-import { DesignVariablesContext, STARTING_VARIABLES, withStartingVariables } from "@/components/project/designVariables";
-import { uid } from "@/components/admin/blockCatalog";
+import { DesignSystemProvider } from "@/components/project/designSystem";
+import { useDesignSystem } from "@/components/admin/useDesignSystem";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -94,46 +92,13 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   /** Whether this project exists in Firestore (i.e. has been published at least once) */
   const [isPublished, setIsPublished] = useState(false);
   const [companies, setCompanies] = useState<string[]>([]);
-  // The site's main components (ComponentDesign): edited here, saved with the project — they change every page.
-  const [designs, setDesigns] = useState<ComponentDesigns>({});
-  const [designsChanged, setDesignsChanged] = useState(false);
-  const setDesign = (type: BlockType, design: ComponentDesign) => {
-    setDesigns((all) => ({ ...all, [type]: design }));
-    setDesignsChanged(true);
-  };
-  // The site's design variables (DesignVariable): the stored ones — the starting ones are added on top of them.
-  const [storedVariables, setStoredVariables] = useState<DesignVariable[]>([]);
-  const [variablesChanged, setVariablesChanged] = useState(false);
-  const variables = withStartingVariables(storedVariables);
-  const changeVariables = (update: (list: DesignVariable[]) => DesignVariable[]) => {
-    setStoredVariables(update);
-    setVariablesChanged(true);
-  };
-  const setVariable = (variable: DesignVariable) =>
-    changeVariables((list) => (list.some((v) => v.id === variable.id) ? list.map((v) => (v.id === variable.id ? variable : v)) : [...list, variable]));
-  /** A new variable, named so no other has its name; returns its id. */
-  const addVariable = (kind: VariableKind) => {
-    const base = kind === "color" ? "Yeni renk" : kind === "number" ? "Yeni sayı" : "Yeni kalınlık";
-    const names = new Set(variables.map((v) => v.name));
-    let name = base;
-    for (let n = 2; names.has(name); n++) name = `${base} ${n}`;
-    const id = uid();
-    const value = kind === "color" ? "#000000" : kind === "number" ? 16 : 400;
-    setVariable({ id, name, kind, light: { value } });
-    return id;
-  };
-  /** Deletes an added variable — a starting one goes back to the site's own value. */
-  const removeVariable = (id: string) => changeVariables((list) => list.filter((v) => v.id !== id));
+  // The site's design system — variables, atoms, main components: edited here, saved with the project — they change every page.
+  const system = useDesignSystem();
 
   function changeMode(next: EditorMode) {
     setMode(next);
     try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
   }
-
-  useEffect(() => {
-    loadComponentDesigns().then(setDesigns);
-    loadDesignVariables().then(setStoredVariables);
-  }, []);
 
   useEffect(() => {
     getCVData()
@@ -192,14 +157,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
     setSaveStatus("saving");
     try {
       await saveProject(dataToSave);
-      if (designsChanged) {
-        await saveComponentDesigns(designs);
-        setDesignsChanged(false);
-      }
-      if (variablesChanged) {
-        await saveDesignVariables(storedVariables);
-        setVariablesChanged(false);
-      }
+      await system.save();
       setProject(dataToSave);
       setIsPublished(true);
       localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(dataToSave));
@@ -216,7 +174,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   useEffect(() => {
     registerSave(handleSave);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, slug, designs, designsChanged, storedVariables, variablesChanged]);
+  }, [project, slug, system.revision]);
 
   if (loadingFromDB) {
     return (
@@ -311,8 +269,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       {/* ── Editor ── */}
       <div className="flex-1 min-h-0">
         {/* Live editor: drags start right away; block editor: press and hold. */}
-        <DesignVariablesContext.Provider value={variables}>
-        <ComponentDesignContext.Provider value={designs}>
+        <DesignSystemProvider variables={system.variables} atoms={system.atoms} designs={system.designs}>
         <ProjectDndProvider items={project.items} onItemsChange={actions.setItems} activation={mode === "live" ? "press" : "hold"}>
           {mode === "form" ? (
             <FormEditor
@@ -331,19 +288,12 @@ export function AdminEditorClient({ slug }: { slug: string }) {
               slug={slug}
               companies={companies}
               actions={actions}
-              designs={designs}
-              onDesign={setDesign}
-              variables={variables}
-              isStartingVariable={(id) => STARTING_VARIABLES.some((v) => v.id === id)}
-              onVariable={setVariable}
-              onAddVariable={addVariable}
-              onRemoveVariable={removeVariable}
+              system={system}
               onLoadTemplate={loadTemplate}
             />
           )}
         </ProjectDndProvider>
-        </ComponentDesignContext.Provider>
-        </DesignVariablesContext.Provider>
+        </DesignSystemProvider>
       </div>
 
       {showAddMenu && (

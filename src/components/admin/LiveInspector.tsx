@@ -11,8 +11,11 @@ import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
 import { DESIGNED_TYPES, type ResolvedDesign } from "@/components/project/componentDesign";
-import { canAlias, modeValue, resolvedValue, type ThemeMode } from "@/components/project/designVariables";
-import type { DesignVariable, VariableKind, VariableValue } from "@/types/design";
+import { boundValue, canAlias, modeValue, type ThemeMode } from "@/components/project/designVariables";
+import { TYPOGRAPHY_KINDS } from "@/components/project/designAtoms";
+import { AtomSample, atomMetrics } from "@/components/admin/AtomsPanel";
+import { useTheme } from "@/context/ThemeContext";
+import type { DesignAtom, DesignVariable, Typography, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, sectionsOf, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
@@ -286,6 +289,20 @@ function Hint({ children }: { children: ReactNode }) {
 }
 
 const Glyphs = {
+  /** An atom: a nucleus and its orbit */
+  atom: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <ellipse cx="6" cy="6" rx="5" ry="2.2" stroke="currentColor" strokeWidth="1.1" transform="rotate(-30 6 6)" />
+      <ellipse cx="6" cy="6" rx="5" ry="2.2" stroke="currentColor" strokeWidth="1.1" transform="rotate(30 6 6)" />
+      <circle cx="6" cy="6" r="1.2" fill="currentColor" />
+    </svg>
+  ),
+  /** Go to (the atom it uses) */
+  goTo: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M4 2.5h5.5V8M9.5 2.5L3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
   /** Bound to a variable (Figma's variable link) */
   link: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
@@ -1374,8 +1391,8 @@ function FieldMenu({ label, items, children }: {
       {at && (
         <div
           role="menu"
-          style={{ top: at.top, left: at.left, width: MENU_WIDTH }}
-          className="fixed z-50 p-1 rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+          style={{ top: at.top, left: at.left, width: MENU_WIDTH, maxHeight: `calc(100vh - ${at.top + 8}px)` }}
+          className="fixed z-50 p-1 overflow-y-auto overscroll-contain rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
         >
           {items.map((item) => (
             <div key={item.label} className={cn(item.divided && "mt-1 pt-1 border-t border-[var(--border)]")}>
@@ -1776,24 +1793,47 @@ export function ItemLayoutGroup({ block, itemId, design, onChange }: {
   );
 }
 
-/** A text layer of an item: its size in the item (the same in every item) and this item's text. */
-export function TextLayerInspector({ block, itemId, field, design, lang, onDesign, onChange }: {
+/**
+ * A text layer of an item: the atom giving it its look — swapped from the
+ * menu, edited with the arrow — and its size in the item (both the same in
+ * every item), then this item's text.
+ */
+export function TextLayerInspector({ block, itemId, field, design, atoms, variables, lang, onDesign, onOpenAtom, onChange }: {
   block: Block;
   itemId: string;
   field: ItemTextField;
   design: ResolvedDesign;
+  /** The site's atoms (the ones it can use) */
+  atoms: DesignAtom[];
+  /** The site's variables (for the atoms' sizes) */
+  variables: DesignVariable[];
   lang: Lang;
   onDesign: (layer: TextLayerDesign) => void;
+  /** Opens the atom in the inspector */
+  onOpenAtom: (id: string) => void;
   onChange: (patch: Partial<Block>) => void;
 }) {
   const layer = design.texts[field] ?? {};
+  const atom = atoms.find((a) => a.id === layer.atom);
+  const byId = new Map(variables.map((v) => [v.id, v]));
   const spec = ENTRY_SPEC[block.type]?.fields.find((f) => f.key === field);
   const entries = block.entries ?? [];
   const entry = entries.find((e) => e.id === itemId);
   const key = (lang === "en" && !spec?.shared ? `${field}En` : field) as keyof BlockEntry;
   return (
     <div className="flex flex-col">
-      <MainComponentHint type={block.type} what="Boyutu" />
+      <MainComponentHint type={block.type} what="Atomu ve boyutu" />
+      <Group title="Atom" actions={atom && <SquareButton label="Atomu düzenle" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
+        <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
+          {atom && <AtomSample atomId={atom.id} />}
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{atom?.name ?? "Atomu yok"}</span>
+          {atom && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{atomMetrics(atom, byId)}</span>}
+          <FieldMenu
+            label="Atomu değiştir"
+            items={atoms.map((a) => ({ label: a.name, hint: atomMetrics(a, byId), checked: a.id === atom?.id, onSelect: () => onDesign({ ...layer, atom: a.id }) }))}
+          />
+        </div>
+      </Group>
       <SizeGroup
         size={layer.size}
         measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"] [data-text-layer="${field}"]`}
@@ -1820,6 +1860,87 @@ export function TextLayerInspector({ block, itemId, field, design, lang, onDesig
 const KIND_LABEL: Record<VariableKind, string> = { color: "Renk", number: "Sayı (px)", weight: "Yazı kalınlığı" };
 const WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: String(w) }));
 
+/** A colour's swatch in a field. */
+function Swatch({ color }: { color: string | number | null }) {
+  return <span className="block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)]" style={{ backgroundColor: typeof color === "string" ? color : "transparent" }} />;
+}
+
+/**
+ * A value that can be bound to a variable, as in Figma: its own — a size, a
+ * weight, a colour — or a variable's, whose name (and value) the field then
+ * shows. The menu at its end binds it to one of `targets`, or unbinds it:
+ * it keeps the value it had.
+ */
+function BoundField({ label, kind, value, targets, byId, mode, onChange }: {
+  label: string;
+  kind: VariableKind;
+  value: VariableValue;
+  /** The variables it can be bound to */
+  targets: DesignVariable[];
+  byId: Map<string, DesignVariable>;
+  /** The theme whose value a bound colour shows */
+  mode: ThemeMode;
+  onChange: (value: VariableValue) => void;
+}) {
+  const bound = "alias" in value ? byId.get(value.alias) : undefined;
+  const resolved = boundValue(value, mode, byId);
+  const menu = (
+    <FieldMenu
+      label="Değişkene bağla"
+      items={[
+        ...targets.map((t) => ({ label: t.name, checked: bound?.id === t.id, onSelect: () => onChange({ alias: t.id }) })),
+        ...(bound ? [{ label: "Bağlantıyı kaldır", hint: "değerini kendisi tutsun", divided: true, onSelect: () => onChange({ value: resolved ?? "" }) }] : []),
+      ]}
+    >
+      {Glyphs.link}
+    </FieldMenu>
+  );
+  // Bound: the variable's name — and its value, but a colour's swatch says it.
+  if ("alias" in value) {
+    return (
+      <div className={cn("flex w-full min-w-0 items-center gap-1.5 px-2", FIELD)}>
+        {kind === "color" && <Swatch color={resolved} />}
+        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{bound?.name ?? "Bulunamadı"}</span>
+        {kind !== "color" && resolved !== null && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{resolved}</span>}
+        {menu}
+      </div>
+    );
+  }
+  if (kind === "number") {
+    return <NumberField label={label} prefix="px" value={Number(value.value) || 0} min={0} max={2000} onChange={(n) => onChange({ value: n })} suffix={menu} />;
+  }
+  if (kind === "weight") {
+    return (
+      <div className="flex w-full min-w-0 items-center gap-1">
+        <SelectField label={label} value={String(value.value)} options={WEIGHTS} onChange={(w) => onChange({ value: Number(w) })} />
+        {menu}
+      </div>
+    );
+  }
+  const text = String(value.value);
+  return (
+    <div className="flex w-full min-w-0 items-center gap-1">
+      <TextField
+        label={label}
+        value={text}
+        onChange={(v) => onChange({ value: v })}
+        prefix={
+          <label className="relative block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)] overflow-hidden cursor-pointer" style={{ backgroundColor: text || "transparent" }}>
+            <input
+              type="color"
+              value={/^#[0-9a-f]{6}$/i.test(text) ? text : "#000000"}
+              onChange={(e) => onChange({ value: e.target.value })}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+              aria-label="Renk seç"
+            />
+          </label>
+        }
+      />
+      {menu}
+    </div>
+  );
+}
+
 /**
  * A variable: its name, and its value in each theme (a colour) or its one
  * value — its own, or another variable's (an alias, chosen from the menu at
@@ -1833,70 +1954,17 @@ export function VariableInspector({ variable, variables, onChange }: {
 }) {
   const byId = new Map(variables.map((v) => [v.id, v]));
   const targets = variables.filter((t) => canAlias(variable, t, byId));
-
-  function valueField(mode: ThemeMode) {
-    const own = modeValue(variable, mode);
-    const resolved = resolvedValue(variable, mode, byId);
-    const set = (value: VariableValue) => onChange(mode === "dark" ? { ...variable, dark: value } : { ...variable, light: value });
-    const aliasOf = "alias" in own ? byId.get(own.alias) : undefined;
-    const menu = (
-      <FieldMenu
-        label="Değişkene bağla"
-        items={[
-          ...targets.map((t) => ({ label: t.name, checked: aliasOf?.id === t.id, onSelect: () => set({ alias: t.id }) })),
-          ...(aliasOf ? [{ label: "Bağlantıyı kaldır", hint: "değerini kendisi tutsun", divided: true, onSelect: () => set({ value: resolved ?? "" }) }] : []),
-        ]}
-      >
-        {Glyphs.link}
-      </FieldMenu>
-    );
-    const swatch = variable.kind === "color" && (
-      <span className="block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)]" style={{ backgroundColor: typeof resolved === "string" ? resolved : "transparent" }} />
-    );
-    // Pointing at another variable: its name, in the field.
-    if ("alias" in own) {
-      return (
-        <div className={cn("flex w-full min-w-0 items-center gap-1.5 px-2", FIELD)}>
-          {swatch}
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{aliasOf?.name ?? "Bulunamadı"}</span>
-          {menu}
-        </div>
-      );
-    }
-    if (variable.kind === "number") {
-      return <NumberField label="Değer" prefix="px" value={Number(own.value) || 0} min={0} max={2000} onChange={(n) => set({ value: n })} suffix={menu} />;
-    }
-    if (variable.kind === "weight") {
-      return (
-        <div className="flex items-center gap-1">
-          <SelectField label="Kalınlık" value={String(own.value)} options={WEIGHTS} onChange={(w) => set({ value: Number(w) })} />
-          {menu}
-        </div>
-      );
-    }
-    const text = String(own.value);
-    return (
-      <div className="flex items-center gap-1">
-        <TextField
-          label={mode === "dark" ? "Koyu değer" : "Açık değer"}
-          value={text}
-          onChange={(v) => set({ value: v })}
-          prefix={
-            <label className="relative block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)] overflow-hidden cursor-pointer" style={{ backgroundColor: text || "transparent" }}>
-              <input
-                type="color"
-                value={/^#[0-9a-f]{6}$/i.test(text) ? text : "#000000"}
-                onChange={(e) => set({ value: e.target.value })}
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                aria-label="Renk seç"
-              />
-            </label>
-          }
-        />
-        {menu}
-      </div>
-    );
-  }
+  const valueField = (mode: ThemeMode) => (
+    <BoundField
+      label={variable.kind === "color" ? (mode === "dark" ? "Koyu değer" : "Açık değer") : variable.kind === "weight" ? "Kalınlık" : "Değer"}
+      kind={variable.kind}
+      value={modeValue(variable, mode)}
+      targets={targets}
+      byId={byId}
+      mode={mode}
+      onChange={(value) => onChange(mode === "dark" ? { ...variable, dark: value } : { ...variable, light: value })}
+    />
+  );
 
   return (
     <div className="flex flex-col">
@@ -1921,6 +1989,82 @@ export function VariableInspector({ variable, variables, onChange }: {
         ) : (
           <Field label="Değer">{valueField("light")}</Field>
         )}
+      </Group>
+    </div>
+  );
+}
+
+// ── Atoms (see DesignAtom) ────────────────────────────────────────────────────
+
+const TYPOGRAPHY_FIELDS: { key: keyof Typography; label: string }[] = [
+  { key: "fontSize", label: "Boyut" },
+  { key: "fontWeight", label: "Kalınlık" },
+  { key: "lineHeight", label: "Satır aralığı" },
+  { key: "color", label: "Renk" },
+];
+
+/** Where an atom is used: a main component's text layer. */
+export interface AtomUse {
+  type: BlockType;
+  field: ItemTextField;
+  /** Selects that text in one of the component's instances on this page — unset when the page has none */
+  onSelect?: () => void;
+}
+
+/**
+ * An atom: its name and its typography — each value its own or bound to a
+ * variable (the menu at the field's end) — and where it is used.
+ */
+export function AtomInspector({ atom, variables, uses, onChange }: {
+  atom: DesignAtom;
+  /** All of the site's variables (the ones its values can be bound to) */
+  variables: DesignVariable[];
+  uses: AtomUse[];
+  onChange: (atom: DesignAtom) => void;
+}) {
+  const { theme } = useTheme();
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  return (
+    <div className="flex flex-col">
+      <Hint>
+        <span className="inline-flex items-center gap-1 align-top font-medium text-[var(--edit-accent)]">{Glyphs.atom}Atom</span>
+        {" · Görünüşünü taşır: onu kullanan her metin tüm sitede birlikte değişir. Metnin yeri ve kutusunun boyutu, onu içeren bileşende."}
+      </Hint>
+      <Group title="Atom">
+        <Field label="Ad">
+          <TextField label="Ad" value={atom.name} onChange={(name) => onChange({ ...atom, name })} placeholder="grup/ad" />
+        </Field>
+        <Row label="Tür">
+          <span className="text-[12px] text-[var(--text-title)]">Metin</span>
+        </Row>
+      </Group>
+      <Group title="Tipografi">
+        {TYPOGRAPHY_FIELDS.map(({ key, label }) => (
+          <Field key={key} label={label}>
+            <BoundField
+              label={label}
+              kind={TYPOGRAPHY_KINDS[key]}
+              value={atom[key] ?? { value: "" }}
+              targets={variables.filter((v) => v.kind === TYPOGRAPHY_KINDS[key])}
+              byId={byId}
+              mode={theme}
+              onChange={(value) => onChange({ ...atom, [key]: value })}
+            />
+          </Field>
+        ))}
+      </Group>
+      <Group title="Kullanıldığı yerler">
+        {uses.map((use) => (
+          <ChildRow
+            key={`${use.type}:${use.field}`}
+            icon={blockIcon(use.type)}
+            tone={blockTone(use.type)}
+            label={BLOCK_LABELS[use.type]}
+            detail={`${textLayersOf(use.type).find((t) => t.field === use.field)?.name ?? use.field}${use.onSelect ? "" : " · bu sayfada yok"}`}
+            onClick={() => use.onSelect?.()}
+          />
+        ))}
+        {uses.length === 0 && <p className="text-[11px] text-[var(--text-subtitle)]">Henüz hiçbir metin bu atomu kullanmıyor.</p>}
       </Group>
     </div>
   );
