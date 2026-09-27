@@ -106,7 +106,7 @@ export interface Cell {
 }
 
 /** A Blok or component, as far as the grid is concerned. */
-type Placeable = { id: string; span?: number; row?: number; col?: number };
+type Placeable = { id: string; span?: number; row?: number; col?: number; absolute?: unknown };
 
 const cellKey = (row: number, col: number) => `${row}:${col}`;
 
@@ -130,6 +130,12 @@ function closeRows<T extends { row: number }>(cells: T[], rows: number): T[] {
  * the grid's first `rows` (see gridRows).
  */
 export function layoutCells(children: Omit<Placeable, "id">[], count: number, rows = 0): Cell[] {
+  // Out of the auto layout (absolute): no cell — an empty one at the start, covering nothing.
+  if (children.some((c) => c.absolute)) {
+    const inFlow = layoutCells(children.filter((c) => !c.absolute), count, rows);
+    let k = 0;
+    return children.map((c) => (c.absolute ? { row: 1, col: 1, span: 0 } : inFlow[k++]));
+  }
   const taken = new Set<string>();
   const fits = (row: number, col: number, span: number) =>
     col + span - 1 <= count && Array.from({ length: span }, (_, k) => cellKey(row, col + k)).every((k) => !taken.has(k));

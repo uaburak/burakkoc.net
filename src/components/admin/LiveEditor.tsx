@@ -9,7 +9,7 @@ import { IconButton, PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
 import { FillHeightContext, ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
-import { cellProps, gridProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
+import { absoluteProps, cellProps, gridProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
 import { EditableText } from "@/components/project/Editable";
 import { DRAG_LIFT, DragActivationContext, DragHandle } from "@/components/project/Sortable";
 import { createBlockEditApi, editorUid, localizeBlock, type BlockEditApi } from "@/components/project/editing";
@@ -26,6 +26,7 @@ import {
   SizeGroup,
   canMoveItem,
   duplicateItem,
+  freeSize,
   hasItem,
   itemName,
   moveItem,
@@ -761,8 +762,9 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   const addItemLabel = ADD_ITEM_LABEL[block.type];
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
-  const place = cellProps(cell, gridFlow(group.grid) !== "grid");
+  const place = cellProps(cell, gridFlow(group.grid) !== "grid" || Boolean(block.absolute));
   const size = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
+  const free = absoluteProps(block.absolute);
   // A catalog component dragged over it: the line shows on which side it goes.
   const insertion = useInsertion();
   const line = insertion?.blockId === block.id ? insertion : null;
@@ -783,7 +785,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
       data-live-block
       data-block-id={block.id}
       // --edit-tone: the colour of the component's kind — its frame, toolbar dot, cards and hovered text.
-      style={{ ...place.style, ...size.style, ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
+      style={{ ...place.style, ...size.style, ...free.style, ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
       {...listeners}
       onPointerEnter={fitFrame}
       onClick={(e) => {
@@ -792,7 +794,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
         onSelect(item && e.currentTarget.contains(item) ? item.getAttribute("data-entry-id") ?? undefined : undefined);
       }}
       // Dragged: lifted above the page (a stacking context, so the frame's card sits right behind it).
-      className={cn("group/block relative w-full", place.className, size.className, HOVER_RING_BLOCK, isDragging && "z-30 cursor-grabbing")}
+      className={cn("group/block relative w-full", place.className, size.className, free.className, HOVER_RING_BLOCK, isDragging && "z-30 cursor-grabbing")}
     >
       <SelectionFrame frameRef={frameRef} selected={selected} dragging={isDragging} dashed={Boolean(selectedItemId)}>
         <ChromeBar
@@ -861,8 +863,9 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
   onInsert: (at?: { afterBlockId?: string; cell?: { row: number; col: number } }) => void;
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
-  const place = cellProps(cell, gridFlow(section.grid) !== "grid");
+  const place = cellProps(cell, gridFlow(section.grid) !== "grid" || Boolean(group.absolute));
   const size = sizeProps(group.size, false, group.cellAlign, gridFlow(section.grid));
+  const free = absoluteProps(group.absolute);
   const grid = gridProps(group.grid);
   const columns = gridColumns(group.grid);
   const count = columns.length;
@@ -880,7 +883,7 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
       ref={setNodeRef}
       data-live-group
       data-group-id={group.id}
-      style={{ ...place.style, ...grid.style, ...size.style, ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
+      style={{ ...place.style, ...grid.style, ...size.style, ...free.style, ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
       {...listeners}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
       className={cn(
@@ -888,6 +891,7 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
         place.className,
         grid.className,
         size.className,
+        free.className,
         groupOutline(selected || isDragging, active),
         isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]")
       )}
@@ -2268,6 +2272,11 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                     placement={
                       <>
                         <PlacementGroup
+                          measure={`[data-block-id="${selectedBlock.block.id}"]`}
+                          absolute={selectedBlock.block.absolute}
+                          onAbsolute={(absolute, was) =>
+                            actions.updateBlock(selectedBlock.block.id, { absolute, ...(absolute ? { size: freeSize(selectedBlock.block.size, was) } : {}) })
+                          }
                           index={selectedBlock.index}
                           siblings={selectedBlock.group.blocks}
                           labels={selectedBlock.group.blocks.map(blockName)}

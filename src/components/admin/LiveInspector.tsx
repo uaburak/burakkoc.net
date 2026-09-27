@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, LayoutFlow, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
+import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, LayoutFlow, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
@@ -377,6 +377,13 @@ const Glyphs = {
   wrap: (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path d="M2.5 3.5h7a2.5 2.5 0 010 5H4.5M6 6.5l-2 2 2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Out of the auto layout (Figma's absolute position) */
+  absolute: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.1" strokeDasharray="2 1.6" />
+      <path d="M7 4.5v5M4.5 7h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   ),
   /** Padding for each side on its own */
@@ -1056,6 +1063,8 @@ function CellPicker({ columns, rows, cells, index, labels, onPlace, onSwap }: {
         </button>
       ))}
       {cells.map((c, i) => {
+        // Out of the auto layout: no cell.
+        if (c.span === 0) return null;
         const where = { gridRow: c.row, gridColumn: `${c.col} / span ${c.span}` };
         return i === index ? (
           <span
@@ -1091,8 +1100,12 @@ function CellPicker({ columns, rows, cells, index, labels, onPlace, onSwap }: {
  * to move it there — and, with more than one column, how many it covers.
  * Only when the parent's grid has more than one cell (see hasGrid).
  */
-export function PlacementGroup({ title = "Konum", index, siblings, labels, parent, onPlace, onSwap, onSpan }: {
+export function PlacementGroup({ title = "Konum", measure, absolute, index, siblings, labels, parent, onPlace, onSwap, onSpan, onAbsolute }: {
   title?: string;
+  /** Finds it on the canvas, for its X / Y */
+  measure: string;
+  /** Out of its frame's auto layout, at X / Y */
+  absolute?: Absolute;
   /** Its place among `siblings` */
   index: number;
   siblings: { id: string; span?: number; row?: number; col?: number }[];
@@ -1103,9 +1116,26 @@ export function PlacementGroup({ title = "Konum", index, siblings, labels, paren
   /** Swap cells with sibling `otherId` */
   onSwap: (otherId: string) => void;
   onSpan: (span: number) => void;
+  /** Takes it out of the auto layout at X / Y — its size now (`was`) — or back in (undefined) */
+  onAbsolute: (absolute: Absolute | undefined, was?: { width: number; height: number }) => void;
 }) {
-  // One cell: nothing to choose.
-  if (index < 0 || !hasGrid(parent)) return null;
+  const shown = useRenderedOffset(measure, JSON.stringify(absolute ?? null) + JSON.stringify(siblings.map((s) => [s.row, s.col, s.span])));
+  if (index < 0) return null;
+  const at = absolute ?? shown;
+  // As in Figma: X / Y are only yours to set out of the auto layout; the button takes it out where it is now.
+  const position = (
+    <div className="flex items-center gap-2">
+      <div className={cn("grid grid-cols-2 gap-2 flex-1 min-w-0", !absolute && "opacity-50 pointer-events-none")}>
+        <NumberField label="X" prefix="X" value={Math.round(at.x)} min={-4000} max={4000} onChange={(x) => onAbsolute({ x, y: at.y })} />
+        <NumberField label="Y" prefix="Y" value={Math.round(at.y)} min={-4000} max={4000} onChange={(y) => onAbsolute({ x: at.x, y })} />
+      </div>
+      <ToggleButton label="Otomatik yerleşimi yok say (serbest konum)" pressed={Boolean(absolute)} onClick={() => onAbsolute(absolute ? undefined : { x: shown.x, y: shown.y }, { width: shown.width, height: shown.height })}>
+        {Glyphs.absolute}
+      </ToggleButton>
+    </div>
+  );
+  // Out of the auto layout, or one cell: no cells to choose.
+  if (absolute || !hasGrid(parent)) return <Group title={title}>{position}</Group>;
   const columns = gridColumns(parent);
   const count = columns.length;
   const rows = gridRows(parent);
@@ -1116,6 +1146,7 @@ export function PlacementGroup({ title = "Konum", index, siblings, labels, paren
 
   return (
     <Group title={title}>
+      {position}
       <CellPicker
         columns={columns}
         // Its set rows — or, when none are set, the rows in use and one more for a new line.
@@ -1150,6 +1181,35 @@ const SIZE_MODES: Record<"width" | "height", { value: SizeMode; label: string; n
     { value: "fill", label: "Fill Container", name: "Fill" },
   ],
 };
+
+/**
+ * An element's place in its frame on the canvas (px from the frame's top
+ * left — the frame is its offset parent) and its size, measured again
+ * whenever `revision` changes and when the page is resized.
+ */
+function useRenderedOffset(selector: string, revision: string) {
+  const [at, setAt] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(`main ${selector}`);
+    if (!el) return;
+    const measure = () =>
+      setAt((prev) =>
+        prev.x === el.offsetLeft && prev.y === el.offsetTop && prev.width === el.offsetWidth && prev.height === el.offsetHeight
+          ? prev
+          : { x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }
+      );
+    const frame = el.parentElement;
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    if (frame) resize.observe(frame);
+    const first = window.setTimeout(measure, 0);
+    return () => {
+      resize.disconnect();
+      window.clearTimeout(first);
+    };
+  }, [selector, revision]);
+  return at;
+}
 
 /**
  * An element's rendered size on the canvas (px), kept up to date — measured
@@ -1437,6 +1497,18 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
 /** A component's icon, from the catalog. */
 const blockIcon = (type: BlockType) => BLOCK_DEFS.find((d) => d.type === type)?.icon;
 
+/**
+ * Out of the auto layout a Fill size has nothing to fill: as in Figma it
+ * becomes a fixed one, at the size it has now (`was`).
+ */
+export function freeSize(size: Sizing | undefined, was?: { width: number; height: number }): Sizing | undefined {
+  if (!was) return size;
+  const next = { ...size };
+  if ((size?.width ?? "fill") === "fill") Object.assign(next, { width: "fixed", widthPx: was.width });
+  if (size?.height === "fill") Object.assign(next, { height: "fixed", heightPx: was.height });
+  return next;
+}
+
 /** Where `children` sit on their grid. */
 const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid?: GridSettings) =>
   layoutCells(children, gridColumns(grid).length, gridRows(grid));
@@ -1482,7 +1554,7 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
   group: PageGroup;
   section: PageSection;
   lang: Lang;
-  onChange: (patch: { grid?: GridSettings; span?: number; size?: Sizing; cellAlign?: CellAlign }) => void;
+  onChange: (patch: { grid?: GridSettings; span?: number; size?: Sizing; cellAlign?: CellAlign; absolute?: Absolute }) => void;
   /** Put it in a free cell of the section's grid */
   onPlace: (row: number, col: number) => void;
   /** Swap cells with another Blok of the section */
@@ -1496,6 +1568,9 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
     <div className="flex flex-col">
       <Hint>Yerleşim, Figma’daki auto layout gibi: bileşenler alt alta, yan yana ya da ızgarada dizilir. Hizalama kutusu bileşenlerin bloğun neresinde duracağını seçer.</Hint>
       <PlacementGroup
+        measure={`[data-group-id="${group.id}"]`}
+        absolute={group.absolute}
+        onAbsolute={(absolute, was) => onChange({ absolute, ...(absolute ? { size: freeSize(group.size, was) } : {}) })}
         index={section.groups.findIndex((g) => g.id === group.id)}
         siblings={section.groups}
         labels={section.groups.map((g, i) => g.name?.trim() || `Blok ${i + 1}`)}

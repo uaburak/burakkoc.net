@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { CellAlign, GridAlign, GridGap, GridSettings, LayoutFlow, PageSection, Sizing } from "@/types/project";
+import type { Absolute, CellAlign, GridAlign, GridGap, GridSettings, LayoutFlow, PageSection, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { gridColumns, gridFlow, gridRows, layoutCells, type Cell } from "@/lib/projectLayout";
 import { FillHeightContext, ProjectBlock } from "@/components/project/CoreBlocks";
@@ -68,7 +68,7 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
     const wrap = across && grid?.wrap;
     return {
       className: cn(
-        "flex w-full flex-col",
+        "relative flex w-full flex-col",
         across && "md:flex-row",
         wrap && cn("md:flex-wrap", LINES[cross]),
         grid?.spread ? "md:justify-between" : JUSTIFY_CONTENT[along],
@@ -80,7 +80,7 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
   }
   return {
     className: cn(
-      "grid w-full grid-cols-1 md:grid-cols-(--grid-cols)",
+      "relative grid w-full grid-cols-1 md:grid-cols-(--grid-cols)",
       GAP_CLASS[grid?.gap ?? "md"],
       ALIGN_CLASS[grid?.align ?? "start"],
       ALIGN_CONTENT[grid?.align ?? "start"],
@@ -93,6 +93,18 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
       rowGap: px(grid?.rowGap),
       ...padding,
     } as CSSProperties,
+  };
+}
+
+/**
+ * Class and style of a child out of its frame's auto layout (see Absolute):
+ * from md up at `x` / `y` from the frame's top left (the frame is `relative`).
+ */
+export function absoluteProps(absolute?: Absolute): { className: string; style: CSSProperties } {
+  if (!absolute) return { className: "", style: {} };
+  return {
+    className: "md:absolute md:left-(--abs-x) md:top-(--abs-y) md:m-0",
+    style: { "--abs-x": `${Math.round(absolute.x)}px`, "--abs-y": `${Math.round(absolute.y)}px` } as CSSProperties,
   };
 }
 
@@ -203,16 +215,18 @@ export function SectionContent({ section, animate = false }: { section: PageSect
   return (
     <div className={outer.className} style={outer.style}>
       {inCells(section.groups, section.grid).map(({ child: group, cell: groupCell }) => {
-        const cell = cellProps(groupCell, gridFlow(section.grid) !== "grid");
+        const cell = cellProps(groupCell, gridFlow(section.grid) !== "grid" || Boolean(group.absolute));
         const inner = gridProps(group.grid);
         const size = sizeProps(group.size, false, group.cellAlign, gridFlow(section.grid));
+        const free = absoluteProps(group.absolute);
         return (
-          <div key={group.id} className={cn(cell.className, inner.className, size.className)} style={{ ...cell.style, ...inner.style, ...size.style }}>
+          <div key={group.id} className={cn(cell.className, inner.className, size.className, free.className)} style={{ ...cell.style, ...inner.style, ...size.style, ...free.style }}>
             {inCells(group.blocks, group.grid).map(({ child: block, cell: blockCell }) => {
-              const c = cellProps(blockCell, gridFlow(group.grid) !== "grid");
+              const c = cellProps(blockCell, gridFlow(group.grid) !== "grid" || Boolean(block.absolute));
               const s = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
+              const f = absoluteProps(block.absolute);
               return (
-                <div key={block.id} className={cn("w-full", c.className, s.className)} style={{ ...c.style, ...s.style }}>
+                <div key={block.id} className={cn("w-full", c.className, s.className, f.className)} style={{ ...c.style, ...s.style, ...f.style }}>
                   <FillHeightContext.Provider value={s.fillHeight}>
                     <ProjectBlock block={block} animate={animate} />
                   </FillHeightContext.Provider>

@@ -146,6 +146,16 @@ export interface CellAlign {
  */
 export type LayoutFlow = "vertical" | "horizontal" | "grid";
 
+/**
+ * A Blok or component taken out of its frame's auto layout (Figma's absolute
+ * position / Ignore auto layout): `x` / `y` px from the frame's top left. The
+ * others lay out as if it weren't there; small screens keep it in the flow.
+ */
+export interface Absolute {
+  x: number;
+  y: number;
+}
+
 /** How a section lays out its groups, or a group its components. */
 export interface GridSettings {
   /** Default "grid" */
@@ -247,6 +257,8 @@ export interface Block {
   size?: Sizing;
   /** Where it sits inside that cell */
   cellAlign?: CellAlign;
+  /** Out of its Blok's auto layout (see Absolute) */
+  absolute?: Absolute;
   // EN
   contentEn?: string;
   subheadingEn?: string;
@@ -270,6 +282,8 @@ export interface Group {
   size?: Sizing;
   /** Where it sits inside that cell */
   cellAlign?: CellAlign;
+  /** Out of its section's auto layout (see Absolute) */
+  absolute?: Absolute;
   grid?: GridSettings;
   /** Its components */
   blocks: Block[];
