@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
+import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, LayoutFlow, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
@@ -10,7 +10,7 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, freeCells, gridColumns, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
+import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
 
 /**
  * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
@@ -323,6 +323,31 @@ const Glyphs = {
   gapX: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
       <path d="M2 2h1.5v8H2M10 2H8.5v8H10M6 5v2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Stacked (Figma's vertical auto layout) */
+  flowVertical: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="2" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M10 2.5v8.5M8 9l2 2 2-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Side by side (horizontal) */
+  flowHorizontal: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="8" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M2.5 10h8.5M9 8l2 2-2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** On a grid */
+  flowGrid: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="8" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="2" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="8" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
     </svg>
   ),
   /** Gap between rows */
@@ -677,22 +702,65 @@ const ALIGNS: GridAlign[] = ["start", "center", "end"];
 const V_NAMES: Record<GridAlign, string> = { start: "Üst", center: "Orta", end: "Alt" };
 const H_NAMES: Record<GridAlign, string> = { start: "sol", center: "orta", end: "sağ" };
 
+/** Stacked content in the box: three lines, lined up left / centre / right (Figma's glyph for a vertical auto layout). */
+function StackBars({ across, faint = false }: { across: GridAlign; faint?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex flex-col gap-[2px] w-3",
+        across === "start" ? "items-start" : across === "center" ? "items-center" : "items-end",
+        faint ? "text-[var(--text-subtitle)] opacity-60" : "text-[var(--edit-accent)]"
+      )}
+    >
+      {[8, 12, 6].map((w, i) => (
+        <span key={i} className="h-[2px] rounded-full bg-current" style={{ width: w }} />
+      ))}
+    </span>
+  );
+}
+
+/** One child, when the free space is shared out (Figma's "Auto" gap): a single line across the flow. */
+const JUSTIFY: Record<GridAlign, string> = { start: "justify-start", center: "justify-center", end: "justify-end" };
+const ITEMS: Record<GridAlign, string> = { start: "items-start", center: "items-center", end: "items-end" };
+
+function SpreadBar({ flow, at }: { flow: "vertical" | "horizontal"; at: GridAlign }) {
+  return flow === "vertical" ? (
+    <span aria-hidden className={cn("flex w-3", JUSTIFY[at])}>
+      <span className="w-2 h-[2px] rounded-full bg-[var(--edit-accent)]" />
+    </span>
+  ) : (
+    <span aria-hidden className={cn("flex h-3", ITEMS[at])}>
+      <span className="w-[2px] h-2 rounded-full bg-[var(--edit-accent)]" />
+    </span>
+  );
+}
+
 /**
  * Figma's alignment box: a 3 × 3 grid — rows top / middle / bottom, columns
  * left / center / right — whatever the frame's grid. The chosen cell shows
- * the bars, the others a dot — the bars on hover.
+ * the content's glyph (stacked: lines; side by side or on a grid: bars), the
+ * others a dot — the glyph on hover. With the free space shared out
+ * (`spread`), only the position across the flow counts: the whole line along
+ * it shows, one mark per cell.
  */
-function AlignGrid({ x, y, onChange, className }: {
+function AlignGrid({ x, y, flow = "grid", spread = false, onChange, className }: {
   x: GridAlign;
   y: GridAlign;
+  flow?: LayoutFlow;
+  spread?: boolean;
   onChange: (value: { x: GridAlign; y: GridAlign }) => void;
   className?: string;
 }) {
+  const shared = spread && flow !== "grid";
+  const glyph = (h: GridAlign, v: GridAlign, faint?: boolean) =>
+    flow === "vertical" ? <StackBars across={h} faint={faint} /> : <AlignBars vertical={v} faint={faint} />;
   return (
     <div role="radiogroup" aria-label="Hizalama" className={cn("grid grid-cols-3 grid-rows-3 p-1 rounded-[6px] bg-[var(--bg-4)]", className)}>
       {ALIGNS.map((v) =>
         ALIGNS.map((h) => {
-          const active = v === y && h === x;
+          // Shared out: the whole column (stacked) / row (side by side) at the chosen position across the flow.
+          const active = shared ? (flow === "vertical" ? h === x : v === y) : v === y && h === x;
           return (
             <button
               key={`${v}-${h}`}
@@ -706,13 +774,11 @@ function AlignGrid({ x, y, onChange, className }: {
               className="group/align flex items-center justify-center rounded-[4px] cursor-pointer [&_*]:pointer-events-none"
             >
               {active ? (
-                <AlignBars vertical={v} />
+                shared ? <SpreadBar flow={flow as "vertical" | "horizontal"} at={flow === "vertical" ? h : v} /> : glyph(h, v)
               ) : (
                 <>
                   <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60 group-hover/align:hidden" />
-                  <span className="hidden group-hover/align:flex">
-                    <AlignBars vertical={v} faint />
-                  </span>
+                  <span className="hidden group-hover/align:flex">{glyph(h, v, true)}</span>
                 </>
               )}
             </button>
@@ -723,12 +789,19 @@ function AlignGrid({ x, y, onChange, className }: {
   );
 }
 
+const FLOWS: { value: LayoutFlow; label: string; icon: ReactNode }[] = [
+  { value: "vertical", label: "Dikey — alt alta", icon: Glyphs.flowVertical },
+  { value: "horizontal", label: "Yatay — yan yana", icon: Glyphs.flowHorizontal },
+  { value: "grid", label: "Izgara — sütun ve satırlar", icon: Glyphs.flowGrid },
+];
+
 /**
- * The grid a section lays its Bloks on — or a Blok its components, Figma's
- * "Auto layout": the column and row counts, a preset layout, each column's width
- * (twelfths — its neighbour gives or takes), then the alignment box — where
- * its content sits in it — with the gaps between the children beside it, and
- * the padding inside (px).
+ * How a section lays out its Bloks — or a Blok its components, Figma's
+ * "Auto layout": stacked, side by side or on a grid. On a grid: the column
+ * and row counts, a preset layout and each column's width (twelfths — its
+ * neighbour gives or takes). Then the alignment box — where its content sits
+ * in it — with the gap(s) beside it (stacked / side by side: one, or Auto —
+ * the free space shared out), and the padding inside (px).
  */
 function GridFields({ grid, cells, onAlign, onChange }: {
   grid?: GridSettings;
@@ -746,22 +819,30 @@ function GridFields({ grid, cells, onAlign, onChange }: {
   const current = layoutName(columns);
   const gaps = gridGaps(grid);
   const setCount = (n: number) => onChange(n <= 1 ? { ...grid, columns: undefined } : withColumnCount(grid, n));
+  const flow = gridFlow(grid);
+  const across = flow === "horizontal";
+  // Stacked / side by side: one gap, along the flow — the column gap side by side, the row gap stacked.
+  const gap = across ? gaps.column : gaps.row;
+  const setGap = (n: number) => onChange({ ...grid, spread: undefined, ...(across ? { columnGap: n } : { rowGap: n }) });
 
   return (
-    <Group title="Izgara">
-      <div className="grid grid-cols-2 gap-2">
-        <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} suffix="sütun" onChange={setCount} />
-        <NumberField
-          label="Satır sayısı"
-          prefix={Glyphs.rows}
-          value={Math.max(gridRows(grid), minRows)}
-          min={minRows}
-          max={Math.max(MAX_ROWS, minRows)}
-          suffix="satır"
-          onChange={(rows) => onChange({ ...grid, rows })}
-        />
-      </div>
-      {count > 1 && presets && (
+    <Group title="Yerleşim">
+      <Choice value={flow} options={FLOWS} onChange={(next) => onChange({ ...grid, flow: next === "grid" ? undefined : next })} />
+      {flow === "grid" && (
+        <div className="grid grid-cols-2 gap-2">
+          <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} suffix="sütun" onChange={setCount} />
+          <NumberField
+            label="Satır sayısı"
+            prefix={Glyphs.rows}
+            value={Math.max(gridRows(grid), minRows)}
+            min={minRows}
+            max={Math.max(MAX_ROWS, minRows)}
+            suffix="satır"
+            onChange={(rows) => onChange({ ...grid, rows })}
+          />
+        </div>
+      )}
+      {flow === "grid" && count > 1 && presets && (
         <div className="flex flex-wrap gap-1.5">
           {presets.map((preset) => {
             const active = layoutName(preset) === current;
@@ -789,7 +870,7 @@ function GridFields({ grid, cells, onAlign, onChange }: {
           })}
         </div>
       )}
-      {count > 1 && (
+      {flow === "grid" && count > 1 && (
         <>
           <div className="grid grid-cols-3 gap-2">
             {columns.map((w, i) => (
@@ -810,10 +891,34 @@ function GridFields({ grid, cells, onAlign, onChange }: {
       {/* As in Figma's Auto layout: the box on the left, the gaps beside it; the padding under them (px). */}
       <div className="grid grid-cols-2 gap-2">
         <div className="row-span-2">
-          <AlignGrid className="h-full min-h-16" x={grid?.justify ?? "start"} y={grid?.align ?? "start"} onChange={({ x, y }) => onAlign(x, y)} />
+          <AlignGrid className="h-full min-h-16" x={grid?.justify ?? "start"} y={grid?.align ?? "start"} flow={flow} spread={grid?.spread} onChange={({ x, y }) => onAlign(x, y)} />
         </div>
-        <NumberField label="Sütunlar arası boşluk" prefix={Glyphs.gapX} value={gaps.column} min={0} max={400} onChange={(columnGap) => onChange({ ...grid, columnGap })} />
-        <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
+        {flow === "grid" ? (
+          <>
+            <NumberField label="Sütunlar arası boşluk" prefix={Glyphs.gapX} value={gaps.column} min={0} max={400} onChange={(columnGap) => onChange({ ...grid, columnGap })} />
+            <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
+          </>
+        ) : (
+          <NumberField
+            label="Aradaki boşluk"
+            prefix={across ? Glyphs.gapX : Glyphs.gapY}
+            value={grid?.spread ? null : gap}
+            placeholder="Auto"
+            fallback={gap}
+            min={0}
+            max={400}
+            onChange={setGap}
+            suffix={
+              <FieldMenu
+                label="Aradaki boşluk: Auto ya da sabit"
+                items={[
+                  { label: "Auto", hint: "boşluğu aralarına dağıt", checked: Boolean(grid?.spread), onSelect: () => onChange({ ...grid, spread: true }) },
+                  { label: "Sabit", hint: `${gap} px`, checked: !grid?.spread, onSelect: () => setGap(gap) },
+                ]}
+              />
+            }
+          />
+        )}
       </div>
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Yatay iç boşluk" prefix={Glyphs.padX} value={grid?.paddingX ?? 0} min={0} max={400} onChange={(paddingX) => onChange({ ...grid, paddingX })} />
@@ -1258,7 +1363,7 @@ export function SectionInspector({ section, onChange, onAlign, onSelectGroup, on
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Izgara bölümün sütun ve satırlarını belirler. Hizalama kutusu, Figma’daki gibi, blokların bölümün neresinde duracağını seçer.</Hint>
+      <Hint>Yerleşim, Figma’daki auto layout gibi: bloklar alt alta, yan yana ya da ızgarada dizilir. Hizalama kutusu blokların bölümün neresinde duracağını seçer.</Hint>
       <GridFields
         grid={section.grid}
         cells={cellsOf(section.groups, section.grid)}
@@ -1299,7 +1404,7 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Izgara bloğun sütun ve satırlarını belirler. Hizalama kutusu, Figma’daki gibi, bileşenlerin bloğun neresinde duracağını seçer.</Hint>
+      <Hint>Yerleşim, Figma’daki auto layout gibi: bileşenler alt alta, yan yana ya da ızgarada dizilir. Hizalama kutusu bileşenlerin bloğun neresinde duracağını seçer.</Hint>
       <PlacementGroup
         index={section.groups.findIndex((g) => g.id === group.id)}
         siblings={section.groups}

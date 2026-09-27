@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, GridSettings, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
-import { findBlock, findGroup, freeCells, gridColumns, gridRows, layoutCells, layoutName, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
+import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, layoutName, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { IconButton, PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
@@ -761,8 +761,8 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   const addItemLabel = ADD_ITEM_LABEL[block.type];
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
-  const place = cellProps(cell);
-  const size = sizeProps(block.size, true, block.cellAlign);
+  const place = cellProps(cell, gridFlow(group.grid) !== "grid");
+  const size = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
   // A catalog component dragged over it: the line shows on which side it goes.
   const insertion = useInsertion();
   const line = insertion?.blockId === block.id ? insertion : null;
@@ -861,8 +861,8 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
   onInsert: (at?: { afterBlockId?: string; cell?: { row: number; col: number } }) => void;
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
-  const place = cellProps(cell);
-  const size = sizeProps(group.size, false, group.cellAlign);
+  const place = cellProps(cell, gridFlow(section.grid) !== "grid");
+  const size = sizeProps(group.size, false, group.cellAlign, gridFlow(section.grid));
   const grid = gridProps(group.grid);
   const columns = gridColumns(group.grid);
   const count = columns.length;
@@ -872,7 +872,8 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
   const drag = useActiveDrag();
   const dragged = drag?.kind === "block" || drag?.kind === "new";
   const empty = group.blocks.length === 0;
-  const showCells = (count > 1 || rows > 1) && (selected || dragged || empty);
+  // Free cells only on a grid: stacked / side by side, children just follow each other.
+  const showCells = gridFlow(group.grid) === "grid" && (count > 1 || rows > 1) && (selected || dragged || empty);
 
   return (
     <div
@@ -895,7 +896,7 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
         <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className={handleClass} />
         <ChromeLabel onClick={onSelect}>
           {groupName(group, index)}
-          {columns.length > 1 && <span className="font-normal opacity-80 tabular-nums">{layoutName(columns)}</span>}
+          {gridFlow(group.grid) === "grid" && columns.length > 1 && <span className="font-normal opacity-80 tabular-nums">{layoutName(columns)}</span>}
         </ChromeLabel>
         <ToolButton label="Bloğa bileşen ekle" onClick={() => onInsert()}>{Icons.plus}</ToolButton>
         <ToolButton label="Bloğu çoğalt" onClick={() => actions.duplicateGroup(group.id)}>{Icons.duplicate}</ToolButton>
@@ -1004,7 +1005,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
   // Free cells: drop targets while a Blok or component is dragged, "+" while selected — or the empty section's placeholder.
   const dragged = drag?.kind === "block" || drag?.kind === "group" || drag?.kind === "new";
   const empty = section.groups.length === 0;
-  const showCells = (count > 1 || rows > 1) && (selected || dragged || empty);
+  const showCells = gridFlow(section.grid) === "grid" && (count > 1 || rows > 1) && (selected || dragged || empty);
 
   return (
     <section

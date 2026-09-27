@@ -139,8 +139,19 @@ export interface CellAlign {
   y?: GridAlign;
 }
 
+/**
+ * How a Bölüm / Blok lays out its children, as Figma's auto layout: stacked
+ * (vertical), side by side (horizontal) — both in their list order — or on
+ * the grid of `columns` / `rows`, each in its cell.
+ */
+export type LayoutFlow = "vertical" | "horizontal" | "grid";
+
 /** How a section lays out its groups, or a group its components. */
 export interface GridSettings {
+  /** Default "grid" */
+  flow?: LayoutFlow;
+  /** Stacked / side by side: the free space shared out between the children (Figma's "Auto" gap) */
+  spread?: boolean;
   /**
    * Column widths in twelfths, e.g. [4, 8] — children sit in the cell they
    * were put in (`row` / `col`), the others fill the free cells in order and

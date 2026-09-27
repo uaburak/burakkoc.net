@@ -1,4 +1,4 @@
-import type { Block, GridSettings, Group, PageItem, PageSection } from "@/types/project";
+import type { Block, GridSettings, Group, LayoutFlow, PageItem, PageSection } from "@/types/project";
 
 /**
  * Page structure helpers: Bölüm (section) › Blok (group) › Bileşen (block).
@@ -46,9 +46,19 @@ export function gridRows(grid?: GridSettings): number {
   return Number.isFinite(rows) && rows >= 1 ? Math.min(MAX_ROWS, Math.round(rows)) : 0;
 }
 
-/** Does the grid have more than one cell to choose from (more than one column, or rows set to more than one)? */
+/** How it lays out its children (see LayoutFlow) — on its grid unless set. */
+export function gridFlow(grid?: GridSettings): LayoutFlow {
+  return grid?.flow === "vertical" || grid?.flow === "horizontal" ? grid.flow : "grid";
+}
+
+/** Does it lay its children out on a grid with more than one cell to choose from (more than one column, or rows set to more than one)? */
 export function hasGrid(grid?: GridSettings) {
-  return gridColumns(grid).length > 1 || gridRows(grid) > 1;
+  return gridFlow(grid) === "grid" && (gridColumns(grid).length > 1 || gridRows(grid) > 1);
+}
+
+/** Are its children in cells put by hand? Only on a grid — a stack keeps their list order. */
+export function placedByHand(grid: GridSettings | undefined, children: Omit<Placeable, "id">[]) {
+  return gridFlow(grid) === "grid" && hasPlacedCells(children);
 }
 
 /** The grid's column widths — one full-width column unless set. */

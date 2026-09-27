@@ -1,7 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
-import { Block, BlockType, GridAlign, Group, PageItem, PageSection, ProjectData } from "@/types/project";
+import { Block, BlockType, GridAlign, GridSettings, Group, PageItem, PageSection, ProjectData } from "@/types/project";
 import { makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
-import { findBlock, findGroup, gridColumns, gridRows, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
+import { findBlock, findGroup, gridColumns, gridRows, placedByHand, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
 
 /**
  * Every project mutation the form and the live editor perform. All updates are
@@ -41,12 +41,13 @@ function moveBy<T>(list: T[], index: number, delta: number): T[] {
 
 /**
  * One step earlier / later: in a grid laid out by hand (the list is in
- * reading order) it swaps cells with that neighbour, otherwise it moves in the list.
+ * reading order) it swaps cells with that neighbour, otherwise (a stack, or
+ * a grid filled in order) it moves in the list.
  */
-function stepBy<T extends { id: string; span?: number; row?: number; col?: number }>(list: T[], index: number, delta: number, columnCount: number, rows: number): T[] {
-  if (!hasPlacedCells(list)) return moveBy(list, index, delta);
+function stepBy<T extends { id: string; span?: number; row?: number; col?: number }>(list: T[], index: number, delta: number, grid: GridSettings | undefined): T[] {
+  if (!placedByHand(grid, list)) return moveBy(list, index, delta);
   const other = list[index + delta];
-  return other ? swapCells(list, list[index].id, other.id, columnCount, rows) : list;
+  return other ? swapCells(list, list[index].id, other.id, gridColumns(grid).length, gridRows(grid)) : list;
 }
 
 function insertAfter<T extends { id: string }>(list: T[], item: T, afterId?: string): T[] {
@@ -155,7 +156,7 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
       moveGroupBy(groupId: string, delta: number) {
         setItems((items) => {
           const at = findGroup(items, groupId);
-          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: stepBy(s.groups, at.index, delta, gridColumns(s.grid).length, gridRows(s.grid)) })) : items;
+          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: stepBy(s.groups, at.index, delta, s.grid) })) : items;
         });
       },
 
@@ -251,7 +252,7 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
       moveBlockBy(blockId: string, delta: number) {
         setItems((items) => {
           const at = findBlock(items, blockId);
-          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: stepBy(g.blocks, at.index, delta, gridColumns(g.grid).length, gridRows(g.grid)) })) : items;
+          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: stepBy(g.blocks, at.index, delta, g.grid) })) : items;
         });
       },
     };

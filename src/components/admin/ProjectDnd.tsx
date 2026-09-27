@@ -13,7 +13,7 @@ import {
   type DroppableContainer,
   type Modifier,
 } from "@dnd-kit/core";
-import { SortableContext, arrayMove, rectSortingStrategy, useSortable, verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, arrayMove, horizontalListSortingStrategy, rectSortingStrategy, useSortable, verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import { CSS, getEventCoordinates, type Transform } from "@dnd-kit/utilities";
 import { Block, BlockType, GridSettings, Group, PageItem, PageSection } from "@/types/project";
 import { DragHandle, DragScrollFix, useEditorSensors, type DragActivation } from "@/components/project/Sortable";
@@ -23,6 +23,7 @@ import {
   findGroup,
   findSection,
   gridColumns,
+  gridFlow,
   gridRows,
   hasPlacedCells,
   mapGroup,
@@ -32,6 +33,7 @@ import {
   placeBlock,
   placeBlockInSection,
   placeGroup,
+  placedByHand,
   swapCells,
 } from "@/lib/projectLayout";
 
@@ -97,7 +99,7 @@ function moveGroupInTree(list: PageItem[], groupId: string, sectionId: string, t
   const from = findGroup(list, groupId);
   if (!from) return list;
   const same = from.section.id === sectionId;
-  if (same && targetId && hasPlacedCells(from.section.groups)) {
+  if (same && targetId && placedByHand(from.section.grid, from.section.groups)) {
     return mapSection(list, sectionId, (s) => ({ ...s, groups: swapCells(s.groups, groupId, targetId, gridColumns(s.grid).length, gridRows(s.grid)) }));
   }
   const group = same ? from.group : { ...from.group, row: undefined, col: undefined };
@@ -110,7 +112,7 @@ function moveBlockInTree(list: PageItem[], blockId: string, groupId: string, tar
   const from = findBlock(list, blockId);
   if (!from) return list;
   const same = from.group.id === groupId;
-  if (same && targetId && hasPlacedCells(from.group.blocks)) {
+  if (same && targetId && placedByHand(from.group.grid, from.group.blocks)) {
     return mapGroup(list, groupId, (g) => ({ ...g, blocks: swapCells(g.blocks, blockId, targetId, gridColumns(g.grid).length, gridRows(g.grid)) }));
   }
   const block = same ? from.block : { ...from.block, row: undefined, col: undefined };
@@ -486,12 +488,13 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
         const start = activatorEvent && getEventCoordinates(activatorEvent);
         const at = o?.type === "block" ? findBlock(items, o.blockId) : null;
         // A grid laid out by hand fills its first free cell: no before / after there.
-        if (!over || !start || o?.type !== "block" || !at || hasPlacedCells(at.group.blocks)) {
+        if (!over || !start || o?.type !== "block" || !at || placedByHand(at.group.grid, at.group.blocks)) {
           setInsertion(null);
           return;
         }
         const point = { x: start.x + delta.x, y: start.y + delta.y };
-        const horizontal = gridColumns(at.group.grid).length > 1;
+        const flow = gridFlow(at.group.grid);
+        const horizontal = flow === "horizontal" || (flow === "grid" && gridColumns(at.group.grid).length > 1);
         const before = horizontal ? point.x < over.rect.left + over.rect.width / 2 : point.y < over.rect.top + over.rect.height / 2;
         setInsertion((prev) => (prev?.blockId === o.blockId && prev.before === before ? prev : { blockId: o.blockId, before, horizontal, blockType: d.blockType }));
       }}
@@ -566,7 +569,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
             return mapSection(list, from.section.id, (s) => ({
               ...s,
               // Laid out by hand: the two swap cells; otherwise the order changes.
-              groups: hasPlacedCells(s.groups) ? swapCells(s.groups, d.groupId, o.groupId, gridColumns(s.grid).length, gridRows(s.grid)) : arrayMove(s.groups, from.index, to.index),
+              groups: placedByHand(s.grid, s.groups) ? swapCells(s.groups, d.groupId, o.groupId, gridColumns(s.grid).length, gridRows(s.grid)) : arrayMove(s.groups, from.index, to.index),
             }));
           });
         } else if (d.type === "block" && o.type === "block") {
@@ -576,7 +579,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
             if (!from || !to || from.group.id !== to.group.id || from.index === to.index) return list;
             return mapGroup(list, from.group.id, (g) => ({
               ...g,
-              blocks: hasPlacedCells(g.blocks) ? swapCells(g.blocks, d.blockId, o.blockId, gridColumns(g.grid).length, gridRows(g.grid)) : arrayMove(g.blocks, from.index, to.index),
+              blocks: placedByHand(g.grid, g.blocks) ? swapCells(g.blocks, d.blockId, o.blockId, gridColumns(g.grid).length, gridRows(g.grid)) : arrayMove(g.blocks, from.index, to.index),
             }));
           });
         }
@@ -607,11 +610,16 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
 const stayPut: SortingStrategy = () => null;
 
 /**
- * Children laid out in more than one column move in two dimensions; on a grid
- * laid out by hand they stay put.
+ * Stacked / side by side, children move along the flow; laid out in more
+ * than one column they move in two dimensions; on a grid laid out by hand
+ * they stay put.
  */
-const strategyFor = (grid: GridSettings | undefined, children: { row?: number; col?: number }[]) =>
-  hasPlacedCells(children) ? stayPut : gridColumns(grid).length > 1 ? rectSortingStrategy : verticalListSortingStrategy;
+function strategyFor(grid: GridSettings | undefined, children: { row?: number; col?: number }[]): SortingStrategy {
+  const flow = gridFlow(grid);
+  if (flow === "vertical") return verticalListSortingStrategy;
+  if (flow === "horizontal") return horizontalListSortingStrategy;
+  return hasPlacedCells(children) ? stayPut : gridColumns(grid).length > 1 ? rectSortingStrategy : verticalListSortingStrategy;
+}
 
 /** The groups (Blok) of one section as a sortable list. */
 export function SectionGroups({ section, children }: { section: PageSection; children: ReactNode }) {
