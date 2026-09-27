@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { DesignVariable, TextStyle, Typography, VariableKind } from "@/types/design";
-import type { ItemTextField } from "@/types/project";
+import type { Block, BlockType, ItemTextField } from "@/types/project";
 import { cssValue } from "./designVariables";
 
 /**
@@ -21,8 +21,14 @@ const style = (id: string, name: string, fontSize: string, fontWeight: string, l
   color: { alias: color },
 });
 
-/** The typography the site's texts already have (CaseStudyBlocks), as the first text styles — so nothing changes until they are edited. */
+/**
+ * The typography the site's texts already have (CoreBlocks, CaseStudyBlocks),
+ * as the first text styles — so nothing changes until they are edited: a
+ * Bölüm's heading and its subtitle, a paragraph, and the Künye's texts.
+ */
 export const STARTING_TEXT_STYLES: TextStyle[] = [
+  style("section-title", "Bölüm başlığı", "font-size-m", "weight-medium", "line-height-s", "text-title"),
+  style("subtitle", "Alt başlık", "font-size-m", "weight-regular", "line-height-m", "text-subtitle"),
   style("heading", "Başlık", "font-size-m", "weight-medium", "line-height-m", "text-title"),
   style("text", "Metin", "font-size-m", "weight-light", "line-height-l", "text-p"),
   style("label", "Etiket", "font-size-s", "weight-regular", "line-height-s", "text-subtitle"),
@@ -34,6 +40,18 @@ export const STARTING_TEXT_STYLES: TextStyle[] = [
 export function startingStyle(field: ItemTextField): string {
   const byField: Partial<Record<ItemTextField, string>> = { label: "label", value: "value", title: "heading", eyebrow: "label", caption: "caption" };
   return byField[field] ?? "text";
+}
+
+/** The style a text layer of the page starts with — its type's look (a heading, a subtitle, a paragraph). */
+export const PAGE_TEXT_STYLES: Partial<Record<BlockType, string>> = { heading: "section-title", subheading: "subtitle", text: "text" };
+
+/**
+ * The style a text layer of the page is in: its own (Block.textStyle) when it
+ * is one of `styles`, else its type's.
+ */
+export function pageTextStyle(block: Pick<Block, "type" | "textStyle">, styles: readonly TextStyle[]): string | undefined {
+  const own = block.textStyle && styles.some((s) => s.id === block.textStyle) ? block.textStyle : undefined;
+  return own ?? PAGE_TEXT_STYLES[block.type];
 }
 
 /** The site's text styles: the starting ones — as stored, when changed — in their place, then the added ones. */

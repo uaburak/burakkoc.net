@@ -297,6 +297,8 @@ export interface Block {
    * (Figma's instance swap); its type's own one when unset (or gone).
    */
   component?: string;
+  /** A text layer (a heading, a subtitle, a paragraph): its text style — its type's when unset (see pageTextStyle) */
+  textStyle?: string;
   // EN
   contentEn?: string;
   subheadingEn?: string;

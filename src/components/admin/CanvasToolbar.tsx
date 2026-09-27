@@ -71,7 +71,7 @@ export function CanvasToolbar({ onPage, frameLabel, onFrame, onText, onImage, on
       <Tool icon="16.image" label="Görsel" disabled={!onPage} onClick={onImage} />
       <Tool icon="16.line" label="Ayırıcı" disabled={!onPage} onClick={onLine} />
       <Divider />
-      <Tool icon="16.component" label="Varlıklar" shortcut="⇧I" onClick={onAssets} />
+      <Tool icon="16.component" label="Varlıklar" onClick={onAssets} />
       {extra}
     </div>
   );

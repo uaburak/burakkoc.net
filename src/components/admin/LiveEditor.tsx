@@ -31,6 +31,7 @@ import {
   SquareButton,
   SizeGroup,
   TextLayerInspector,
+  TypographyGroup,
   InspectorHeader,
   LookFields,
   Group as PanelGroup,
@@ -71,6 +72,7 @@ import {
   type ResolvedInstance,
 } from "@/components/project/components";
 import { DesignSystemStyle } from "@/components/project/designSystem";
+import { PAGE_TEXT_STYLES, pageTextStyle } from "@/components/project/textStyles";
 import { frameLookStyle, useFrameLook } from "@/components/project/frameLook";
 import { VariablesModal } from "@/components/admin/VariablesModal";
 import { AssetsPanel } from "@/components/admin/AssetsPanel";
@@ -1820,6 +1822,26 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     else select({ kind: "section", sectionId: actions.addSection() }, { scroll: true });
   }
 
+  // The toolbar's keys, as Figma's: F a frame, T a text (on the project's page) — never while typing, or with a modifier held.
+  const tools = useRef({ frame: addFrame, text: () => addFromCatalog("text"), page });
+  useEffect(() => {
+    tools.current = { frame: addFrame, text: () => addFromCatalog("text"), page };
+  });
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const el = document.activeElement as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat || (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)))) return;
+      if (tools.current.page !== "project") return;
+      const key = e.key.toLowerCase();
+      if (key === "f") tools.current.frame();
+      else if (key === "t") tools.current.text();
+      else return;
+      e.preventDefault();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // A layer dropped from the assets becomes the selection (when it landed somewhere).
   useDndMonitor({
     onDragEnd({ active }) {
@@ -1904,9 +1926,24 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       onSelect: () => select({ kind: "component", componentId: holder.id, layerId: layer.id }, { scroll: true }),
     }));
   }
-  /** Where a text style is: the components' text layers in it — each selected on the Bileşenler page. */
+  /** Where a text style is: this page's texts in it, and the components' text layers — each selected where it is. */
   function styleUses(styleId: string): DesignUse[] {
-    return (textStyleUses(components).get(styleId) ?? []).map(({ component, layer }) => ({
+    const onPage = sectionsOf(project.items).flatMap((section, index) =>
+      sectionBlocks(section)
+        .filter((b) => layerKind(b.type) === "text" && pageTextStyle(b, textStyles) === styleId)
+        .map((b) => ({
+          key: b.id,
+          icon: fi("16.text"),
+          tone: FRAME_TONE,
+          label: blockName(b),
+          detail: sectionName(section, index),
+          onSelect: () => {
+            setStyleEditor(null);
+            select({ kind: "block", blockId: b.id }, { scroll: true });
+          },
+        }))
+    );
+    return [...onPage, ...(textStyleUses(components).get(styleId) ?? []).map(({ component, layer }) => ({
       key: `${component.id}:${layer.id}`,
       icon: fi("16.text"),
       tone: FRAME_TONE,
@@ -1916,7 +1953,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
         setStyleEditor(null);
         goToMain(component.id, layer.id);
       },
-    }));
+    }))];
   }
   /** Opens a text style's popover beside the design panel, at `under`'s height. */
   function openStyle(id: string, under: Element) {
@@ -1925,11 +1962,11 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     setStyleEditor({ id, anchor: { top, left } });
   }
 
-  /** Items for a page component's main to show: its first instance's on this page, else samples. */
+  /** Items for a page component's main to show: the filled ones of an instance on this page with a few of them, else samples. */
   const sampleEntries = (type: BlockType): BlockEntry[] => {
-    const block = sectionsOf(project.items).flatMap(sectionBlocks).find((b) => b.type === type && (b.entries?.length ?? 0) > 0);
-    if (block) return localizeBlock(block, lang).entries ?? [];
-    return (SAMPLE_ENTRIES[type] ?? createCaseStudyBlockDefaults(type).entries ?? []).map((e, i) => ({ id: `sample-${i}`, ...e }));
+    const filled = (b: Block) => (localizeBlock(b, lang).entries ?? []).filter((e) => e.label?.trim() || e.value?.trim() || e.title?.trim() || e.text?.trim());
+    const found = sectionsOf(project.items).flatMap(sectionBlocks).filter((b) => b.type === type).map(filled).find((entries) => entries.length >= 2);
+    return found ?? (SAMPLE_ENTRIES[type] ?? createCaseStudyBlockDefaults(type).entries ?? []).map((e, i) => ({ id: `sample-${i}`, ...e }));
   };
 
   // ── The design panel (right), as Figma's: the selection's header — its kind, name and menu — its actions and properties ──
@@ -2053,7 +2090,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     header = {
       icon: layerIcon(block.type),
       tone: layerTone(block.type),
-      title: instance ? instance.main.name : kind === "text" ? "Metin" : kind === "image" ? "Görsel" : BLOCK_LABELS[block.type],
+      title: instance ? instance.main.name : BLOCK_LABELS[block.type],
       menu: [
         ...holders({ section, group }),
         ...(instance
@@ -2118,6 +2155,15 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
             measure={`[data-block-id="${block.id}"]`}
             onChange={(size) => update({ size })}
             clip={{ checked: Boolean(block.look?.clip), onChange: (clip) => update({ look: { ...block.look, clip: clip || undefined } }) }}
+          />
+        )}
+        {kind === "text" && (
+          <TypographyGroup
+            styleId={pageTextStyle(block, textStyles)}
+            styles={textStyles}
+            variables={variables}
+            onChange={(id) => update({ textStyle: id === PAGE_TEXT_STYLES[block.type] ? undefined : id })}
+            onEditStyle={openStyle}
           />
         )}
         <LookFields look={instance ? instance.look : block.look} variables={variables} canHide onChange={instance ? setLook : (look) => update({ look })} />

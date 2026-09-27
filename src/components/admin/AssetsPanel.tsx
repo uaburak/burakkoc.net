@@ -78,7 +78,8 @@ function DraggableAsset({ type, component, onAdd, action }: {
       icon={component ? <FigmaIcon name="16.component" /> : layerIcon(type)}
       tone={component ? "var(--edit-component)" : layerTone(type)}
       name={component ? splitName(component.name)[1] || component.name : BLOCK_LABELS[type]}
-      hint={component ? BLOCK_LABELS[type] : undefined}
+      // A copy of a page component (Proje Künyesi 2): the kind it is.
+      hint={component && component.name !== BLOCK_LABELS[type] ? BLOCK_LABELS[type] : undefined}
       title={def?.description}
       dragging={isDragging}
       action={action}

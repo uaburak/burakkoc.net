@@ -1973,12 +1973,13 @@ export function Bindable({ kind, value, targets, byId, mode, prefix, onChange, c
 }
 
 /** A colour of its own: its swatch (the system's colour picker) and its value, typed. */
-export function ColorField({ label, value, suffix, onChange }: { label: string; value: string; suffix?: ReactNode; onChange: (value: string) => void }) {
+export function ColorField({ label, value, placeholder, suffix, onChange }: { label: string; value: string; placeholder?: string; suffix?: ReactNode; onChange: (value: string) => void }) {
   return (
     <TextField
       label={label}
       value={value}
       onChange={onChange}
+      placeholder={placeholder}
       suffix={suffix}
       prefix={
         <label className="relative block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)] overflow-hidden cursor-pointer" style={{ backgroundColor: value || "transparent" }}>

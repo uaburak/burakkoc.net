@@ -43,7 +43,7 @@ function ThemeFields({ theme, onChange }: { theme?: ProjectTheme; onChange: (the
           label={label}
           icon={current[key] && <SquareButton label={`${label}: sitenin rengine dön`} onClick={() => set(key, undefined)}>{Glyphs.minus}</SquareButton>}
         >
-          <ColorField label={`${label} rengi`} value={current[key] ?? ""} onChange={(v) => set(key, v)} />
+          <ColorField label={`${label} rengi`} value={current[key] ?? ""} placeholder="Sitenin" onChange={(v) => set(key, v)} />
         </Row>
       ))}
       <div className="flex flex-wrap gap-1.5 pl-[80px]">

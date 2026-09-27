@@ -14,6 +14,7 @@ import { ComponentRenderer } from "@/components/demos/ComponentRegistry";
 import { cn } from "@/lib/utils";
 import { CaseStudyBlock } from "./CaseStudyBlocks";
 import { EditableText } from "./Editable";
+import { pageTextStyle, useTextStyles } from "./textStyles";
 import { SortableGroup, SortableItem } from "./Sortable";
 import type { BlockEditApi, Lang } from "./editing";
 
@@ -229,13 +230,23 @@ function MediaCaption({ block, edit }: { block: Block; edit?: BlockEditApi }) {
 
 // ── Text blocks ───────────────────────────────────────────────────────────────
 
+/**
+ * A text layer's text style (see pageTextStyle) — its typography comes from
+ * there; the classes keep its type's look outside a design scope.
+ */
+function useTextStyle(block: Block) {
+  return pageTextStyle(block, useTextStyles());
+}
+
 function HeadingBlock({ block, animate, edit }: CoreProps) {
+  const textStyle = useTextStyle(block);
   if (!block.content && !edit) return null;
   return (
     <div className="flex flex-col w-full">
       <TextReveal animate={animate}>
         <EditableText
           as="h2"
+          textStyle={textStyle}
           className="w-full text-base font-medium leading-5 text-[var(--text-title)]"
           value={block.content}
           onChange={edit && ((v) => edit.setText("content", v))}
@@ -246,6 +257,7 @@ function HeadingBlock({ block, animate, edit }: CoreProps) {
         <TextReveal animate={animate}>
           <EditableText
             as="p"
+            textStyle="subtitle"
             className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]"
             value={block.subheading}
             onChange={edit && ((v) => edit.setText("subheading", v))}
@@ -258,11 +270,13 @@ function HeadingBlock({ block, animate, edit }: CoreProps) {
 }
 
 function SubheadingBlock({ block, animate, edit }: CoreProps) {
+  const textStyle = useTextStyle(block);
   if (!block.content && !edit) return null;
   return (
     <TextReveal animate={animate}>
       <EditableText
         as="p"
+        textStyle={textStyle}
         className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]"
         value={block.content}
         onChange={edit && ((v) => edit.setText("content", v))}
@@ -273,11 +287,13 @@ function SubheadingBlock({ block, animate, edit }: CoreProps) {
 }
 
 function TextBlock({ block, animate, edit }: CoreProps) {
+  const textStyle = useTextStyle(block);
   if (!block.content && !edit) return null;
   return (
     <TextReveal animate={animate}>
       <EditableText
         as="p"
+        textStyle={textStyle}
         rich
         multiline
         className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
