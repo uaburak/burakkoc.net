@@ -10,7 +10,7 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, freeCells, gridColumns, gridRows, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
+import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, freeCells, gridColumns, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
 
 /**
  * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
@@ -728,21 +728,88 @@ const ALIGNS_Y: { value: GridAlign; label: string; icon: ReactNode }[] = [
 ];
 
 /**
+ * Figma's alignment box in the grid's own shape: as many columns (to width)
+ * and rows as the grid has — 3 × 3, even 12 × 12. A dot in each empty cell,
+ * the bars in each cell holding a child (across the cells it covers). Off —
+ * faded, nothing to click — until a grid is assigned (see hasGrid). With a
+ * single child (`onPlace`), click a cell to move it there.
+ */
+function GridBox({ columns, rows, cells, assigned, onPlace }: {
+  columns: number[];
+  rows: number;
+  /** The children's cells */
+  cells: Cell[];
+  assigned: boolean;
+  /** Move the only child to a cell */
+  onPlace?: (row: number, col: number) => void;
+}) {
+  const place = (row: number, col: number) => `${row}. satır, ${col}. sütun`;
+  const pick = assigned ? onPlace : undefined;
+  return (
+    <div
+      role="group"
+      aria-label="Izgara"
+      aria-disabled={!assigned}
+      title={assigned ? undefined : "Önce ızgara ata: sütun ya da satır sayısı ver"}
+      className={cn("grid h-full min-h-16 p-1 rounded-[6px] bg-[var(--bg-4)]", !assigned && "opacity-50")}
+      style={{ gridTemplateColumns: columns.map((w) => `minmax(0,${w}fr)`).join(" "), gridTemplateRows: `repeat(${rows}, minmax(14px, 1fr))` }}
+    >
+      {freeCells(cells, columns.length, rows).map((f) => {
+        const dot = <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60 group-hover/align:hidden" />;
+        return pick ? (
+          <button
+            key={`free-${f.row}-${f.col}`}
+            type="button"
+            title={`${place(f.row, f.col)} — buraya taşı`}
+            aria-label={`${place(f.row, f.col)} — buraya taşı`}
+            onClick={() => pick(f.row, f.col)}
+            className="group/align flex items-center justify-center rounded-[4px] cursor-pointer"
+            style={{ gridRow: f.row, gridColumn: f.col }}
+          >
+            {dot}
+            <span className="hidden group-hover/align:flex">
+              <AlignBars vertical="center" faint />
+            </span>
+          </button>
+        ) : (
+          <span key={`free-${f.row}-${f.col}`} className="flex items-center justify-center" style={{ gridRow: f.row, gridColumn: f.col }}>
+            {dot}
+          </span>
+        );
+      })}
+      {cells.map((c, i) => (
+        <span
+          key={`child-${i}`}
+          title={place(c.row, c.col)}
+          className={cn("flex items-center justify-center rounded-[4px]", c.span > 1 && "mx-0.5 bg-[color-mix(in_srgb,var(--edit-accent)_12%,transparent)]")}
+          style={{ gridRow: c.row, gridColumn: `${c.col} / span ${c.span}` }}
+        >
+          <AlignBars vertical="center" />
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
  * The grid a section lays its Bloks on — or a Blok its components, Figma's
  * "Auto layout": the column and row counts, a preset layout, each column's width
- * (twelfths — its neighbour gives or takes), the gaps between the children
- * and the padding inside the box (px). Where each child sits in its cell is
- * the child's own (PlacementGroup).
+ * (twelfths — its neighbour gives or takes), then the box in the grid's shape
+ * (GridBox) with the gaps between the children beside it, and the padding
+ * inside (px).
  */
-function GridFields({ grid, usedRows, onChange }: {
+function GridFields({ grid, cells, onPlace, onChange }: {
   grid?: GridSettings;
-  /** How many rows its children take up now — it can't have fewer */
-  usedRows: number;
+  /** Its children's cells (layoutCells) */
+  cells: Cell[];
+  /** Move its only child to a cell (unset: it has none, or several) */
+  onPlace?: (row: number, col: number) => void;
   onChange: (grid: GridSettings) => void;
 }) {
   const columns = gridColumns(grid);
   const count = columns.length;
-  const minRows = Math.max(1, usedRows);
+  // It can't have fewer rows than its children take up now.
+  const minRows = Math.max(1, ...cells.map((c) => c.row));
   const presets = GRID_PRESETS[count];
   const current = layoutName(columns);
   const gaps = gridGaps(grid);
@@ -808,10 +875,16 @@ function GridFields({ grid, usedRows, onChange }: {
           </div>
         </>
       )}
-      {/* Gaps between the children, padding inside the box (px). */}
+      {/* As in Figma's Auto layout: the box on the left, the gaps beside it; the padding under them (px). */}
       <div className="grid grid-cols-2 gap-2">
+        <div className="row-span-2">
+          <GridBox columns={columns} rows={Math.max(gridRows(grid), minRows)} cells={cells} assigned={hasGrid(grid)} onPlace={onPlace} />
+        </div>
         <NumberField label="Sütunlar arası boşluk" prefix={Glyphs.gapX} value={gaps.column} min={0} max={400} onChange={(columnGap) => onChange({ ...grid, columnGap })} />
         <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
+      </div>
+      {!hasGrid(grid) && <p className="-mt-1 text-[11px] leading-4 text-[var(--text-subtitle)]">Kutu, ızgara atanınca çalışır: sütun ya da satır sayısı ver.</p>}
+      <div className="grid grid-cols-2 gap-2">
         <NumberField label="Yatay iç boşluk" prefix={Glyphs.padX} value={grid?.paddingX ?? 0} min={0} max={400} onChange={(paddingX) => onChange({ ...grid, paddingX })} />
         <NumberField label="Dikey iç boşluk" prefix={Glyphs.padY} value={grid?.paddingY ?? 0} min={0} max={400} onChange={(paddingY) => onChange({ ...grid, paddingY })} />
       </div>
@@ -896,7 +969,8 @@ function CellPicker({ columns, rows, cells, index, labels, onPlace, onSwap }: {
  * Where a Blok or component sits, Figma's "Position": its parent's grid in
  * small (CellPicker) — as many columns and rows as the grid has; click a cell
  * to move it there — and, with more than one column, how many it covers.
- * Where it sits inside its cell is set under Boyut.
+ * Only once a grid is assigned to the parent (see hasGrid). Where it sits
+ * inside its cell is set under Boyut.
  */
 export function PlacementGroup({ title = "Konum", index, siblings, labels, parent, onPlace, onSwap, onSpan }: {
   title?: string;
@@ -911,7 +985,8 @@ export function PlacementGroup({ title = "Konum", index, siblings, labels, paren
   onSwap: (otherId: string) => void;
   onSpan: (span: number) => void;
 }) {
-  if (index < 0) return null;
+  // No grid assigned to its parent: no cells to choose.
+  if (index < 0 || !hasGrid(parent)) return null;
   const columns = gridColumns(parent);
   const count = columns.length;
   const rows = gridRows(parent);
@@ -1251,21 +1326,28 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
 /** A component's icon, from the catalog. */
 const blockIcon = (type: BlockType) => BLOCK_DEFS.find((d) => d.type === type)?.icon;
 
-/** How many rows of their grid `children` take up now. */
-const usedRows = (children: { span?: number; row?: number; col?: number }[], grid?: GridSettings) =>
-  Math.max(0, ...layoutCells(children, gridColumns(grid).length, gridRows(grid)).map((c) => c.row));
+/** Where `children` sit on their grid. */
+const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid?: GridSettings) =>
+  layoutCells(children, gridColumns(grid).length, gridRows(grid));
 
 /** A section: the grid its Bloks sit on, and its Bloks. */
-export function SectionInspector({ section, onChange, onSelectGroup, onAddGroup }: {
+export function SectionInspector({ section, onChange, onPlaceGroup, onSelectGroup, onAddGroup }: {
   section: PageSection;
   onChange: (patch: { grid?: GridSettings }) => void;
+  /** Put one of its Bloks in a cell of its grid */
+  onPlaceGroup: (groupId: string, row: number, col: number) => void;
   onSelectGroup: (groupId: string) => void;
   onAddGroup: () => void;
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Izgara bölümün sütun ve satırlarını belirler. Bir bloğu boş bir hücreye sürükleyebilir ya da bloğu seçip Konum kutusundan istediğin hücreye taşıyabilirsin.</Hint>
-      <GridFields grid={section.grid} usedRows={usedRows(section.groups, section.grid)} onChange={(grid) => onChange({ grid })} />
+      <Hint>Izgara bölümün sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Bölümde tek blok varsa kutuda bir hücreye tıklayınca oraya geçer.</Hint>
+      <GridFields
+        grid={section.grid}
+        cells={cellsOf(section.groups, section.grid)}
+        onPlace={section.groups.length === 1 ? (row, col) => onPlaceGroup(section.groups[0].id, row, col) : undefined}
+        onChange={(grid) => onChange({ grid })}
+      />
       <Group title="Bloklar" actions={<SquareButton label="Blok ekle" onClick={onAddGroup}>{Glyphs.plus}</SquareButton>}>
         {section.groups.map((g, i) => (
           <ChildRow
@@ -1284,7 +1366,7 @@ export function SectionInspector({ section, onChange, onSelectGroup, onAddGroup 
 }
 
 /** A Blok: its place in the section, the grid its components sit on, and its components. */
-export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap, onSelectBlock, onAddBlock }: {
+export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap, onPlaceBlock, onSelectBlock, onAddBlock }: {
   group: PageGroup;
   section: PageSection;
   lang: Lang;
@@ -1293,12 +1375,14 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
   onPlace: (row: number, col: number) => void;
   /** Swap cells with another Blok of the section */
   onSwap: (otherId: string) => void;
+  /** Put one of its components in a cell of its grid */
+  onPlaceBlock: (blockId: string, row: number, col: number) => void;
   onSelectBlock: (blockId: string) => void;
   onAddBlock: () => void;
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Konum bloğun bölümün ızgarasındaki yeri: bir hücreye tıkla, oraya geçsin. Izgara ise bloğun kendi bileşenlerinin dizildiği sütun ve satırlar.</Hint>
+      <Hint>Izgara bloğun sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Blokta tek bileşen varsa kutuda bir hücreye tıklayınca oraya geçer.</Hint>
       <PlacementGroup
         index={section.groups.findIndex((g) => g.id === group.id)}
         siblings={section.groups}
@@ -1315,7 +1399,12 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
         onChange={(size) => onChange({ size })}
         onAlign={(cellAlign) => onChange({ cellAlign })}
       />
-      <GridFields grid={group.grid} usedRows={usedRows(group.blocks, group.grid)} onChange={(grid) => onChange({ grid })} />
+      <GridFields
+        grid={group.grid}
+        cells={cellsOf(group.blocks, group.grid)}
+        onPlace={group.blocks.length === 1 ? (row, col) => onPlaceBlock(group.blocks[0].id, row, col) : undefined}
+        onChange={(grid) => onChange({ grid })}
+      />
       <Group title="Bileşenler" actions={<SquareButton label="Bileşen ekle" onClick={onAddBlock}>{Glyphs.plus}</SquareButton>}>
         {group.blocks.map((b) => (
           <ChildRow

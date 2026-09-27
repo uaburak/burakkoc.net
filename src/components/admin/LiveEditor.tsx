@@ -2294,6 +2294,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                   onChange={(patch) => actions.updateGroup(selectedGroup.group.id, patch)}
                   onPlace={(row, col) => actions.placeGroup(selectedGroup.group.id, selectedGroup.section.id, row, col)}
                   onSwap={(otherId) => actions.swapGroups(selectedGroup.section.id, selectedGroup.group.id, otherId)}
+                  onPlaceBlock={(blockId, row, col) => actions.placeBlock(blockId, selectedGroup.group.id, row, col)}
                   onSelectBlock={(blockId) => select({ kind: "block", blockId }, { scroll: true })}
                   onAddBlock={() => setPicker({ groupId: selectedGroup.group.id })}
                 />
@@ -2303,6 +2304,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                 <SectionInspector
                   section={selectedSection.section}
                   onChange={(patch) => actions.updateSection(selectedSection.section.id, patch)}
+                  onPlaceGroup={(groupId, row, col) => actions.placeGroup(groupId, selectedSection.section.id, row, col)}
                   onSelectGroup={(groupId) => select({ kind: "group", groupId }, { scroll: true })}
                   onAddGroup={() => select({ kind: "group", groupId: actions.addGroup(selectedSection.section.id) }, { scroll: true })}
                 />

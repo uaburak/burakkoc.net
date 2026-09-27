@@ -46,6 +46,11 @@ export function gridRows(grid?: GridSettings): number {
   return Number.isFinite(rows) && rows >= 1 ? Math.min(MAX_ROWS, Math.round(rows)) : 0;
 }
 
+/** Was a grid assigned — more than one column, or a row count set? */
+export function hasGrid(grid?: GridSettings) {
+  return gridColumns(grid).length > 1 || gridRows(grid) > 0;
+}
+
 /** The grid's column widths — one full-width column unless set. */
 export function gridColumns(grid?: GridSettings): number[] {
   const columns = grid?.columns?.filter((c) => Number.isFinite(c) && c > 0);
