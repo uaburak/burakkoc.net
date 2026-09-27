@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type ElementType, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { renderRichText } from "./RichText";
 
@@ -89,6 +89,13 @@ export interface EditableTextProps {
   onBackspaceEmpty?: () => void;
   /** Custom rendering of a non-empty value while not being edited (bullets, icons…) */
   display?: (value: string) => ReactNode;
+  /**
+   * A text layer of its component's item (the live editor selects it and lays
+   * it out — see ComponentDesign — without drawing a line around it): its
+   * field, as `data-text-layer`.
+   */
+  layer?: string;
+  style?: CSSProperties;
 }
 
 export function EditableText({
@@ -103,6 +110,8 @@ export function EditableText({
   onEnter,
   onBackspaceEmpty,
   display,
+  layer,
+  style,
 }: EditableTextProps) {
   const [editing, setEditing] = useState(autoEdit);
   const ref = useRef<HTMLElement>(null);
@@ -127,7 +136,7 @@ export function EditableText({
 
   if (!onChange) {
     if (!value) return null;
-    return <Tag className={className}>{content}</Tag>;
+    return <Tag className={className} style={style}>{content}</Tag>;
   }
 
   // The two modes are separate elements (distinct keys). The editing element's
@@ -137,7 +146,9 @@ export function EditableText({
     return (
       <Tag
         key="view"
+        data-text-layer={layer}
         className={className}
+        style={style}
         onDoubleClick={(e: React.MouseEvent) => {
           clickPoint.current = { x: e.clientX, y: e.clientY };
           setEditing(true);
@@ -166,6 +177,8 @@ export function EditableText({
     <Tag
       key="edit"
       ref={ref}
+      data-text-layer={layer}
+      style={style}
       contentEditable={PLAINTEXT_ONLY ? "plaintext-only" : true}
       suppressContentEditableWarning
       spellCheck

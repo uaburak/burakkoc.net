@@ -328,6 +328,35 @@ export interface PageDivider {
 
 export type PageItem = PageSection | PageDivider;
 
+// ── Main components (site-wide) ───────────────────────────────────────────────
+//
+// As Figma's main components: each component type has one design, shared by
+// every instance on every page — editing it changes them all. It is the
+// component's inside, as layers: the component lays out its items (the cards
+// of a Proje Künyesi), each item lays out its text layers (Etiket, Değer).
+// Stored apart from the projects (see loadComponentDesigns); unset values keep
+// the type's built-in look.
+
+/** The text fields of an item that show as layers (see BlockEntry). */
+export type ItemTextField = "label" | "value" | "eyebrow" | "title" | "text" | "caption";
+
+/** A text layer of an item: its size in the item's layout, and where it sits there when narrower. */
+export interface TextLayerDesign {
+  size?: Sizing;
+  align?: CellAlign;
+}
+
+export interface ComponentDesign {
+  /** The component's frame: how it lays out its items */
+  layout?: GridSettings;
+  /** Every item (card): its frame — how it lays out its texts — and its size in the component */
+  item?: { layout?: GridSettings; size?: Sizing };
+  /** Its text layers, by field */
+  texts?: Partial<Record<ItemTextField, TextLayerDesign>>;
+}
+
+export type ComponentDesigns = Partial<Record<BlockType, ComponentDesign>>;
+
 // ── Project ──────────────────────────────────────────────────────────────────
 
 export interface ProjectTheme {

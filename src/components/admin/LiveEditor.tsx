@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useDndMonitor } from "@dnd-kit/core";
-import { Block, BlockType, GridSettings, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
+import { Block, BlockType, ComponentDesign, ComponentDesigns, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { PillButton } from "@/components/Button";
@@ -18,13 +18,16 @@ import { PillLabel } from "@/components/admin/FormEditor";
 import { ProjectThemeFields } from "@/components/admin/ProjectThemeFields";
 import {
   BlockInspector,
+  ComponentLayoutGroup,
   GroupInspector,
   ItemInspector,
+  ItemLayoutGroup,
   PageFrameInspector,
   PlacementGroup,
   ProjectInspector,
   SectionInspector,
   SizeGroup,
+  TextLayerInspector,
   canMoveItem,
   duplicateItem,
   freeSize,
@@ -33,7 +36,11 @@ import {
   moveItem,
   plainText,
   removeItem,
+  textLayersOf,
+  addEntry,
+  itemNoun,
 } from "@/components/admin/LiveInspector";
+import { DESIGNED_TYPES, resolveDesign } from "@/components/project/componentDesign";
 import { BLOCK_DEFS, BLOCK_GROUPS, BLOCK_LABELS, BlockPickerDialog, GROUP_TONE, SECTION_TONE, blockTone, uid } from "@/components/admin/blockCatalog";
 import {
   GroupBlocks,
@@ -86,7 +93,14 @@ type Selection =
   | { kind: "meta"; part?: OverviewPart }
   | { kind: "section"; sectionId: string }
   | { kind: "group"; groupId: string }
-  | { kind: "block"; blockId: string; /** An item clicked inside the block (card, step, list item…) */ itemId?: string }
+  | {
+      kind: "block";
+      blockId: string;
+      /** An item clicked inside the block (card, step, list item…) */
+      itemId?: string;
+      /** A text layer of that item (a component laid out by its main component — see ComponentDesign) */
+      text?: ItemTextField;
+    }
   | { kind: "divider"; dividerId: string };
 /** The left panel's tabs; the inspector (Düzenle) has a panel of its own, on the right. */
 type Tab = "layers" | "components" | "theme" | "publish";
@@ -673,7 +687,7 @@ function LiveOverview({ project, lang, actions, selection }: {
 
 // ── Canvas: component (Bileşen) ───────────────────────────────────────────────
 
-function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId }: {
+function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId, selectedText }: {
   block: Block;
   /** Its Blok: where it sits for drag & drop */
   group: Group;
@@ -685,6 +699,8 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   selected: boolean;
   /** Item selected inside this block */
   selectedItemId: string | null;
+  /** …or a text layer of that item */
+  selectedText: ItemTextField | null;
 }) {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, group.id);
   const display = useMemo(() => localizeBlock(block, lang), [block, lang]);
@@ -701,14 +717,21 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   const insertion = useInsertion();
   const line = insertion?.blockId === block.id ? insertion : null;
 
-  // Mark the selected item (SortableItem draws an outline in the block's colour for `data-selected`).
+  // Mark the selected item — or text layer, its item then `data-child-selected` (SortableItem and the
+  // text layers draw their lines in the block's colour for them).
   useLayoutEffect(() => {
     const root = blockEl.current;
     if (!root) return;
-    root.querySelectorAll("[data-entry-id][data-selected]").forEach((el) => {
-      if (el.getAttribute("data-entry-id") !== selectedItemId) el.removeAttribute("data-selected");
+    root.querySelectorAll("[data-selected], [data-child-selected]").forEach((el) => {
+      el.removeAttribute("data-selected");
+      el.removeAttribute("data-child-selected");
     });
-    if (selectedItemId) root.querySelector(`[data-entry-id="${selectedItemId}"]`)?.setAttribute("data-selected", "");
+    const item = selectedItemId ? root.querySelector(`[data-entry-id="${selectedItemId}"]`) : null;
+    const text = item && selectedText ? item.querySelector(`[data-text-layer="${selectedText}"]`) : null;
+    if (text) {
+      text.setAttribute("data-selected", "");
+      item?.setAttribute("data-child-selected", "");
+    } else item?.setAttribute("data-selected", "");
   });
 
   return (
@@ -754,7 +777,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
  * own. A click in its selected section selects it (see pressOn); drag it once
  * it is selected.
  */
-function LiveGroup({ group, section, cell, lang, actions, selected, active, selectedBlockId, selectedItemId, onInsert }: {
+function LiveGroup({ group, section, cell, lang, actions, selected, active, selectedBlockId, selectedItemId, selectedText, onInsert }: {
   group: Group;
   section: PageSection;
   /** Its cell of the section's grid */
@@ -766,6 +789,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
   active: boolean;
   selectedBlockId: string | null;
   selectedItemId: string | null;
+  selectedText: ItemTextField | null;
   /** Opens the component picker for this Blok: in a free cell, else at its end */
   onInsert: (at?: { cell?: { row: number; col: number } }) => void;
 }) {
@@ -815,6 +839,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
             actions={actions}
             selected={selectedBlockId === block.id}
             selectedItemId={selectedBlockId === block.id ? selectedItemId : null}
+            selectedText={selectedBlockId === block.id ? selectedText : null}
           />
         ))}
       </GroupBlocks>
@@ -852,7 +877,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
 
 // ── Canvas: section & divider ─────────────────────────────────────────────────
 
-function LiveSection({ section, index, lang, actions, selected, active, selectedGroupId, activeGroupId, selectedBlockId, selectedItemId, onSelect, onInsert }: {
+function LiveSection({ section, index, lang, actions, selected, active, selectedGroupId, activeGroupId, selectedBlockId, selectedItemId, selectedText, onSelect, onInsert }: {
   section: PageSection;
   index: number;
   lang: Lang;
@@ -865,6 +890,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
   activeGroupId: string | null;
   selectedBlockId: string | null;
   selectedItemId: string | null;
+  selectedText: ItemTextField | null;
   onSelect: (next: Selection) => void;
   /** Opens the component picker for a Blok */
   onInsert: (target: PickerTarget) => void;
@@ -939,6 +965,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
                 active={activeGroupId === group.id}
                 selectedBlockId={selectedBlockId}
                 selectedItemId={selectedItemId}
+                selectedText={selectedText}
                 onInsert={(at) => onInsert({ groupId: group.id, ...at })}
               />
             ))}
@@ -1066,7 +1093,12 @@ function layersAt(target: Element): Layer[] {
     if (!block || !blockId || !group.contains(block)) return layers;
     layers.push({ selection: { kind: "block", blockId }, el: block });
     const item = target.closest<HTMLElement>("[data-entry-id]");
-    if (item?.dataset.entryId && block.contains(item)) layers.push({ selection: { kind: "block", blockId, itemId: item.dataset.entryId }, el: item });
+    const itemId = item?.dataset.entryId;
+    if (!item || !itemId || !block.contains(item)) return layers;
+    layers.push({ selection: { kind: "block", blockId, itemId }, el: item });
+    // A text layer of the item (a component laid out by its main component).
+    const text = target.closest<HTMLElement>("[data-text-layer]");
+    if (text?.dataset.textLayer && item.contains(text)) layers.push({ selection: { kind: "block", blockId, itemId, text: text.dataset.textLayer as ItemTextField }, el: text });
     return layers;
   }
   const overview = target.closest<HTMLElement>("#live-overview");
@@ -1093,7 +1125,9 @@ function selectionLayers(selection: Selection, items: PageItem[]): Selection[] {
       const found = findBlock(items, selection.blockId);
       if (!found) return [];
       const holders: Selection[] = [{ kind: "section", sectionId: found.section.id }, { kind: "group", groupId: found.group.id }, { kind: "block", blockId: selection.blockId }];
-      return selection.itemId ? [...holders, selection] : holders;
+      if (!selection.itemId) return holders;
+      const item: Selection = { kind: "block", blockId: selection.blockId, itemId: selection.itemId };
+      return selection.text ? [...holders, item, selection] : [...holders, item];
     }
     case "meta":
       return selection.part ? [{ kind: "meta" }, selection] : [selection];
@@ -1108,7 +1142,7 @@ function layerKey(s: Selection): string {
   switch (s.kind) {
     case "section": return `section:${s.sectionId}`;
     case "group": return `group:${s.groupId}`;
-    case "block": return s.itemId ? `item:${s.blockId}:${s.itemId}` : `block:${s.blockId}`;
+    case "block": return s.text ? `text:${s.blockId}:${s.itemId}:${s.text}` : s.itemId ? `item:${s.blockId}:${s.itemId}` : `block:${s.blockId}`;
     case "meta": return `meta:${s.part ?? ""}`;
     case "divider": return `divider:${s.dividerId}`;
     default: return s.kind;
@@ -1205,6 +1239,18 @@ const LayerIcons = {
   divider: (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path d="M1.5 7h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
+  // An item of a component (a card, a row…): a frame of its own.
+  item: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="2" y="3" width="10" height="8" rx="2" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  ),
+  // Figma's text layer.
+  text: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M3 3.5h8M7 3.5v7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   ),
 };
@@ -1368,6 +1414,12 @@ const layerNode = (selected: boolean, dragging: boolean) =>
     dragging && "opacity-40"
   );
 
+/**
+ * Components and items open in the layer tree (see LayerBlock) — they start
+ * closed, as in Figma; a selection inside opens them (revealLayer).
+ */
+const OpenComponentsContext = createContext<{ open: ReadonlySet<string>; toggle: (id: string) => void }>({ open: new Set(), toggle: () => {} });
+
 function LayerBlock({ block, group, selection, actions, onSelect }: {
   block: Block;
   /** Its Blok */
@@ -1377,17 +1429,29 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
   onSelect: SelectFromPanel;
 }) {
   const { setNodeRef, listeners, isDragging } = useSortableBlock(block, group.id);
-  const selected = selection.kind === "block" && selection.blockId === block.id;
+  const inside = selection.kind === "block" && selection.blockId === block.id;
+  const selected = inside && !selection.itemId;
   const tone = blockTone(block.type);
   const select = () => onSelect({ kind: "block", blockId: block.id });
   const drop = useTreeDrop(block.id);
+  const { open: opened, toggle } = useContext(OpenComponentsContext);
+  // Laid out by its main component: its items, and their text layers, are layers too.
+  const designed = DESIGNED_TYPES.has(block.type);
+  const open = designed ? opened.has(block.id) : undefined;
+  // A component with items (cards, rows, list items…): "+" adds one at its end and selects it.
+  const noun = itemNoun(block);
+  const addItem = () => {
+    const { patch, id } = addEntry(block);
+    actions.updateBlock(block.id, patch);
+    onSelect({ kind: "block", blockId: block.id, itemId: id });
+  };
   return (
     <div
       ref={setNodeRef}
       data-layer-id={block.id}
       data-layer-kind="block"
       {...listeners}
-      className={cn("relative rounded-[8px]", isDragging && "opacity-40")}
+      className={layerNode(inside, isDragging)}
     >
       <DropLine place={drop} depth={2} />
       <LayerRow
@@ -1396,11 +1460,72 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
         icon={blockIcon(block.type)}
         name={blockName(block)}
         selected={selected}
+        open={open}
+        onToggle={() => toggle(block.id)}
         hover={`[data-block-id="${block.id}"]`}
         onSelect={select}
         onInspect={select}
         onRename={(name) => actions.updateBlock(block.id, { name })}
+      >
+        {noun && (
+          <LayerButton label={`${noun} ekle`} onClick={addItem}>{Icons.plus}</LayerButton>
+        )}
+      </LayerRow>
+      {open && (block.entries ?? []).map((entry) => (
+        <LayerItem key={entry.id} block={block} itemId={entry.id} selection={selection} onSelect={onSelect} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * An item of a component (a card, a row…) in the layer tree, with its text
+ * layers. Items are reordered on the canvas: its rows don't drag.
+ */
+function LayerItem({ block, itemId, selection, onSelect }: {
+  block: Block;
+  itemId: string;
+  selection: Selection;
+  onSelect: SelectFromPanel;
+}) {
+  const inside = selection.kind === "block" && selection.blockId === block.id && selection.itemId === itemId;
+  const tone = blockTone(block.type);
+  const { open: opened, toggle } = useContext(OpenComponentsContext);
+  const texts = textLayersOf(block.type);
+  const open = opened.has(itemId);
+  const item = `[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`;
+  const select = () => onSelect({ kind: "block", blockId: block.id, itemId });
+  return (
+    <div data-layer-id={itemId} data-layer-kind="item" data-no-drag className={layerNode(inside, false)}>
+      <LayerRow
+        depth={3}
+        tone={tone}
+        icon={LayerIcons.item}
+        name={itemName(block, itemId)}
+        selected={inside && !selection.text}
+        open={texts.length > 0 ? open : undefined}
+        onToggle={() => toggle(itemId)}
+        hover={item}
+        onSelect={select}
+        onInspect={select}
       />
+      {open && texts.map((t) => {
+        const pick = () => onSelect({ kind: "block", blockId: block.id, itemId, text: t.field });
+        return (
+          <div key={t.field} data-layer-id={`${itemId}:${t.field}`} data-layer-kind="text" data-no-drag>
+            <LayerRow
+              depth={4}
+              tone={tone}
+              icon={LayerIcons.text}
+              name={t.name}
+              selected={inside && selection.text === t.field}
+              hover={`${item} [data-text-layer="${t.field}"]`}
+              onSelect={pick}
+              onInspect={pick}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1850,12 +1975,16 @@ const TAB_TITLES: Record<Tab, string> = {
   publish: "Yayın",
 };
 
-export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemplate }: {
+export function LiveEditor({ project, lang, slug, companies, actions, designs, onDesign, onLoadTemplate }: {
   project: ProjectData;
   lang: Lang;
   slug: string;
   companies: string[];
   actions: EditorActions;
+  /** The site's main components (see ComponentDesign) */
+  designs: ComponentDesigns;
+  /** Changes a type's main component — every instance, on every page */
+  onDesign: (type: BlockType, design: ComponentDesign) => void;
   onLoadTemplate: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("layers");
@@ -1864,6 +1993,16 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
   const [picker, setPicker] = useState<PickerTarget | null>(null);
   // Sections and Bloks folded in the layer tree (kept across tab switches).
   const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(() => new Set());
+  // Components (and their items) open in the layer tree — they start closed, as in Figma.
+  const [openComponents, setOpenComponents] = useState<Set<string>>(() => new Set());
+  const toggleComponent = useCallback((id: string) => {
+    setOpenComponents((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   const layerSections = sectionsOf(project.items);
   const allLayersCollapsed = layerSections.length > 0 && layerSections.every((s) => collapsedLayers.has(s.id));
   /** Folds every section (the selected one too) — or opens everything, Bloks included. */
@@ -1897,6 +2036,11 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
     selection.kind === "block" && selection.itemId && selectedBlock && hasItem(selectedBlock.block, selection.itemId)
       ? selection.itemId
       : null;
+  // A text layer of that item — of a component laid out by its main component.
+  const selectedText =
+    selection.kind === "block" && selectedItemId && selection.text && selectedBlock && textLayersOf(selectedBlock.block.type).some((t) => t.field === selection.text)
+      ? selection.text
+      : null;
   // Backspace / Delete removes the selection — the layer, or the card / item picked inside a
   // component — as in Figma; never while a field (text on the page, a layer's name…) is being typed in.
   useEffect(() => {
@@ -1907,6 +2051,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
       // The raw selection: one that is already gone deletes nothing.
       const current = rawSelection;
       if (current.kind === "block") {
+        // A text layer belongs to its main component: nothing to delete.
+        if (selectedText) return;
         const found = selectedItemId ? findBlock(project.items, current.blockId) : null;
         if (found && selectedItemId) actions.updateBlock(found.block.id, removeItem(found.block, selectedItemId));
         else actions.deleteBlock(current.blockId);
@@ -1918,7 +2064,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rawSelection, selectedItemId, project.items, actions]);
+  }, [rawSelection, selectedItemId, selectedText, project.items, actions]);
 
   // The section and Blok holding the selection: their outlines stay lit.
   const activeSectionId = selectedBlock?.section.id ?? selectedGroup?.section.id ?? null;
@@ -1938,6 +2084,10 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
       ids.forEach((id) => open.delete(id));
       return open;
     });
+    // An item or text layer: its component (and item) open too — they start closed.
+    if (next.kind !== "block" || !next.itemId) return;
+    const inner = next.text ? [next.blockId, next.itemId] : [next.blockId];
+    setOpenComponents((prev) => (inner.every((id) => prev.has(id)) ? prev : new Set([...prev, ...inner])));
   }
 
   /** Selecting shows the element in the inspector (right) and, with `scroll`, brings it into view on the canvas. */
@@ -1948,7 +2098,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
     // Next frame: the element may have just been added.
     requestAnimationFrame(() => {
       const target =
-        next.kind === "block" && next.itemId ? document.querySelector(`[data-block-id="${next.blockId}"] [data-entry-id="${next.itemId}"]`)
+        next.kind === "block" && next.text ? document.querySelector(`[data-block-id="${next.blockId}"] [data-entry-id="${next.itemId}"] [data-text-layer="${next.text}"]`)
+        : next.kind === "block" && next.itemId ? document.querySelector(`[data-block-id="${next.blockId}"] [data-entry-id="${next.itemId}"]`)
         : next.kind === "block" ? document.querySelector(`[data-block-id="${next.blockId}"]`)
         : next.kind === "group" ? document.querySelector(`[data-group-id="${next.groupId}"]`)
         : next.kind === "section" ? document.querySelector(`[data-section-id="${next.sectionId}"]`)
@@ -1960,7 +2111,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
   }
 
   // ── Picking on the canvas, as in Figma (see pressOn) ──
-  const picked: Selection = selection.kind === "block" ? { kind: "block", blockId: selection.blockId, itemId: selectedItemId ?? undefined } : selection;
+  const picked: Selection = selection.kind === "block" ? { kind: "block", blockId: selection.blockId, itemId: selectedItemId ?? undefined, text: selectedText ?? undefined } : selection;
   const pickedLayers = selectionLayers(picked, project.items);
   /** The last press: the layer its click goes down to — and whether it, and the one before it, was in the selected component. */
   const press = useRef<{ drill: Selection | null; armed: boolean; armedBefore: boolean }>({ drill: null, armed: false, armedBefore: false });
@@ -2044,6 +2195,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
       },
     ];
     if (itemId) crumbs.push({ label: blockName(block), onClick: () => select({ kind: "block", blockId: block.id }, { scroll: true }) });
+    if (itemId && selectedText) crumbs.push({ label: itemName(block, itemId), onClick: () => select({ kind: "block", blockId: block.id, itemId }, { scroll: true }) });
     return crumbs;
   }
 
@@ -2064,7 +2216,9 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
   // Inspector header (right): what is selected and what can be done with it.
   let inspectorTitle = "Proje bilgileri";
   let inspectorActions: ReactNode = null;
-  if (selectedBlock && selectedItemId) {
+  if (selectedBlock && selectedItemId && selectedText) {
+    inspectorTitle = textLayersOf(selectedBlock.block.type).find((t) => t.field === selectedText)?.name ?? "Metin";
+  } else if (selectedBlock && selectedItemId) {
     const { block } = selectedBlock;
     const itemId = selectedItemId;
     const update = (patch: Partial<Block>) => actions.updateBlock(block.id, patch);
@@ -2122,13 +2276,20 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
     inspectorActions = <LayerButton label="Ayırıcıyı sil" onClick={() => actions.deleteItem(dividerId)}>{Icons.trash}</LayerButton>;
   }
 
+  // The selected component's main component (see ComponentDesign), if its type has one; changes go to it — every instance.
+  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs) : null;
+  const setMain = (patch: ComponentDesign) => {
+    if (selectedBlock) onDesign(selectedBlock.block.type, { ...designs[selectedBlock.block.type], ...patch });
+  };
+
   // The selection's size under its line (SizeBadge), in its level's colour — not while the page is the compact list.
   let badge: BadgeTarget | null = null;
   if (reordering) badge = null;
   else if (selectedBlock) {
     const { id, type } = selectedBlock.block;
+    const item = `[data-block-id="${id}"] [data-entry-id="${selectedItemId}"]`;
     badge = selectedItemId
-      ? { selector: `[data-block-id="${id}"] [data-entry-id="${selectedItemId}"]`, tone: blockTone(type) }
+      ? { selector: selectedText ? `${item} [data-text-layer="${selectedText}"]` : item, tone: blockTone(type) }
       : { selector: `[data-block-id="${id}"]`, tone: blockTone(type), frame: true };
   } else if (selectedGroup) badge = { selector: `[data-group-id="${selectedGroup.group.id}"]`, tone: GROUP_TONE, below: 5 };
   else if (selectedSection) badge = { selector: `[data-section-id="${selectedSection.section.id}"]`, tone: SECTION_TONE, padded: true };
@@ -2170,6 +2331,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
             edge={2}
           >
             {tab === "layers" && (
+              <OpenComponentsContext.Provider value={{ open: openComponents, toggle: toggleComponent }}>
               <LayersPanel
                 project={project}
                 selection={selection}
@@ -2186,6 +2348,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                 onSelect={(next, { scroll = true } = {}) => select(next, { scroll })}
                 onAddBlock={(groupId) => setPicker({ groupId })}
               />
+              </OpenComponentsContext.Provider>
             )}
 
             {tab === "components" && <CatalogPanel target={catalogTarget} onAdd={addFromCatalog} />}
@@ -2292,6 +2455,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                     activeGroupId={activeGroupId}
                     selectedBlockId={selectedBlock?.block.id ?? null}
                     selectedItemId={selectedItemId}
+                    selectedText={selectedText}
                     onSelect={(next) => select(next)}
                     onInsert={setPicker}
                   />
@@ -2341,12 +2505,23 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
             {selectedBlock ? (
               <div className="flex flex-col">
                 <Crumbs items={blockCrumbs(selectedBlock, selectedItemId)} />
-                {selectedItemId ? (
+                {selectedItemId && selectedText && blockDesign ? (
+                  <TextLayerInspector
+                    block={selectedBlock.block}
+                    itemId={selectedItemId}
+                    field={selectedText}
+                    design={blockDesign}
+                    lang={lang}
+                    onDesign={(layer) => setMain({ texts: { ...designs[selectedBlock.block.type]?.texts, [selectedText]: layer } })}
+                    onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
+                  />
+                ) : selectedItemId ? (
                   <ItemInspector
                     block={selectedBlock.block}
                     itemId={selectedItemId}
                     lang={lang}
                     projectSlug={slug}
+                    layout={blockDesign && <ItemLayoutGroup block={selectedBlock.block} itemId={selectedItemId} design={blockDesign} onChange={(item) => setMain({ item })} />}
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
                   />
                 ) : (
@@ -2375,6 +2550,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                           measure={`[data-block-id="${selectedBlock.block.id}"]`}
                           onChange={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
                         />
+                        {blockDesign && <ComponentLayoutGroup block={selectedBlock.block} design={blockDesign} onChange={(layout) => setMain({ layout })} />}
                       </>
                     }
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}

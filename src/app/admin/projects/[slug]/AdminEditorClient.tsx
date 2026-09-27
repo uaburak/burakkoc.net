@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { ProjectData } from "@/types/project";
+import { BlockType, ComponentDesign, ComponentDesigns, ProjectData } from "@/types/project";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
-import { saveProject, loadProject, getCVData } from "@/lib/firestore";
+import { saveProject, loadProject, getCVData, loadComponentDesigns, saveComponentDesigns } from "@/lib/firestore";
 import { createProjectTemplate } from "@/lib/projectTemplate";
 import { PillButton } from "@/components/Button";
 import { Segmented } from "@/components/Segmented";
@@ -17,6 +17,7 @@ import { LiveEditor } from "@/components/admin/LiveEditor";
 import { ProjectDndProvider } from "@/components/admin/ProjectDnd";
 import { useEditorActions } from "@/components/admin/editorActions";
 import { normalizeItems } from "@/lib/projectLayout";
+import { ComponentDesignContext } from "@/components/project/componentDesign";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -90,11 +91,22 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   /** Whether this project exists in Firestore (i.e. has been published at least once) */
   const [isPublished, setIsPublished] = useState(false);
   const [companies, setCompanies] = useState<string[]>([]);
+  // The site's main components (ComponentDesign): edited here, saved with the project — they change every page.
+  const [designs, setDesigns] = useState<ComponentDesigns>({});
+  const [designsChanged, setDesignsChanged] = useState(false);
+  const setDesign = (type: BlockType, design: ComponentDesign) => {
+    setDesigns((all) => ({ ...all, [type]: design }));
+    setDesignsChanged(true);
+  };
 
   function changeMode(next: EditorMode) {
     setMode(next);
     try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
   }
+
+  useEffect(() => {
+    loadComponentDesigns().then(setDesigns);
+  }, []);
 
   useEffect(() => {
     getCVData()
@@ -153,6 +165,10 @@ export function AdminEditorClient({ slug }: { slug: string }) {
     setSaveStatus("saving");
     try {
       await saveProject(dataToSave);
+      if (designsChanged) {
+        await saveComponentDesigns(designs);
+        setDesignsChanged(false);
+      }
       setProject(dataToSave);
       setIsPublished(true);
       localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(dataToSave));
@@ -169,7 +185,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   useEffect(() => {
     registerSave(handleSave);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, slug]);
+  }, [project, slug, designs, designsChanged]);
 
   if (loadingFromDB) {
     return (
@@ -264,6 +280,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       {/* ── Editor ── */}
       <div className="flex-1 min-h-0">
         {/* Live editor: drags start right away; block editor: press and hold. */}
+        <ComponentDesignContext.Provider value={designs}>
         <ProjectDndProvider items={project.items} onItemsChange={actions.setItems} activation={mode === "live" ? "press" : "hold"}>
           {mode === "form" ? (
             <FormEditor
@@ -282,10 +299,13 @@ export function AdminEditorClient({ slug }: { slug: string }) {
               slug={slug}
               companies={companies}
               actions={actions}
+              designs={designs}
+              onDesign={setDesign}
               onLoadTemplate={loadTemplate}
             />
           )}
         </ProjectDndProvider>
+        </ComponentDesignContext.Provider>
       </div>
 
       {showAddMenu && (

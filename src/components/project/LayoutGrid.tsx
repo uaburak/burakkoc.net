@@ -204,6 +204,100 @@ export function sizeProps(size: Sizing | undefined, stretchChild: boolean, align
   };
 }
 
+// ── Inside a component (its main component, see ComponentDesign) ──────────────
+//
+// The same auto layout as above, but at every width — a component's items keep
+// their layout on a phone too — so as plain styles, not breakpoint classes.
+
+const CSS_ALIGN: Record<GridAlign, "start" | "center" | "end"> = { start: "start", center: "center", end: "end" };
+const FLEX_ALIGN: Record<GridAlign, "flex-start" | "center" | "flex-end"> = { start: "flex-start", center: "center", end: "flex-end" };
+
+/** The style of a frame inside a component: its flow, gaps, padding and where its content sits (see gridProps). */
+export function innerLayoutStyle(grid?: GridSettings): CSSProperties {
+  const px = (n?: number) => (n == null ? undefined : `${n}px`);
+  const padding = {
+    paddingLeft: px(grid?.paddingLeft ?? grid?.paddingX),
+    paddingRight: px(grid?.paddingRight ?? grid?.paddingX),
+    paddingTop: px(grid?.paddingTop ?? grid?.paddingY),
+    paddingBottom: px(grid?.paddingBottom ?? grid?.paddingY),
+  };
+  const gaps = gridGaps(grid);
+  const flow = gridFlow(grid);
+  if (flow !== "grid") {
+    const across = flow === "horizontal";
+    const along = (across ? grid?.justify : grid?.align) ?? "start";
+    const cross = (across ? grid?.align : grid?.justify) ?? "start";
+    const wrap = across && Boolean(grid?.wrap);
+    return {
+      display: "flex",
+      flexDirection: across ? "row" : "column",
+      flexWrap: wrap ? "wrap" : undefined,
+      alignContent: wrap ? FLEX_ALIGN[cross] : undefined,
+      justifyContent: grid?.spread ? "space-between" : FLEX_ALIGN[along],
+      alignItems: FLEX_ALIGN[cross],
+      ...(wrap ? { columnGap: px(gaps.column), rowGap: px(gaps.row) } : { gap: px(across ? gaps.column : gaps.row) }),
+      width: "100%",
+      ...padding,
+    };
+  }
+  const rows = rowTracks(grid);
+  const align = grid?.align ?? "start";
+  return {
+    display: "grid",
+    gridTemplateColumns: columnTracks(grid).map((t) => trackCss(t, "column")).join(" "),
+    gridTemplateRows: rows.length > 0 ? rows.map((t) => trackCss(t, "row")).join(" ") : undefined,
+    columnGap: px(gaps.column),
+    rowGap: px(gaps.row),
+    alignItems: CSS_ALIGN[align],
+    // Taller than its rows: they gather in the middle / at the bottom; at the top they keep filling it.
+    alignContent: align === "start" ? undefined : CSS_ALIGN[align],
+    justifyItems: grid?.justify ? CSS_ALIGN[grid.justify] : undefined,
+    width: "100%",
+    ...padding,
+  };
+}
+
+/** The style of a child's size in a frame inside a component (see sizeProps): Fill / Hug / Fixed, its limits, and where it sits when narrower. */
+export function innerChildStyle(size: Sizing | undefined, align: CellAlign | undefined, flow: LayoutFlow): CSSProperties {
+  const width = size?.width ?? "fill";
+  const height = size?.height ?? "hug";
+  const fixedWidth = width === "fixed" && size?.widthPx ? size.widthPx : null;
+  const fixedHeight = height === "fixed" && size?.heightPx ? size.heightPx : null;
+  const limits: CSSProperties = {
+    minWidth: size?.minWidthPx ? `min(${size.minWidthPx}px, 100%)` : undefined,
+    maxWidth: size?.maxWidthPx ? `min(${size.maxWidthPx}px, 100%)` : undefined,
+    minHeight: size?.minHeightPx ? `${size.minHeightPx}px` : undefined,
+    maxHeight: size?.maxHeightPx ? `${size.maxHeightPx}px` : undefined,
+    overflow: size?.maxHeightPx || fixedHeight !== null ? "hidden" : undefined,
+  };
+  const narrow = width === "hug" || fixedWidth !== null;
+  const own = {
+    width: width === "hug" ? "fit-content" : fixedWidth !== null ? `${fixedWidth}px` : undefined,
+    height: fixedHeight !== null ? `${fixedHeight}px` : undefined,
+  };
+  if (flow !== "grid") {
+    // Stacked / side by side: Fill takes the free space along the flow and the frame's size across it.
+    const across = flow === "horizontal";
+    return {
+      ...own,
+      maxWidth: narrow ? "100%" : undefined,
+      flex: (width === "fill" && across) || (height === "fill" && !across) ? "1 1 0%" : narrow || fixedHeight !== null ? "none" : undefined,
+      alignSelf: (width === "fill" && !across) || (height === "fill" && across) ? "stretch" : undefined,
+      ...(width === "fill" && across ? { minWidth: 0 } : {}),
+      ...(height === "fill" && !across ? { minHeight: 0 } : {}),
+      ...Object.fromEntries(Object.entries(limits).filter(([, v]) => v !== undefined)),
+    };
+  }
+  return {
+    ...own,
+    maxWidth: narrow ? "100%" : undefined,
+    // Narrower than its cell: where its own alignment says — unset, where its frame's does.
+    justifySelf: narrow ? (align?.x ? CSS_ALIGN[align.x] : "auto") : "stretch",
+    alignSelf: height === "fill" ? "stretch" : align?.y ? CSS_ALIGN[align.y] : undefined,
+    ...Object.fromEntries(Object.entries(limits).filter(([, v]) => v !== undefined)),
+  };
+}
+
 /** Children with their cells, in reading order — the order on small screens; stacked / side by side, in their list order. */
 function inCells<T extends { span?: number; row?: number; col?: number }>(children: T[], grid?: GridSettings) {
   const cells = layoutCells(children, gridColumns(grid).length, gridRows(grid));

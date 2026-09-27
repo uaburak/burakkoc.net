@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, type ElementType, type ReactNode, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createContext, useContext, useEffect, type CSSProperties, type ElementType, type ReactNode, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -248,12 +248,13 @@ interface SortableItemProps {
   id: string;
   as?: ElementType;
   className?: string;
+  style?: CSSProperties;
   children: ReactNode;
   /** Live-editor hover outline */
   outline?: boolean;
 }
 
-export function SortableItem({ id, as: Tag = "div", className, children, outline = true }: SortableItemProps) {
+export function SortableItem({ id, as: Tag = "div", className, style, children, outline = true }: SortableItemProps) {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id });
   return (
     <Tag
@@ -261,13 +262,17 @@ export function SortableItem({ id, as: Tag = "div", className, children, outline
       // The live editor finds the clicked item by it (and marks it `data-selected`).
       data-entry-id={id}
       {...listeners}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
+      style={{ ...style, transform: CSS.Translate.toString(transform), transition }}
       className={cn(
         className,
         "relative touch-manipulation",
         // Live editor: a line on the card's edge (as its component's frame), in the colour of the component it
         // belongs to — on hover once a click would select it (`data-canvas-hover`, see the live editor), and while selected.
         outline && "outline outline-1 -outline-offset-1 outline-transparent data-[canvas-hover]:outline-[var(--edit-tone,var(--edit-accent))] data-[selected]:outline-[var(--edit-tone,var(--edit-accent))] transition-[outline-color]",
+        // A text layer inside it is the selection: dashed, as a component's frame around a selected item.
+        outline && "data-[child-selected]:outline-dashed data-[child-selected]:outline-[var(--edit-tone,var(--edit-accent))]",
+        // Hovered in the layer tree.
+        outline && "data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-tone,var(--edit-accent))_70%,transparent)]",
         // Items without their own corners (steps, rows) get a soft one for the outline.
         outline && !/\brounded/.test(className ?? "") && "rounded-[8px]",
         isDragging && cn(DRAG_LIFT, "outline-[var(--edit-tone,var(--edit-accent))]")

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, Group as PageGroup, LayoutFlow, LinkIconType, ListItem, ListStyle, PageFrame, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
+import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, Group as PageGroup, ItemTextField, LayoutFlow, LinkIconType, ListItem, ListStyle, PageFrame, PageSection, ProjectData, SizeMode, Sizing, TextLayerDesign } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
@@ -10,6 +10,7 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
+import { DESIGNED_TYPES, type ResolvedDesign } from "@/components/project/componentDesign";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, sectionsOf, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
@@ -283,6 +284,12 @@ function Hint({ children }: { children: ReactNode }) {
 }
 
 const Glyphs = {
+  /** Figma's component mark: four diamonds */
+  mainComponent: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+      <path d="M6 .8l1.7 1.7L6 4.2 4.3 2.5zM2.5 4.3L4.2 6 2.5 7.7.8 6zM9.5 4.3L11.2 6 9.5 7.7 7.8 6zM6 7.8l1.7 1.7L6 11.2 4.3 9.5z" />
+    </svg>
+  ),
   plus: (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
@@ -963,10 +970,10 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
   grid?: GridSettings;
   /** Finds its frame on the canvas, for its W / H and the sizes its columns and rows have now */
   measure: string;
-  /** Its own size (W / H), right under the direction — as in Figma's Auto layout */
+  /** Its own size (W / H), right under the direction — as in Figma's Auto layout; none without `onSize` */
   size?: Sizing;
   heightModes?: SizeMode[];
-  onSize: (size: Sizing) => void;
+  onSize?: (size: Sizing) => void;
   /** Its children's cells (layoutCells) */
   cells: Cell[];
   /** Where its content sits in it (the alignment box) */
@@ -1008,7 +1015,7 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
           {Glyphs.wrap}
         </ToggleButton>
       </div>
-      <SizeFields size={size} measure={measure} heightModes={heightModes} onChange={onSize} />
+      {onSize && <SizeFields size={size} measure={measure} heightModes={heightModes} onChange={onSize} />}
       {flow === "grid" && (
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} suffix="sütun" onChange={setCount} />
@@ -1693,6 +1700,113 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
   );
 }
 
+// ── Main components (see ComponentDesign) ─────────────────────────────────────
+
+const TEXT_LAYER_FIELDS: ReadonlySet<string> = new Set<ItemTextField>(["label", "value", "eyebrow", "title", "text", "caption"]);
+
+/**
+ * The text layers of an item of a component laid out by its main component
+ * (DESIGNED_TYPES) — its text fields, named as in the item's settings. None
+ * for the other types.
+ */
+export function textLayersOf(type: BlockType): { field: ItemTextField; name: string }[] {
+  if (!DESIGNED_TYPES.has(type)) return [];
+  return (ENTRY_SPEC[type]?.fields ?? []).filter((f) => TEXT_LAYER_FIELDS.has(f.key)).map((f) => ({ field: f.key as ItemTextField, name: f.label }));
+}
+
+/** Figma's main component mark (purple): what changes here changes every instance. */
+function MainComponentHint({ type, what }: { type: BlockType; what: string }) {
+  return (
+    <Hint>
+      <span className="inline-flex items-center gap-1 align-top font-medium text-[#9747ff]">{Glyphs.mainComponent}Ana bileşen</span>
+      {` · ${what} tüm sitedeki ${BLOCK_LABELS[type]} bileşenlerinde birlikte değişir.`}
+    </Hint>
+  );
+}
+
+/** A component laid out by its main component: how it lays out its items. */
+export function ComponentLayoutGroup({ block, design, onChange }: {
+  block: Block;
+  design: ResolvedDesign;
+  onChange: (layout: GridSettings) => void;
+}) {
+  return (
+    <>
+      <MainComponentHint type={block.type} what="Yerleşimi" />
+      <GridFields
+        grid={design.layout}
+        measure={`[data-block-id="${block.id}"] [data-component-frame]`}
+        cells={cellsOf(itemsOf(block).map(() => ({})), design.layout)}
+        onAlign={(justify, align) => onChange({ ...design.layout, justify, align })}
+        onChange={onChange}
+      />
+    </>
+  );
+}
+
+/** An item of such a component: its frame — how it lays out its text layers — and its size; the same for all its items. */
+export function ItemLayoutGroup({ block, itemId, design, onChange }: {
+  block: Block;
+  itemId: string;
+  design: ResolvedDesign;
+  onChange: (item: ResolvedDesign["item"]) => void;
+}) {
+  const noun = ENTRY_SPEC[block.type]?.noun ?? "Öğe";
+  return (
+    <>
+      <MainComponentHint type={block.type} what={`Her ${noun.toLocaleLowerCase("tr")} aynı; yerleşimi`} />
+      <GridFields
+        grid={design.item.layout}
+        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`}
+        size={design.item.size}
+        onSize={(size) => onChange({ ...design.item, size })}
+        cells={cellsOf(textLayersOf(block.type).map(() => ({})), design.item.layout)}
+        onAlign={(justify, align) => onChange({ ...design.item, layout: { ...design.item.layout, justify, align } })}
+        onChange={(layout) => onChange({ ...design.item, layout })}
+      />
+    </>
+  );
+}
+
+/** A text layer of an item: its size in the item (the same in every item) and this item's text. */
+export function TextLayerInspector({ block, itemId, field, design, lang, onDesign, onChange }: {
+  block: Block;
+  itemId: string;
+  field: ItemTextField;
+  design: ResolvedDesign;
+  lang: Lang;
+  onDesign: (layer: TextLayerDesign) => void;
+  onChange: (patch: Partial<Block>) => void;
+}) {
+  const layer = design.texts[field] ?? {};
+  const spec = ENTRY_SPEC[block.type]?.fields.find((f) => f.key === field);
+  const entries = block.entries ?? [];
+  const entry = entries.find((e) => e.id === itemId);
+  const key = (lang === "en" && !spec?.shared ? `${field}En` : field) as keyof BlockEntry;
+  return (
+    <div className="flex flex-col">
+      <MainComponentHint type={block.type} what="Boyutu" />
+      <SizeGroup
+        size={layer.size}
+        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"] [data-text-layer="${field}"]`}
+        onChange={(size) => onDesign({ ...layer, size })}
+      />
+      {spec && entry && (
+        <Group title="İçerik">
+          <Field label={spec.label}>
+            <AutoTextarea
+              label={spec.label}
+              value={(entry[key] as string | undefined) ?? ""}
+              placeholder={spec.placeholder}
+              onChange={(v) => onChange({ entries: entries.map((e) => (e.id === itemId ? { ...e, [key]: v } : e)) })}
+            />
+          </Field>
+        </Group>
+      )}
+    </div>
+  );
+}
+
 // ── Project inspector (nothing selected) ──────────────────────────────────────
 
 /**
@@ -1807,6 +1921,11 @@ const LIST_SPEC: ItemSpec = { noun: "Madde", fields: [] };
 
 const isListBlock = (block: Block) => block.type === "list";
 
+/** What one item of the component is called ("Satır", "Kart"…) — none when it has no items. */
+export function itemNoun(block: Block): string | undefined {
+  return specOf(block)?.noun;
+}
+
 function specOf(block: Block): ItemSpec | undefined {
   return isListBlock(block) ? LIST_SPEC : ENTRY_SPEC[block.type];
 }
@@ -1861,7 +1980,8 @@ export function removeItem(block: Block, itemId: string): Partial<Block> {
   return withItems(block, itemsOf(block).filter((i) => i.id !== itemId));
 }
 
-function addEntry(block: Block): { patch: Partial<Block>; id: string } {
+/** A new empty item at the end of the component: the change, and its id. */
+export function addEntry(block: Block): { patch: Partial<Block>; id: string } {
   if (isListBlock(block)) {
     const id = editorUid("li");
     return { patch: { listItems: [...(block.listItems ?? []), { id, text: "" }] }, id };
@@ -1952,11 +2072,13 @@ function AutoTextarea({ label, value, onChange, placeholder }: { label: string; 
 }
 
 /** Settings of one item (card, step, link, list item…) inside a block. */
-export function ItemInspector({ block, itemId, lang, projectSlug, onChange }: {
+export function ItemInspector({ block, itemId, lang, projectSlug, layout, onChange }: {
   block: Block;
   itemId: string;
   lang: Lang;
   projectSlug: string;
+  /** Its frame, from its main component (see ItemLayoutGroup) — first */
+  layout?: ReactNode;
   onChange: (patch: Partial<Block>) => void;
 }) {
   const en = lang === "en";
@@ -1991,6 +2113,7 @@ export function ItemInspector({ block, itemId, lang, projectSlug, onChange }: {
 
   return (
     <div className="flex flex-col">
+      {layout}
       {spec.image && (
         <Group title={block.type === "team" ? "Fotoğraf" : "Görsel"}>
           <ImageSource

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from "react";
-import { AspectRatio, Block, BlockEntry, BlockType, LinkIconType } from "@/types/project";
+import { AspectRatio, Block, BlockEntry, BlockType, ItemTextField, LinkIconType } from "@/types/project";
 import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,9 @@ import { isSafeHref, renderRichText } from "./RichText";
 import { EditableText } from "./Editable";
 import { SortableGroup, SortableItem } from "./Sortable";
 import type { BlockEditApi, EntryTextKey } from "./editing";
+import { gridFlow } from "@/lib/projectLayout";
+import { innerChildStyle, innerLayoutStyle } from "./LayoutGrid";
+import { useComponentDesign, type ResolvedDesign } from "./componentDesign";
 
 /**
  * Case-study blocks: info, stats, cards, steps, quote, gallery, compare, links,
@@ -114,14 +117,18 @@ const GRID_SM_COLS: Record<2 | 3 | 4, string> = {
  * Delete once selected).
  */
 function Entries({
-  entries, edit, as: Tag = "div", className, itemAs: ItemTag = "div", itemClassName, strategy = "grid", render,
+  entries, edit, as: Tag = "div", className, style, designed = false, itemAs: ItemTag = "div", itemClassName, itemStyle, strategy = "grid", render,
 }: {
   entries: BlockEntry[];
   edit?: BlockEditApi;
   as?: ElementType;
   className?: string;
+  style?: CSSProperties;
+  /** Laid out by its main component (see designFrame): the editor measures it as the component's frame (`data-component-frame`). */
+  designed?: boolean;
   itemAs?: ElementType;
   itemClassName?: string | ((entry: BlockEntry, index: number) => string);
+  itemStyle?: CSSProperties;
   strategy?: "grid" | "vertical";
   render: (entry: BlockEntry, index: number) => ReactNode;
 }) {
@@ -129,17 +136,17 @@ function Entries({
 
   if (!edit) {
     return (
-      <Tag className={className}>
-        {entries.map((e, i) => <ItemTag key={e.id} className={cls(e, i)}>{render(e, i)}</ItemTag>)}
+      <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
+        {entries.map((e, i) => <ItemTag key={e.id} className={cls(e, i)} style={itemStyle}>{render(e, i)}</ItemTag>)}
       </Tag>
     );
   }
 
   return (
     <SortableGroup ids={entries.map((e) => e.id)} onMove={edit.moveEntry} strategy={strategy}>
-      <Tag className={className}>
+      <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
         {entries.map((e, i) => (
-          <SortableItem key={e.id} id={e.id} as={ItemTag} className={cls(e, i)}>
+          <SortableItem key={e.id} id={e.id} as={ItemTag} className={cls(e, i)} style={itemStyle}>
             {render(e, i)}
           </SortableItem>
         ))}
@@ -148,23 +155,41 @@ function Entries({
   );
 }
 
+/**
+ * The layout of a component laid out by its main component (ComponentDesign),
+ * at every width: its frame (how it lays out its items), each item's frame
+ * and size, and a text layer's size and place in its item — as styles.
+ */
+function designFrame(design: ResolvedDesign) {
+  return {
+    frame: innerLayoutStyle(design.layout),
+    item: { ...innerLayoutStyle(design.item.layout), ...innerChildStyle(design.item.size, undefined, gridFlow(design.layout)) },
+    text: (field: ItemTextField) => innerChildStyle(design.texts[field]?.size, design.texts[field]?.align, gridFlow(design.item.layout)),
+  };
+}
+
 // ── Info (proje künyesi) ──────────────────────────────────────────────────────
 
 function InfoBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "label", "value");
+  const layout = designFrame(useComponentDesign("info"));
   if (!entries.length && !edit) return null;
+  const label = layout.text("label");
+  const value = layout.text("value");
   return (
     <Entries
       entries={entries}
       edit={edit}
       as="dl"
-      className="grid grid-cols-2 gap-2.5 w-full"
-      itemClassName="flex flex-col gap-0.5 px-4 py-3 rounded-[22px] bg-[var(--bg-4)] min-w-0"
+      designed
+      style={layout.frame}
+      itemClassName="rounded-[22px] bg-[var(--bg-4)] min-w-0"
+      itemStyle={layout.item}
       render={(e) => (
         <>
-          <EditableText as="dt" className="text-sm font-normal leading-5 text-[var(--text-subtitle)]"
+          <EditableText as="dt" layer="label" className="text-sm font-normal leading-5 text-[var(--text-subtitle)]" style={label}
             value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Etiket" />
-          <EditableText as="dd" rich className="text-base font-normal leading-6 text-[var(--text-title)] break-words"
+          <EditableText as="dd" layer="value" rich className="text-base font-normal leading-6 text-[var(--text-title)] break-words" style={value}
             value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="Değer" />
         </>
       )}

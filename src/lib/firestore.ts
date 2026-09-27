@@ -9,7 +9,7 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { ProjectData } from "@/types/project";
+import { ComponentDesigns, ProjectData } from "@/types/project";
 import { normalizeItems } from "@/lib/projectLayout";
 
 import { CVData } from "@/types/cv";
@@ -175,6 +175,29 @@ export async function loadProject(slug: string): Promise<ProjectData | null> {
 export async function listProjects(): Promise<ProjectData[]> {
   const snap = await getDocs(collection(db, COLLECTION));
   return snap.docs.map((d) => normalizeProjectData(d.data() as Record<string, unknown>));
+}
+
+// ── Main components (site-wide, see ComponentDesign) ──────────────────────────
+
+const DESIGN_COLLECTION = "design";
+const DESIGN_DOC_ID = "components";
+
+/** The site's main components — none set (every type's built-in look) when there are none yet or they can't be read. */
+export async function loadComponentDesigns(): Promise<ComponentDesigns> {
+  try {
+    const snap = await getDoc(doc(db, DESIGN_COLLECTION, DESIGN_DOC_ID));
+    if (!snap.exists()) return {};
+    const data = snap.data();
+    delete data.updatedAt;
+    return data as ComponentDesigns;
+  } catch (err) {
+    console.warn("Main components could not be loaded — using the built-in look:", err);
+    return {};
+  }
+}
+
+export async function saveComponentDesigns(designs: ComponentDesigns): Promise<void> {
+  await setDoc(doc(db, DESIGN_COLLECTION, DESIGN_DOC_ID), { ...stripUndefined(designs), updatedAt: serverTimestamp() });
 }
 
 // ── Delete project ────────────────────────────────────────────────────────────

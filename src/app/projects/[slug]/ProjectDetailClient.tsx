@@ -6,7 +6,7 @@ import gsap from "gsap";
 import { ArrowLeftIcon } from "@/components/icons";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
 import { loadProject, listProjects } from "@/lib/firestore";
-import { ProjectData, PageSection, PageItem } from "@/types/project";
+import { ComponentDesigns, ProjectData, PageSection, PageItem } from "@/types/project";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import PageEntrance from "@/components/PageEntrance";
@@ -14,6 +14,7 @@ import { projectThemeAttrs } from "@/components/project/projectTheme";
 import { ProjectDivider } from "@/components/project/CoreBlocks";
 import { SectionContent, pageFrameProps, sectionWidthClass } from "@/components/project/LayoutGrid";
 import { sectionBlocks } from "@/lib/projectLayout";
+import { ComponentDesignContext } from "@/components/project/componentDesign";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 
@@ -248,12 +249,15 @@ interface ProjectDetailClientProps {
   slug: string;
   initialProject?: ProjectData | null;
   initialProjects?: ProjectData[];
+  /** The site's main components (see ComponentDesign) */
+  designs?: ComponentDesigns;
 }
 
 export function ProjectDetailClient({
   slug,
   initialProject,
   initialProjects,
+  designs = {},
 }: ProjectDetailClientProps) {
   const [project, setProject] = useState<ProjectData | null>(initialProject || null);
   const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);
@@ -325,6 +329,7 @@ export function ProjectDetailClient({
   const themeAttrs = projectThemeAttrs(project.theme);
 
   return (
+    <ComponentDesignContext.Provider value={designs}>
     <PageEntrance
       className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative"
       {...themeAttrs}
@@ -416,5 +421,6 @@ export function ProjectDetailClient({
         )}
       </main>
     </PageEntrance>
+    </ComponentDesignContext.Provider>
   );
 }
