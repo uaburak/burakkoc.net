@@ -323,7 +323,7 @@ function ImageBlock({ block, animate, edit }: CoreProps) {
               )
             ) : (
               <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">
-                {edit ? (block.alt || "Görsel ekle — sağdaki ayarlardan") : "Görsel bulunamadı"}
+                {edit ? (block.alt || "Görsel ekle — Düzenle panelinden") : "Görsel bulunamadı"}
               </div>
             )
           ) : tab2 ? (
@@ -370,7 +370,7 @@ function VideoBlock({ block, animate, edit }: CoreProps) {
               )
             ) : (
               <div className="absolute inset-0 flex items-center justify-center text-[var(--text-subtitle)] text-sm font-light select-none opacity-40">
-                {edit ? "Video bağlantısı ekle — sağdaki ayarlardan" : "Video bulunamadı"}
+                {edit ? "Video bağlantısı ekle — Düzenle panelinden" : "Video bulunamadı"}
               </div>
             )
           ) : segBadge?.tab2 ? (
@@ -531,6 +531,17 @@ function ListBlock({ block, animate, edit }: CoreProps) {
           })}
         </div>
       </SortableGroup>
+      {items.length === 0 && (
+        // An empty list would be invisible on the canvas: offer the first item.
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setFocusId(edit.addListItem()); }}
+          className={cn(LIST_ITEM_CLASS, "w-full border border-dashed border-[var(--border-hover)] bg-transparent text-[var(--text-subtitle)] hover:text-[var(--text-title)] cursor-pointer")}
+        >
+          <ListMarker style={style} index={0} checked={false} />
+          <span className="flex-1 min-w-0 text-left">İlk maddeyi ekle</span>
+        </button>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, LinkIconType, ListItem, ListStyle, ProjectData } from "@/types/project";
+import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, GridAlign, GridGap, GridSettings, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/Input";
 import { Segmented } from "@/components/Segmented";
@@ -11,13 +11,17 @@ import { CoverImageUpload } from "@/components/admin/FormEditor";
 import { UploadZone } from "@/components/admin/ImageBlockEditor";
 import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
+import { BLOCK_LABELS, GROUP_TONE, SECTION_TONE, blockTone } from "@/components/admin/blockCatalog";
+import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, clampSpan, gridColumns, layoutName, withColumnCount, withColumnWidth } from "@/lib/projectLayout";
 
 /**
- * The live editor's inspector ("Düzenle"), in three levels — whatever was
- * clicked on the page:
+ * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
  * - the project (nothing selected): cover, company, address;
- * - a block: its layout options, its image, and the list of its items;
- * - an item inside a block (card, step, link, list item…): its fields.
+ * - a section (Bölüm): the grid its Bloks sit on, and its Bloks;
+ * - a Blok (group): its width in the section, the grid its components sit
+ *   on, and its components;
+ * - a component (Bileşen): its layout options, its image, and the list of its items;
+ * - an item inside a component (card, step, link, list item…): its fields.
  * Text can always be edited on the page too; this is the tidy way to reach
  * everything else (images, links, icons, values).
  *
@@ -164,15 +168,29 @@ const LINK_ICONS: { value: LinkIconType; label: string }[] = [
   { value: "external", label: "Diğer" },
 ];
 
+const GRID_GAPS: { value: GridGap; label: string }[] = [
+  { value: "sm", label: "Az" },
+  { value: "md", label: "Orta" },
+  { value: "lg", label: "Geniş" },
+];
+
+const GRID_ALIGNS: { value: GridAlign; label: string }[] = [
+  { value: "start", label: "Üst" },
+  { value: "center", label: "Orta" },
+  { value: "end", label: "Alt" },
+];
+
 /** Blocks whose own editor is the whole story (no inline text on the page). */
 const OWN_EDITOR = new Set<Block["type"]>(["code", "figma", "iframe"]);
 
 // ── Block inspector ───────────────────────────────────────────────────────────
 
-export function BlockInspector({ block, lang, projectSlug, onChange, onSelectEntry }: {
+export function BlockInspector({ block, lang, projectSlug, placement, onChange, onSelectEntry }: {
   block: Block;
   lang: Lang;
   projectSlug: string;
+  /** Its width in its Blok's grid (see PlacementGroup) */
+  placement?: ReactNode;
   onChange: (patch: Partial<Block>) => void;
   /** Open an item's own settings (also right after adding one) */
   onSelectEntry: (entryId: string) => void;
@@ -182,8 +200,11 @@ export function BlockInspector({ block, lang, projectSlug, onChange, onSelectEnt
 
   if (OWN_EDITOR.has(type)) {
     return (
-      <div className="flex flex-col gap-2.5 p-[12px] rounded-[18px] bg-[var(--bg-4)]">
-        <BlockFields block={block} onChange={onChange} lang={lang} projectSlug={projectSlug} />
+      <div className="flex flex-col gap-4">
+        {placement}
+        <div className="flex flex-col gap-2.5 p-[12px] rounded-[18px] bg-[var(--bg-4)]">
+          <BlockFields block={block} onChange={onChange} lang={lang} projectSlug={projectSlug} />
+        </div>
       </div>
     );
   }
@@ -318,11 +339,12 @@ export function BlockInspector({ block, lang, projectSlug, onChange, onSelectEnt
     );
   }
 
-  const spec = type === "list" ? LIST_SPEC : ENTRY_SPEC[type];
+  const spec = specOf(block);
 
   return (
     <div className="flex flex-col gap-4">
       <Hint>Metinleri sayfada çift tıklayarak düzenle. İçindeki bir öğeye tıklarsan onun ayarları açılır.</Hint>
+      {placement}
       {options.length > 0 && <Group title="Görünüm">{options}</Group>}
       {media.length > 0 && <Group title={type === "video" ? "Video" : "Görsel"}>{media}</Group>}
       {spec && (
@@ -362,6 +384,237 @@ function StepButton({ label, disabled, onClick, children }: { label: string; dis
     >
       {children}
     </button>
+  );
+}
+
+// ── Layout: sections and Bloks ────────────────────────────────────────────────
+
+/** Plain text without the **bold** / [link](…) markers, on one line. */
+export function plainText(raw?: string) {
+  return raw?.replace(/\*\*|\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim() || undefined;
+}
+
+/** Short preview of a component's content, for lists. */
+export function blockSummary(block: Block, lang: Lang) {
+  const en = lang === "en";
+  const pick = (tr?: string, enValue?: string) => (en ? enValue : undefined) || tr;
+  const entry = block.entries?.[0];
+  return plainText(
+    pick(block.content, block.contentEn) ||
+      pick(block.title, block.titleEn) ||
+      pick(block.caption, block.captionEn) ||
+      pick(block.alt, block.altEn) ||
+      pick(block.listItems?.[0]?.text, block.listItems?.[0]?.textEn) ||
+      pick(entry?.title, entry?.titleEn) ||
+      pick(entry?.label, entry?.labelEn) ||
+      pick(entry?.text, entry?.textEn)
+  );
+}
+
+/** "Başlık, Metin" — what a Blok holds. */
+export function groupSummary(group: PageGroup) {
+  return group.blocks.map((b) => BLOCK_LABELS[b.type]).join(", ") || undefined;
+}
+
+/**
+ * The grid a section lays its Bloks on — or a Blok its components: how many
+ * columns, their widths (a preset or column by column), the gap and the
+ * vertical alignment. `tone` is the level's colour.
+ */
+function GridFields({ grid, tone, onChange }: {
+  grid?: GridSettings;
+  tone: string;
+  onChange: (grid: GridSettings) => void;
+}) {
+  const columns = gridColumns(grid);
+  const count = columns.length;
+  const presets = GRID_PRESETS[count];
+  const current = layoutName(columns);
+  const setCount = (n: number) => onChange(n <= 1 ? { ...grid, columns: undefined, align: undefined } : withColumnCount(grid, n));
+
+  return (
+    <Group title="Izgara">
+      <Row label="Sütun">
+        <div className="flex items-center gap-1">
+          <StepButton label="Sütun azalt" disabled={count <= 1} onClick={() => setCount(count - 1)}>−</StepButton>
+          <span className="w-6 text-center text-[13px] font-medium tabular-nums text-[var(--text-title)]">{count}</span>
+          <StepButton label="Sütun ekle" disabled={count >= MAX_COLUMNS} onClick={() => setCount(count + 1)}>+</StepButton>
+        </div>
+      </Row>
+      {count > 1 && presets && (
+        <div className="flex flex-wrap gap-1.5 px-2 pb-1">
+          {presets.map((preset) => {
+            const active = layoutName(preset) === current;
+            return (
+              <button
+                key={layoutName(preset)}
+                type="button"
+                title={`${preset.join(" · ")} / ${GRID_UNITS}`}
+                onClick={() => onChange({ ...grid, columns: preset })}
+                style={active ? { borderColor: tone } : undefined}
+                className={cn(
+                  "flex flex-col gap-1 w-[72px] p-1.5 rounded-[10px] border bg-[var(--bg-1)] cursor-pointer transition-colors",
+                  active ? "" : "border-transparent hover:border-[var(--border-hover)]"
+                )}
+              >
+                <span className="flex gap-0.5 h-3.5">
+                  {preset.map((w, i) => (
+                    <span key={i} className="basis-0 rounded-[3px] bg-[var(--bg-5)]" style={{ flexGrow: w, background: active ? tone : undefined }} />
+                  ))}
+                </span>
+                <span className="text-[11px] leading-3 text-[var(--text-subtitle)] tabular-nums">{layoutName(preset)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {count > 1 && (
+        <div className="flex flex-col gap-1 px-2 pb-1.5">
+          {/* The columns to scale; each one's width can be nudged (its neighbour gives or takes). */}
+          <div className="flex gap-1 h-6">
+            {columns.map((w, i) => (
+              <span
+                key={i}
+                className="flex items-center justify-center basis-0 min-w-0 rounded-[6px] text-[11px] font-medium text-white tabular-nums"
+                style={{ flexGrow: w, background: tone }}
+              >
+                {w}
+              </span>
+            ))}
+          </div>
+          {columns.map((w, i) => (
+            <div key={i} className="flex items-center justify-between gap-3 h-9 pl-1">
+              <span className="text-[13px] text-[var(--text-p)] select-none">{i + 1}. sütun</span>
+              <div className="flex items-center gap-1">
+                <StepButton label={`${i + 1}. sütunu daralt`} disabled={w <= 1} onClick={() => onChange(withColumnWidth(grid, i, w - 1))}>−</StepButton>
+                <span className="w-12 text-center text-[13px] tabular-nums text-[var(--text-title)]">
+                  {w}<span className="text-[var(--text-subtitle)]">/{GRID_UNITS}</span>
+                </span>
+                <StepButton
+                  label={`${i + 1}. sütunu genişlet`}
+                  disabled={w >= GRID_UNITS - 1 || columns[i < count - 1 ? i + 1 : i - 1] <= 1}
+                  onClick={() => onChange(withColumnWidth(grid, i, w + 1))}
+                >
+                  +
+                </StepButton>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <Row label="Boşluk">
+        <Choice value={grid?.gap ?? "md"} options={GRID_GAPS} onChange={(gap) => onChange({ ...grid, gap })} />
+      </Row>
+      {count > 1 && (
+        <Row label="Hizalama">
+          <Choice value={grid?.align ?? "start"} options={GRID_ALIGNS} onChange={(align) => onChange({ ...grid, align })} />
+        </Row>
+      )}
+    </Group>
+  );
+}
+
+/**
+ * How many columns of its parent's grid a Blok or component covers — only
+ * when the parent has more than one column.
+ */
+export function PlacementGroup({ title, span, parent, onChange }: {
+  title: string;
+  span?: number;
+  parent?: GridSettings;
+  onChange: (span: number) => void;
+}) {
+  const count = gridColumns(parent).length;
+  if (count < 2) return null;
+  const options = Array.from({ length: count }, (_, i) => ({
+    value: i + 1,
+    label: i + 1 === count ? "Tam" : count <= 3 ? `${i + 1} sütun` : String(i + 1),
+  }));
+  return (
+    <Group title={title}>
+      <Row label="Genişlik">
+        <Choice value={clampSpan(span, count)} options={options} onChange={onChange} />
+      </Row>
+    </Group>
+  );
+}
+
+/** A child in a section's or Blok's list: its colour, name and a preview. */
+function ChildRow({ tone, label, detail, onClick }: { tone: string; label: string; detail?: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group/item flex items-center gap-2.5 w-full h-10 pl-3 pr-3 rounded-[14px] text-left hover:bg-[var(--bg-1)] transition-colors cursor-pointer"
+    >
+      <span aria-hidden className="w-2 h-2 shrink-0 rounded-full" style={{ background: tone }} />
+      <span className="shrink-0 text-[13px] font-medium text-[var(--text-title)]">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-subtitle)]">{detail}</span>
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden className="shrink-0 text-[var(--text-subtitle)] opacity-0 group-hover/item:opacity-100 transition-opacity">
+        <path d="M4.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
+function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-2 h-10 px-3 rounded-[14px] text-[13px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-1)] transition-colors cursor-pointer"
+    >
+      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden>
+        <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+      {label}
+    </button>
+  );
+}
+
+/** A section: the grid its Bloks sit on, and its Bloks. */
+export function SectionInspector({ section, onChange, onSelectGroup, onAddGroup }: {
+  section: PageSection;
+  onChange: (patch: { grid?: GridSettings }) => void;
+  onSelectGroup: (groupId: string) => void;
+  onAddGroup: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Hint>Izgara, bölümdeki blokların yan yana nasıl dizileceğini belirler: bloklar sütunları sırayla doldurur, sığmayan alt satıra geçer.</Hint>
+      <GridFields grid={section.grid} tone={SECTION_TONE} onChange={(grid) => onChange({ grid })} />
+      <Group title="Bloklar">
+        {section.groups.map((g, i) => (
+          <ChildRow key={g.id} tone={GROUP_TONE} label={`Blok ${i + 1}`} detail={groupSummary(g) ?? "Boş"} onClick={() => onSelectGroup(g.id)} />
+        ))}
+        <AddRow label="Blok ekle" onClick={onAddGroup} />
+      </Group>
+    </div>
+  );
+}
+
+/** A Blok: its width in the section, the grid its components sit on, and its components. */
+export function GroupInspector({ group, section, lang, onChange, onSelectBlock, onAddBlock }: {
+  group: PageGroup;
+  section: PageSection;
+  lang: Lang;
+  onChange: (patch: { grid?: GridSettings; span?: number }) => void;
+  onSelectBlock: (blockId: string) => void;
+  onAddBlock: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Hint>Izgara, bloktaki bileşenlerin yan yana nasıl dizileceğini belirler. Bir bileşene tıklarsan onun ayarları açılır.</Hint>
+      <PlacementGroup title="Bölümdeki yeri" span={group.span} parent={section.grid} onChange={(span) => onChange({ span })} />
+      <GridFields grid={group.grid} tone={GROUP_TONE} onChange={(grid) => onChange({ grid })} />
+      <Group title="Bileşenler">
+        {group.blocks.map((b) => (
+          <ChildRow key={b.id} tone={blockTone(b.type)} label={BLOCK_LABELS[b.type]} detail={blockSummary(b, lang)} onClick={() => onSelectBlock(b.id)} />
+        ))}
+        {group.blocks.length === 0 && <p className="px-3 py-2 text-[12px] text-[var(--text-subtitle)]">Henüz bileşen yok.</p>}
+        <AddRow label="Bileşen ekle" onClick={onAddBlock} />
+      </Group>
+    </div>
   );
 }
 
@@ -445,7 +698,13 @@ const LIST_SPEC: ItemSpec = { noun: "Madde", fields: [] };
 
 const isListBlock = (block: Block) => block.type === "list";
 
-function itemsOf(block: Block): (BlockEntry | ListItem)[] {
+function specOf(block: Block): ItemSpec | undefined {
+  return isListBlock(block) ? LIST_SPEC : ENTRY_SPEC[block.type];
+}
+
+type Item = BlockEntry | ListItem;
+
+function itemsOf(block: Block): Item[] {
   return isListBlock(block) ? block.listItems ?? [] : block.entries ?? [];
 }
 
@@ -456,7 +715,7 @@ export function hasItem(block: Block, itemId: string) {
 
 /** "Adım 2" — how the panel names an item. */
 export function itemName(block: Block, itemId: string) {
-  const spec = isListBlock(block) ? LIST_SPEC : ENTRY_SPEC[block.type];
+  const spec = specOf(block);
   const index = itemsOf(block).findIndex((i) => i.id === itemId);
   return `${spec?.noun ?? "Öğe"} ${index + 1}`;
 }
@@ -468,7 +727,7 @@ export function canMoveItem(block: Block, itemId: string, dir: -1 | 1) {
   return to >= 0 && to < items.length;
 }
 
-function withItems(block: Block, items: (BlockEntry | ListItem)[]): Partial<Block> {
+function withItems(block: Block, items: Item[]): Partial<Block> {
   return isListBlock(block) ? { listItems: items as ListItem[] } : { entries: items as BlockEntry[] };
 }
 
@@ -512,7 +771,7 @@ function plural(noun: string) {
 }
 
 /** First words of an item, for the list. */
-function itemPreview(block: Block, item: BlockEntry | ListItem, lang: Lang) {
+function itemPreview(block: Block, item: Item, lang: Lang) {
   const en = lang === "en";
   if (isListBlock(block)) {
     const li = item as ListItem;
@@ -524,7 +783,7 @@ function itemPreview(block: Block, item: BlockEntry | ListItem, lang: Lang) {
 }
 
 function ItemList({ block, lang, onSelect }: { block: Block; lang: Lang; onSelect: (id: string) => void }) {
-  const spec = isListBlock(block) ? LIST_SPEC : ENTRY_SPEC[block.type];
+  const spec = specOf(block);
   const items = itemsOf(block);
   if (!items.length) return <p className="px-3 py-2 text-[12px] text-[var(--text-subtitle)]">Henüz yok.</p>;
   return (

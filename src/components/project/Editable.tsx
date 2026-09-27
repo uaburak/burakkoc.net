@@ -144,7 +144,7 @@ export function EditableText({
         }}
       >
         {/* Inline wrapper: the hover tint follows the text itself, not the field's full-width box. */}
-        <span className="transition-colors duration-150 hover:text-[var(--edit-accent)]">
+        <span className="transition-colors duration-150 hover:text-[var(--edit-tone,var(--edit-accent))]">
           {content ?? <Hint>{placeholder}</Hint>}
         </span>
       </Tag>

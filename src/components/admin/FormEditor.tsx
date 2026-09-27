@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Block, BlockType, PageDivider, PageSection, ProjectData } from "@/types/project";
+import { Block, BlockType, GridAlign, GridGap, GridSettings, Group, PageDivider, PageSection, ProjectData } from "@/types/project";
 import { uploadFile, coverStoragePath } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 import { PillButton } from "@/components/Button";
@@ -11,26 +11,30 @@ import { Select } from "@/components/Select";
 import { JsonEditor } from "@/components/admin/JsonEditor";
 import { ProjectThemeFields } from "@/components/admin/ProjectThemeFields";
 import { BlockFields } from "@/components/admin/BlockFields";
-import { BLOCK_LABELS, BlockPickerDialog, PlusIcon } from "@/components/admin/blockCatalog";
+import { BLOCK_LABELS, BlockPickerDialog, GROUP_TONE, PlusIcon, blockTone } from "@/components/admin/blockCatalog";
 import {
+  GroupBlocks,
   REORDER_LIST,
   REORDER_ROOM,
   ReorderRow,
-  SectionBlocks,
+  SectionGroups,
   sortableStyle,
   usePageReorder,
   useKeepDropPosition,
   useSortableBlock,
+  useSortableGroup,
   useSortablePageItem,
 } from "@/components/admin/ProjectDnd";
 import { localizeBlock } from "@/components/project/editing";
+import { GRID_PRESETS, MAX_COLUMNS, clampSpan, gridColumns, layoutName, sectionBlocks, withColumnCount } from "@/lib/projectLayout";
 import type { EditorActions, ProjectMeta } from "@/components/admin/editorActions";
 import { DRAG_LIFT, DragHandle } from "@/components/project/Sortable";
 
 /**
- * Block editor ("Blok Düzenleyici"): the project as a stack of form cards.
- * Sections and blocks can be dragged by their grip or by pressing and holding
- * the card; the traffic dots still move up / down / delete.
+ * Block editor ("Blok Düzenleyici"): the project as a stack of form cards —
+ * sections (Bölüm) holding Bloks (groups) holding components (Bileşen), each
+ * section and Blok with its grid. Every card can be dragged by its grip or by
+ * pressing and holding it; the traffic dots still move up / down / delete.
  */
 
 // ── Traffic light action dots ────────────────────────────────────────────────
@@ -311,16 +315,92 @@ export function ProjectMetaFields({ project, lang, slug, companies, onChange }: 
   );
 }
 
-// ── Block row ─────────────────────────────────────────────────────────────────
+// ── Grid settings (sections and Bloks) ───────────────────────────────────────
 
-function BlockRow({ block, sectionId, lang, slug, actions }: {
+const GAP_LABELS: Record<GridGap, string> = { sm: "Az", md: "Orta", lg: "Geniş" };
+const ALIGN_LABELS: Record<GridAlign, string> = { start: "Üst", center: "Orta", end: "Alt" };
+const keyOf = <K extends string>(labels: Record<K, string>, label: string) =>
+  (Object.keys(labels) as K[]).find((k) => labels[k] === label);
+
+/** One line of grid settings: columns, a preset layout, gap and alignment. */
+function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: GridSettings) => void }) {
+  const columns = gridColumns(grid);
+  const count = columns.length;
+  const presets = GRID_PRESETS[count] ?? [];
+  const current = layoutName(columns);
+  const counts = Array.from({ length: MAX_COLUMNS }, (_, i) => String(i + 1));
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="px-1 text-[13px] text-[var(--text-subtitle)] select-none">Sütun</span>
+      <Select
+        size="sm"
+        bgContext="block"
+        options={counts}
+        value={String(count)}
+        onChange={(v) => onChange(Number(v) <= 1 ? { ...grid, columns: undefined, align: undefined } : withColumnCount(grid, Number(v)))}
+        className="w-[72px]"
+      />
+      {count > 1 && presets.length > 0 && (
+        <Segmented
+          size="sm"
+          options={presets.map(layoutName)}
+          value={presets.some((p) => layoutName(p) === current) ? current : ""}
+          onChange={(label) => {
+            const preset = presets.find((p) => layoutName(p) === label);
+            if (preset) onChange({ ...grid, columns: preset });
+          }}
+        />
+      )}
+      <Segmented
+        size="sm"
+        options={Object.values(GAP_LABELS)}
+        value={GAP_LABELS[grid?.gap ?? "md"]}
+        onChange={(label) => onChange({ ...grid, gap: keyOf(GAP_LABELS, label) })}
+      />
+      {count > 1 && (
+        <Segmented
+          size="sm"
+          options={Object.values(ALIGN_LABELS)}
+          value={ALIGN_LABELS[grid?.align ?? "start"]}
+          onChange={(label) => onChange({ ...grid, align: keyOf(ALIGN_LABELS, label) })}
+        />
+      )}
+    </div>
+  );
+}
+
+/** How many of its parent's columns a Blok / component covers (only with 2+ columns). */
+function SpanSelect({ span, parent, onChange }: { span?: number; parent?: GridSettings; onChange: (span: number) => void }) {
+  const count = gridColumns(parent).length;
+  if (count < 2) return null;
+  const options = Array.from({ length: count }, (_, i) => (i + 1 === count ? "Tam genişlik" : `${i + 1} sütun`));
+  return (
+    <Select
+      size="sm"
+      bgContext="block"
+      options={options}
+      value={options[clampSpan(span, count) - 1]}
+      onChange={(label) => onChange(options.indexOf(label) + 1)}
+      className="w-[128px]"
+    />
+  );
+}
+
+/** Coloured dot of a level — the same colours as the live editor's frames. */
+function ToneDot({ tone }: { tone: string }) {
+  return <span aria-hidden className="w-2 h-2 shrink-0 rounded-full" style={{ background: tone }} />;
+}
+
+// ── Component row ─────────────────────────────────────────────────────────────
+
+function BlockRow({ block, group, lang, slug, actions }: {
   block: Block;
-  sectionId: string;
+  group: Group;
   lang: "tr" | "en";
   slug: string;
   actions: EditorActions;
 }) {
-  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, sectionId);
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, group.id);
   return (
     <div
       ref={setNodeRef}
@@ -328,29 +408,33 @@ function BlockRow({ block, sectionId, lang, slug, actions }: {
       {...listeners}
       className={cn(
         "flex flex-col gap-[10px] p-[12px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-4)] transition-colors duration-150",
-        isDragging && cn(DRAG_LIFT, "border-[var(--edit-accent)]")
+        isDragging && DRAG_LIFT
       )}
     >
-      {/* Header: grip + label left, traffic dots right */}
-      <div className="flex items-center justify-between">
+      {/* Header: grip + label left, width + traffic dots right */}
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-0.5">
-          <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className="text-[var(--text-subtitle)] hover:text-[var(--text-title)]" />
+          <DragHandle activatorRef={setActivatorNodeRef} label="Bileşeni sürükle" className="text-[var(--text-subtitle)] hover:text-[var(--text-title)]" />
+          <ToneDot tone={blockTone(block.type)} />
           <PillLabel>{BLOCK_LABELS[block.type]}</PillLabel>
         </div>
-        <TrafficDots
-          onUp={() => actions.moveBlockBy(sectionId, block.id, -1)}
-          onDown={() => actions.moveBlockBy(sectionId, block.id, 1)}
-          onDelete={() => actions.deleteBlock(sectionId, block.id)}
-        />
+        <div className="flex items-center gap-3">
+          <SpanSelect span={block.span} parent={group.grid} onChange={(span) => actions.updateBlock(block.id, { span })} />
+          <TrafficDots
+            onUp={() => actions.moveBlockBy(block.id, -1)}
+            onDown={() => actions.moveBlockBy(block.id, 1)}
+            onDelete={() => actions.deleteBlock(block.id)}
+          />
+        </div>
       </div>
-      <BlockFields block={block} onChange={(u) => actions.updateBlock(sectionId, block.id, u)} lang={lang} projectSlug={slug} />
+      <BlockFields block={block} onChange={(u) => actions.updateBlock(block.id, u)} lang={lang} projectSlug={slug} />
     </div>
   );
 }
 
-// ── Per-section add block button ──────────────────────────────────────────────
+// ── Add component button ──────────────────────────────────────────────────────
 
-function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType, extras?: Partial<Block>) => void }) {
+function AddBlockButton({ onAdd }: { onAdd: (type: BlockType, extras?: Partial<Block>) => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -360,10 +444,67 @@ function SectionAddBlockButton({ onAdd }: { onAdd: (type: BlockType, extras?: Pa
         className="w-full justify-center border-dashed border-[var(--border-hover)] hover:border-[var(--text-subtitle)]"
         startIcon={<PlusIcon />}
       >
-        Blok ekle
+        Bileşen ekle
       </PillButton>
       {open && <BlockPickerDialog onPick={onAdd} onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+// ── Blok card ─────────────────────────────────────────────────────────────────
+
+function GroupCard({ group, index, section, lang, slug, actions }: {
+  group: Group;
+  index: number;
+  section: PageSection;
+  lang: "tr" | "en";
+  slug: string;
+  actions: EditorActions;
+}) {
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
+  return (
+    <div
+      ref={setNodeRef}
+      style={sortableStyle(transform, transition)}
+      {...listeners}
+      className={cn(
+        "flex flex-col gap-[10px] p-[12px] rounded-[24px] border border-dashed border-[color-mix(in_srgb,var(--edit-group)_45%,transparent)] bg-[var(--bg-1)] transition-colors duration-150",
+        isDragging && cn(DRAG_LIFT, "border-solid border-[var(--edit-group)]")
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-0.5">
+          <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className="text-[var(--text-subtitle)] hover:text-[var(--text-title)]" />
+          <ToneDot tone={GROUP_TONE} />
+          <PillLabel>Blok {index + 1}</PillLabel>
+        </div>
+        <div className="flex items-center gap-3">
+          <SpanSelect span={group.span} parent={section.grid} onChange={(span) => actions.updateGroup(group.id, { span })} />
+          <TrafficDots
+            onUp={() => actions.moveGroupBy(group.id, -1)}
+            onDown={() => actions.moveGroupBy(group.id, 1)}
+            onDelete={() => actions.deleteGroup(group.id)}
+          />
+        </div>
+      </div>
+      <GridBar grid={group.grid} onChange={(grid) => actions.updateGroup(group.id, { grid })} />
+
+      <GroupBlocks group={group}>
+        {group.blocks.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {group.blocks.map((block) => (
+              <BlockRow key={block.id} block={block} group={group} lang={lang} slug={slug} actions={actions} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--text-subtitle)] opacity-60 italic select-none text-center py-2">
+            Henüz bileşen yok — Bileşen ekle ile başlayın ya da buraya bir bileşen sürükleyin
+          </p>
+        )}
+      </GroupBlocks>
+
+      <AddBlockButton onAdd={(type, extras) => actions.addBlock(group.id, type, extras)} />
+    </div>
   );
 }
 
@@ -382,7 +523,7 @@ function SectionCard({ section, index, lang, slug, actions }: {
   const ref = (el: HTMLElement | null) => { setNodeRef(el); dropRef(el); };
 
   if (reordering) {
-    const heading = section.blocks.find((b) => b.type === "heading");
+    const heading = sectionBlocks(section).find((b) => b.type === "heading");
     return (
       <div ref={ref} style={sortableStyle(transform, transition)} {...listeners} className={cn("relative w-full", isDragging && "z-30")}>
         <ReorderRow
@@ -409,6 +550,7 @@ function SectionCard({ section, index, lang, slug, actions }: {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-0.5">
           <DragHandle activatorRef={setActivatorNodeRef} label="Bölümü sürükle" className="text-[var(--text-subtitle)] hover:text-[var(--text-title)]" />
+          <ToneDot tone="var(--edit-accent)" />
           <PillLabel>{String(index + 1).padStart(2, "0")} Bölüm</PillLabel>
         </div>
         <TrafficDots
@@ -417,12 +559,13 @@ function SectionCard({ section, index, lang, slug, actions }: {
           onDelete={() => actions.deleteItem(section.id)}
         />
       </div>
+      <GridBar grid={section.grid} onChange={(grid) => actions.updateSection(section.id, { grid })} />
 
-      <SectionBlocks section={section}>
-        {section.blocks.length > 0 ? (
+      <SectionGroups section={section}>
+        {section.groups.length > 0 ? (
           <div className="flex flex-col gap-3">
-            {section.blocks.map((block) => (
-              <BlockRow key={block.id} block={block} sectionId={section.id} lang={lang} slug={slug} actions={actions} />
+            {section.groups.map((group, i) => (
+              <GroupCard key={group.id} group={group} index={i} section={section} lang={lang} slug={slug} actions={actions} />
             ))}
           </div>
         ) : (
@@ -430,9 +573,16 @@ function SectionCard({ section, index, lang, slug, actions }: {
             Henüz blok yok — Blok ekle ile başlayın ya da buraya bir blok sürükleyin
           </p>
         )}
-      </SectionBlocks>
+      </SectionGroups>
 
-      <SectionAddBlockButton onAdd={(type, extras) => actions.addBlock(section.id, type, extras)} />
+      <PillButton
+        size="md"
+        onClick={() => actions.addGroup(section.id)}
+        className="w-full justify-center border-dashed border-[var(--border-hover)] hover:border-[var(--text-subtitle)]"
+        startIcon={<PlusIcon />}
+      >
+        Blok ekle
+      </PillButton>
     </div>
   );
 }

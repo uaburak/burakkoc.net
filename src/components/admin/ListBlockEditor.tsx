@@ -113,10 +113,16 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
     }
   }
 
-  /* ensure at least one empty row */
+  /* empty list (e.g. made in the live editor): offer the first row — adding it
+     while rendering updated the page mid-render and looped */
   if (items.length === 0) {
-    addItem();
-    return null;
+    return (
+      <div className="flex justify-start">
+        <PillButton size="md" bgContext="block" onClick={() => addItem()}>
+          İlk maddeyi ekle
+        </PillButton>
+      </div>
+    );
   }
 
   return (

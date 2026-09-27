@@ -14,13 +14,14 @@ import { ProjectData } from "@/types/project";
 import { CVData } from "@/types/cv";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { Footer } from "@/components/Footer";
+import { sectionBlocks } from "@/lib/projectLayout";
 
 function getProjectCoverImage(proj?: ProjectData | null): string | null {
   if (!proj) return null;
   if (proj.coverImage) return proj.coverImage;
   for (const item of proj.items) {
     if (item.kind === "section") {
-      const imgBlock = item.blocks.find((b) => b.type === "image" && b.src);
+      const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
       if (imgBlock?.src) return imgBlock.src;
     }
   }
@@ -493,7 +494,7 @@ export function CVClient({
     if (!img && featuredProject) {
       for (const item of (featuredProject.items || [])) {
         if (item.kind === "section") {
-          const imgBlock = (item.blocks || []).find((b) => b.type === "image" && b.src);
+          const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
           if (imgBlock?.src) {
             img = imgBlock.src;
             break;

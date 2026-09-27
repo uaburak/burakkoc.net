@@ -1,16 +1,21 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
-import { Block, BlockType, PageItem, PageSection, ProjectData, Section } from "@/types/project";
-import { makeBlock, makeDivider, makeSection, uid } from "@/components/admin/blockCatalog";
+import { Block, BlockType, Group, PageItem, PageSection, ProjectData } from "@/types/project";
+import { makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
+import { findBlock, findGroup, mapBlock, mapGroup, mapSection } from "@/lib/projectLayout";
 
 /**
  * Every project mutation the form and the live editor perform. All updates are
  * functional so rapid edits (typing, dragging) never overwrite each other.
+ *
+ * The page is Bölüm (section) › Blok (group) › Bileşen (component, `Block` in
+ * code). Ids are unique across the page, so groups and components are
+ * addressed by id alone.
  */
 
 export type ProjectMeta = Pick<ProjectData,
   "title" | "titleEn" | "category" | "year" | "company" | "slug" | "coverImage" | "description" | "descriptionEn" | "theme">;
 
-/** Copy of a block with fresh ids for the block and all its rows. */
+/** Copy of a component with fresh ids for it and all its rows. */
 function cloneBlock(block: Block): Block {
   const copy: Block = structuredClone(block);
   copy.id = uid();
@@ -18,6 +23,11 @@ function cloneBlock(block: Block): Block {
   copy.listItems = copy.listItems?.map((it) => ({ ...it, id: uid() }));
   copy.tableRows = copy.tableRows?.map((r) => ({ ...r, id: uid() }));
   return copy;
+}
+
+/** Copy of a group with fresh ids for it and its components. */
+function cloneGroup(group: Group): Group {
+  return { ...structuredClone(group), id: uid(), blocks: group.blocks.map(cloneBlock) };
 }
 
 function moveBy<T>(list: T[], index: number, delta: number): T[] {
@@ -44,9 +54,6 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         return next === p.items ? p : { ...p, items: next };
       });
 
-    const mapSection = (sectionId: string, fn: (s: PageSection) => PageSection) =>
-      setItems((items) => items.map((i) => (i.kind === "section" && i.id === sectionId ? fn(i) : i)));
-
     return {
       setItems,
 
@@ -54,47 +61,13 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         setProject((p) => ({ ...p, ...updates }));
       },
 
-      updateSection(sectionId: string, updates: Partial<Section>) {
-        mapSection(sectionId, (s) => ({ ...s, ...updates }));
+      // ── Sections & dividers ──
+
+      updateSection(sectionId: string, patch: Partial<Omit<PageSection, "id" | "kind">>) {
+        setItems((items) => mapSection(items, sectionId, (s) => ({ ...s, ...patch })));
       },
 
-      updateBlock(sectionId: string, blockId: string, patch: Partial<Block>) {
-        mapSection(sectionId, (s) => ({ ...s, blocks: s.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b)) }));
-      },
-
-      /** Adds a block after `afterBlockId` (or at the end) and returns its id. */
-      addBlock(sectionId: string, type: BlockType, extras?: Partial<Block>, afterBlockId?: string) {
-        const block = makeBlock(type, extras);
-        mapSection(sectionId, (s) => ({ ...s, blocks: insertAfter(s.blocks, block, afterBlockId) }));
-        return block.id;
-      },
-
-      /** Global "Ekle → Blok": appends to the last section, creating one after a trailing divider. */
-      addBlockToEnd(type: BlockType, extras?: Partial<Block>) {
-        const block = makeBlock(type, extras);
-        setItems((items) => {
-          const last = items[items.length - 1];
-          if (!last || last.kind === "divider") return [...items, { ...makeSection(), blocks: [block] }];
-          return items.map((i, idx) => (idx === items.length - 1 && i.kind === "section" ? { ...i, blocks: [...i.blocks, block] } : i));
-        });
-        return block.id;
-      },
-
-      deleteBlock(sectionId: string, blockId: string) {
-        mapSection(sectionId, (s) => ({ ...s, blocks: s.blocks.filter((b) => b.id !== blockId) }));
-      },
-
-      duplicateBlock(sectionId: string, block: Block) {
-        const copy = cloneBlock(block);
-        mapSection(sectionId, (s) => ({ ...s, blocks: insertAfter(s.blocks, copy, block.id) }));
-        return copy.id;
-      },
-
-      moveBlockBy(sectionId: string, blockId: string, delta: number) {
-        mapSection(sectionId, (s) => ({ ...s, blocks: moveBy(s.blocks, s.blocks.findIndex((b) => b.id === blockId), delta) }));
-      },
-
-      /** Adds a section after `afterItemId` (or at the end) and returns its id. */
+      /** Adds a section (with an empty Blok) after `afterItemId` (or at the end) and returns its id. */
       addSection(afterItemId?: string) {
         const section = makeSection();
         setItems((items) => insertAfter(items, section, afterItemId));
@@ -112,6 +85,119 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
 
       moveItemBy(itemId: string, delta: number) {
         setItems((items) => moveBy(items, items.findIndex((i) => i.id === itemId), delta));
+      },
+
+      // ── Groups (Blok) ──
+
+      /** Adds an empty group after `afterGroupId` (or at the section's end) and returns its id. */
+      addGroup(sectionId: string, afterGroupId?: string) {
+        const group = makeGroup();
+        setItems((items) => mapSection(items, sectionId, (s) => ({ ...s, groups: insertAfter(s.groups, group, afterGroupId) })));
+        return group.id;
+      },
+
+      updateGroup(groupId: string, patch: Partial<Omit<Group, "id" | "blocks">>) {
+        setItems((items) => mapGroup(items, groupId, (g) => ({ ...g, ...patch })));
+      },
+
+      deleteGroup(groupId: string) {
+        setItems((items) => {
+          const at = findGroup(items, groupId);
+          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: s.groups.filter((g) => g.id !== groupId) })) : items;
+        });
+      },
+
+      duplicateGroup(groupId: string) {
+        const id = uid();
+        setItems((items) => {
+          const at = findGroup(items, groupId);
+          if (!at) return items;
+          const copy = { ...cloneGroup(at.group), id };
+          return mapSection(items, at.section.id, (s) => ({ ...s, groups: insertAfter(s.groups, copy, groupId) }));
+        });
+        return id;
+      },
+
+      moveGroupBy(groupId: string, delta: number) {
+        setItems((items) => {
+          const at = findGroup(items, groupId);
+          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: moveBy(s.groups, at.index, delta) })) : items;
+        });
+      },
+
+      // ── Components (Bileşen) ──
+
+      updateBlock(blockId: string, patch: Partial<Block>) {
+        setItems((items) => mapBlock(items, blockId, (b) => ({ ...b, ...patch })));
+      },
+
+      /** Adds a component to a group — after `afterBlockId`, else at its end — and returns its id. */
+      addBlock(groupId: string, type: BlockType, extras?: Partial<Block>, afterBlockId?: string) {
+        const block = makeBlock(type, extras);
+        setItems((items) => mapGroup(items, groupId, (g) => ({ ...g, blocks: insertAfter(g.blocks, block, afterBlockId) })));
+        return block.id;
+      },
+
+      /** Adds a component at the end of a section's last group (a new one if it has none); returns its id. */
+      addBlockToSection(sectionId: string, type: BlockType, extras?: Partial<Block>) {
+        const block = makeBlock(type, extras);
+        setItems((items) =>
+          mapSection(items, sectionId, (s) => {
+            const last = s.groups[s.groups.length - 1];
+            if (!last) return { ...s, groups: [makeGroup([block])] };
+            return { ...s, groups: s.groups.map((g) => (g === last ? { ...g, blocks: [...g.blocks, block] } : g)) };
+          })
+        );
+        return block.id;
+      },
+
+      /** Global "Ekle → Bileşen": appends to the last section, creating one after a trailing divider. */
+      addBlockToEnd(type: BlockType, extras?: Partial<Block>) {
+        const block = makeBlock(type, extras);
+        setItems((items) => {
+          const last = items[items.length - 1];
+          if (!last || last.kind === "divider") return [...items, makeSection([block])];
+          return mapSection(items, last.id, (s) => {
+            const lastGroup = s.groups[s.groups.length - 1];
+            if (!lastGroup) return { ...s, groups: [makeGroup([block])] };
+            return { ...s, groups: s.groups.map((g) => (g === lastGroup ? { ...g, blocks: [...g.blocks, block] } : g)) };
+          });
+        });
+        return block.id;
+      },
+
+      /** Global "Ekle → Blok": an empty group at the end of the last section (or a new section). */
+      addGroupToEnd() {
+        const group = makeGroup();
+        setItems((items) => {
+          const last = items[items.length - 1];
+          if (!last || last.kind === "divider") return [...items, { ...makeSection(), groups: [group] }];
+          return mapSection(items, last.id, (s) => ({ ...s, groups: [...s.groups, group] }));
+        });
+        return group.id;
+      },
+
+      deleteBlock(blockId: string) {
+        setItems((items) => {
+          const at = findBlock(items, blockId);
+          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: g.blocks.filter((b) => b.id !== blockId) })) : items;
+        });
+      },
+
+      duplicateBlock(block: Block) {
+        const copy = cloneBlock(block);
+        setItems((items) => {
+          const at = findBlock(items, block.id);
+          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: insertAfter(g.blocks, copy, block.id) })) : items;
+        });
+        return copy.id;
+      },
+
+      moveBlockBy(blockId: string, delta: number) {
+        setItems((items) => {
+          const at = findBlock(items, blockId);
+          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: moveBy(g.blocks, at.index, delta) })) : items;
+        });
       },
     };
   }, [setProject]);

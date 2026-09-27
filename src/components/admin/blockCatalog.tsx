@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Block, BlockType, ListStyle, PageDivider, PageSection } from "@/types/project";
+import { Block, BlockType, Group, ListStyle, PageDivider, PageSection } from "@/types/project";
 import { createCaseStudyBlockDefaults } from "@/components/admin/CaseStudyBlockEditor";
 import { cn } from "@/lib/utils";
 
 /**
- * Block catalog shared by the form and the live editor: block factories,
- * type definitions (label, description, icon), the grouped type picker and
- * the add-block dialog.
+ * Component catalog shared by the form and the live editor: factories for
+ * sections, groups (Blok) and components (Bileşen — `Block` in code), the
+ * component types (label, description, icon, kind and its colour), the grouped
+ * type picker and the add-component dialog.
  */
 
 // ── Factories ─────────────────────────────────────────────────────────────────
@@ -16,11 +17,21 @@ import { cn } from "@/lib/utils";
 export function uid() { return Math.random().toString(36).slice(2, 10); }
 
 export function makeBlock(type: BlockType, extras?: Partial<Block>): Block {
+  if (type === "list") {
+    // Lists start with one empty item — an empty list shows nothing to type into.
+    return { id: uid(), type, listItems: [{ id: uid(), text: "" }], ...extras };
+  }
   return { id: uid(), type, ...createCaseStudyBlockDefaults(type), ...extras };
 }
 
-export function makeSection(): PageSection {
-  return { id: uid(), kind: "section", blocks: [] };
+/** A Blok: one full-width column of components. */
+export function makeGroup(blocks: Block[] = []): Group {
+  return { id: uid(), blocks };
+}
+
+/** New sections come with an empty Blok, ready for components. */
+export function makeSection(blocks: Block[] = []): PageSection {
+  return { id: uid(), kind: "section", groups: [makeGroup(blocks)] };
 }
 
 export function makeDivider(): PageDivider {
@@ -327,21 +338,44 @@ export const BLOCK_DEFS: {
   },
 ];
 
-/** Block menu sections — every BLOCK_DEFS type appears exactly once. */
-export const BLOCK_GROUPS: { label: string; types: BlockType[] }[] = [
-  { label: "Metin",        types: ["heading", "text", "list", "quote", "callout", "accordion"] },
-  { label: "Medya",        types: ["image", "gallery", "mockup", "compare", "split", "video", "figma", "iframe", "code"] },
-  { label: "Yapı & Veri",  types: ["info", "stats", "cards", "steps", "table", "bars", "tags", "links"] },
-  { label: "Araştırma & Tasarım", types: ["persona", "team", "palette"] },
+/**
+ * Kinds of components — the picker's sections. Every BLOCK_DEFS type appears
+ * exactly once. Each kind has its colour in the live editor (`tone`, a CSS
+ * custom property from globals.css); sections are blue, Bloks green.
+ */
+export const BLOCK_GROUPS: { label: string; tone: string; types: BlockType[] }[] = [
+  { label: "Metin",        tone: "var(--edit-text)",     types: ["heading", "text", "list", "quote", "callout", "accordion"] },
+  { label: "Medya",        tone: "var(--edit-media)",    types: ["image", "gallery", "mockup", "compare", "split", "video", "figma", "iframe", "code"] },
+  { label: "Yapı & Veri",  tone: "var(--edit-data)",     types: ["info", "stats", "cards", "steps", "table", "bars", "tags", "links"] },
+  { label: "Araştırma & Tasarım", tone: "var(--edit-research)", types: ["persona", "team", "palette"] },
 ];
 
-/** Grouped block type picker used by both add menus. `list` opens its style sub-menu. */
-export function BlockTypeList({ onPick, onPickList }: { onPick: (type: BlockType) => void; onPickList: () => void }) {
+/** Colours of the page's levels in the live editor. */
+export const SECTION_TONE = "var(--edit-accent)";
+export const GROUP_TONE = "var(--edit-group)";
+
+/** The colour of a component's kind. */
+export function blockTone(type: BlockType) {
+  return BLOCK_GROUPS.find((g) => g.types.includes(type))?.tone ?? "var(--edit-text)";
+}
+
+/** The name of a component's kind ("Metin", "Medya"…). */
+export function blockKind(type: BlockType) {
+  return BLOCK_GROUPS.find((g) => g.types.includes(type))?.label ?? "Metin";
+}
+
+/** Grouped component type picker used by both add menus. `list` opens its style sub-menu. */
+export function BlockTypeList({ onPick, onPickList }: {
+  onPick: (type: BlockType) => void;
+  onPickList: () => void;
+}) {
   return (
     <div className="p-1.5 flex flex-col gap-0.5 max-h-[420px] overflow-y-auto">
       {BLOCK_GROUPS.map((group) => (
         <div key={group.label} className="flex flex-col gap-0.5">
-          <span className="px-3 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">
+          <span className="flex items-center gap-2 px-3 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">
+            {/* The kind's colour — the same as its frames in the live editor. */}
+            <span aria-hidden className="w-2 h-2 rounded-full" style={{ background: group.tone }} />
             {group.label}
           </span>
           {group.types.map((t) => {
@@ -437,7 +471,7 @@ export const LIST_STYLE_OPTIONS: { value: ListStyle; label: string; symbol: stri
   { value: "dash",     label: "Dash",      symbol: "—" },
 ];
 
-// ── Add-block dialog ──────────────────────────────────────────────────────────
+// ── Add-component dialog ──────────────────────────────────────────────────────────
 
 /** List style sub-menu rows (used by both add menus). */
 export function ListStylePicker({ onPick }: { onPick: (style: ListStyle) => void }) {
@@ -455,7 +489,7 @@ export function ListStylePicker({ onPick }: { onPick: (style: ListStyle) => void
   );
 }
 
-/** Centered modal: pick a block type (list → style sub-menu). */
+/** Centered modal: pick a component type (list → style sub-menu). */
 export function BlockPickerDialog({ onPick, onClose }: {
   onPick: (type: BlockType, extras?: Partial<Block>) => void;
   onClose: () => void;
@@ -487,7 +521,7 @@ export function BlockPickerDialog({ onPick, onClose }: {
           {!showListPicker ? (
             <>
               <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-                <span className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Blok Tipi Seç</span>
+                <span className="text-xs font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">Bileşen Seç</span>
                 <button onClick={onClose} aria-label="Kapat" className="flex items-center justify-center w-5 h-5 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] transition-colors cursor-pointer"><XIcon /></button>
               </div>
               <BlockTypeList onPick={(type) => pick(type)} onPickList={() => setShowListPicker(true)} />

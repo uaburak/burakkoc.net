@@ -5,21 +5,25 @@ import {
   DndContext,
   MeasuringStrategy,
   closestCenter,
-  pointerWithin,
   useDndContext,
   type CollisionDetection,
   type DroppableContainer,
   type Modifier,
 } from "@dnd-kit/core";
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS, getEventCoordinates, type Transform } from "@dnd-kit/utilities";
-import { Block, PageItem, PageSection } from "@/types/project";
+import { Block, GridSettings, Group, PageItem, PageSection } from "@/types/project";
 import { DragHandle, DragScrollFix, useEditorSensors, type DragActivation } from "@/components/project/Sortable";
+import { findBlock, findGroup, gridColumns, mapGroup, mapSection, moveBlockToGroup, moveGroupToSection } from "@/lib/projectLayout";
 
 /**
- * Page-level drag & drop for both editors: sections / dividers reorder among
- * themselves, blocks reorder inside a section and can be dropped into another
- * section. Cards and list items have their own nested groups (see Sortable.tsx).
+ * Page-level drag & drop for both editors, on three levels:
+ * - sections / dividers reorder among themselves;
+ * - groups (Blok) reorder inside their section and can be dropped into any
+ *   other section;
+ * - components (Bileşen) reorder inside their group and can be dropped into
+ *   any other group.
+ * Cards and list items have their own nested groups (see Sortable.tsx).
  * There is no drag preview: the item itself moves (see DRAG_LIFT).
  *
  * Sections are too tall to drag around, so while a section or divider is being
@@ -30,59 +34,82 @@ import { DragHandle, DragScrollFix, useEditorSensors, type DragActivation } from
  */
 
 type ItemData = { type: "item"; itemId: string; kind: PageItem["kind"] };
-type BlockData = { type: "block"; blockId: string; sectionId: string };
-type DndData = ItemData | BlockData;
+type GroupData = { type: "group"; groupId: string; sectionId: string };
+type BlockData = { type: "block"; blockId: string; groupId: string };
+type DndData = ItemData | GroupData | BlockData;
 
 const itemDndId = (id: string) => `item:${id}`;
+const groupDndId = (id: string) => `group:${id}`;
 const blockDndId = (id: string) => `block:${id}`;
 
 function dataOf(container: { data: { current?: unknown } }): DndData | undefined {
   return container.data.current as DndData | undefined;
 }
 
-function sectionOfBlock(items: PageItem[], blockId: string): PageSection | undefined {
-  return items.find((i): i is PageSection => i.kind === "section" && i.blocks.some((b) => b.id === blockId));
-}
+type Rect = { left: number; top: number; width: number; height: number };
+type Point = { x: number; y: number };
 
-function moveBlockToSection(items: PageItem[], blockId: string, toSectionId: string, beforeBlockId: string | null): PageItem[] {
-  const from = sectionOfBlock(items, blockId);
-  if (!from || from.id === toSectionId) return items;
-  const block = from.blocks.find((b) => b.id === blockId)!;
-  return items.map((it) => {
-    if (it.kind !== "section") return it;
-    if (it.id === from.id) return { ...it, blocks: it.blocks.filter((b) => b.id !== blockId) };
-    if (it.id === toSectionId) {
-      const blocks = [...it.blocks];
-      const at = beforeBlockId ? blocks.findIndex((b) => b.id === beforeBlockId) : -1;
-      blocks.splice(at < 0 ? blocks.length : at, 0, block);
-      return { ...it, blocks };
-    }
-    return it;
-  });
-}
+const contains = (r: Rect | undefined, p: Point) => Boolean(r && p.x >= r.left && p.x <= r.left + r.width && p.y >= r.top && p.y <= r.top + r.height);
+/** Distance from a point to a rectangle (0 inside it). */
+const distance = (r: Rect | undefined, p: Point) =>
+  r ? Math.hypot(Math.max(r.left - p.x, 0, p.x - (r.left + r.width)), Math.max(r.top - p.y, 0, p.y - (r.top + r.height))) : Infinity;
 
 /**
- * Sections take whatever is under the pointer; blocks are matched against the
- * blocks of the section under the pointer, so a gap between two blocks never
- * resolves to the section itself.
+ * Each level is matched against its own kind inside the container under the
+ * pointer — a group's components, a section's groups — so a gap between two
+ * children never resolves to the container itself; an empty container takes
+ * the drop. Between two containers (a gap, the section's padding) the nearest
+ * one in the section takes it.
  */
 const collisionDetection: CollisionDetection = (args) => {
   const pick = (pred: (d: DndData | undefined) => boolean): DroppableContainer[] =>
     args.droppableContainers.filter((c) => pred(dataOf(c)));
+  const active = dataOf(args.active);
+  const rectOf = (c: DroppableContainer) => args.droppableRects.get(c.id);
+  const pointer = args.pointerCoordinates;
+  // The dragged element's centre — a component grabbed by its toolbar starts with the pointer above it.
+  const center = args.collisionRect && {
+    x: args.collisionRect.left + args.collisionRect.width / 2,
+    y: args.collisionRect.top + args.collisionRect.height / 2,
+  };
+  const sections = pick((d) => d?.type === "item" && d.kind === "section");
+  const sectionAt = (p: Point | null | undefined) => (p ? sections.find((c) => contains(rectOf(c), p)) : undefined);
+  const sectionId = (c: DroppableContainer | undefined) => {
+    const d = c && dataOf(c);
+    return d?.type === "item" ? d.itemId : undefined;
+  };
+  /** The children of one container, else the container itself (empty), else nothing. */
+  const within = (container: DroppableContainer, children: DroppableContainer[]) =>
+    children.length ? closestCenter({ ...args, droppableContainers: children }) : [{ id: container.id }];
 
-  if (dataOf(args.active)?.type === "item") {
+  if (active?.type === "item") {
     return closestCenter({ ...args, droppableContainers: pick((d) => d?.type === "item") });
   }
 
+  const groups = pick((d) => d?.type === "group");
+
+  if (active?.type === "group") {
+    const section = sectionAt(pointer) ?? sectionAt(center);
+    if (section) {
+      const id = sectionId(section);
+      return within(section, groups.filter((c) => { const d = dataOf(c); return d?.type === "group" && d.sectionId === id; }));
+    }
+    return closestCenter({ ...args, droppableContainers: groups });
+  }
+
   const blocks = pick((d) => d?.type === "block");
-  const sectionHit = pointerWithin({ ...args, droppableContainers: pick((d) => d?.type === "item" && d.kind === "section") })[0];
-  if (sectionHit) {
-    const sectionId = String(sectionHit.id).slice("item:".length);
-    const inSection = blocks.filter((c) => {
-      const d = dataOf(c);
-      return d?.type === "block" && d.sectionId === sectionId;
-    });
-    return inSection.length ? closestCenter({ ...args, droppableContainers: inSection }) : [sectionHit];
+  const point = pointer ?? center;
+  let group = (pointer && groups.find((c) => contains(rectOf(c), pointer))) || (center && groups.find((c) => contains(rectOf(c), center)));
+  if (!group && point) {
+    // In a gap or the section's padding: the section's nearest group.
+    const id = sectionId(sectionAt(point));
+    group = groups
+      .filter((c) => { const d = dataOf(c); return d?.type === "group" && d.sectionId === id; })
+      .sort((a, b) => distance(rectOf(a), point) - distance(rectOf(b), point))[0];
+  }
+  const g = group && dataOf(group);
+  if (group && g?.type === "group") {
+    return within(group, blocks.filter((c) => { const d = dataOf(c); return d?.type === "block" && d.groupId === g.groupId; }));
   }
   return closestCenter({ ...args, droppableContainers: blocks });
 };
@@ -145,8 +172,8 @@ export function useKeepDropPosition(isDragging: boolean, anchorOffset = 0, linge
   return useCallback((el: HTMLElement | null) => { node.current = el; }, []);
 }
 
-/** Sections, dividers and blocks form one column: they only move up and down. */
-const verticalOnly: Modifier = ({ transform }) => ({ ...transform, x: 0 });
+/** Sections and dividers form one column: they only move up and down (groups and components also go sideways). */
+const verticalOnly: Modifier = ({ transform, active }) => (active && dataOf(active)?.type === "item" ? { ...transform, x: 0 } : transform);
 
 /** Tallest compact row (ReorderRow); before the page has collapsed the node is still the full section. */
 const REORDER_ROW_MAX = 40;
@@ -201,7 +228,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, children 
 }) {
   const sensors = useEditorSensors(activation);
   const [reordering, setReordering] = useState(false);
-  // Blocks move between sections while dragging (onDragOver): a cancel restores this.
+  // Groups and components move between containers while dragging (onDragOver): a cancel restores this.
   const itemsAtStart = useRef<PageItem[] | null>(null);
   const dropTop = useRef<number | null>(null);
 
@@ -229,10 +256,15 @@ export function ProjectDndProvider({ items, onItemsChange, activation, children 
       onDragOver={({ active: a, over }) => {
         const d = dataOf(a);
         const o = over ? dataOf(over) : undefined;
-        if (d?.type !== "block" || !o) return;
-        const toSectionId = o.type === "block" ? o.sectionId : o.kind === "section" ? o.itemId : null;
-        if (!toSectionId) return;
-        onItemsChange((list) => moveBlockToSection(list, d.blockId, toSectionId, o.type === "block" ? o.blockId : null));
+        if (!d || !o) return;
+        if (d.type === "block") {
+          // Into another group: before the component under it, or at the end of an empty group.
+          const toGroupId = o.type === "block" ? o.groupId : o.type === "group" ? o.groupId : null;
+          if (toGroupId) onItemsChange((list) => moveBlockToGroup(list, d.blockId, toGroupId, o.type === "block" ? o.blockId : null));
+        } else if (d.type === "group") {
+          const toSectionId = o.type === "group" ? o.sectionId : o.type === "item" && o.kind === "section" ? o.itemId : null;
+          if (toSectionId) onItemsChange((list) => moveGroupToSection(list, d.groupId, toSectionId, o.type === "group" ? o.groupId : null));
+        }
       }}
       onDragEnd={({ active: a, over }) => {
         dropTop.current = a.rect.current.translated?.top ?? null;
@@ -247,14 +279,19 @@ export function ProjectDndProvider({ items, onItemsChange, activation, children 
             const to = list.findIndex((i) => i.id === o.itemId);
             return from < 0 || to < 0 ? list : arrayMove(list, from, to);
           });
+        } else if (d.type === "group" && o.type === "group") {
+          onItemsChange((list) => {
+            const from = findGroup(list, d.groupId);
+            const to = findGroup(list, o.groupId);
+            if (!from || !to || from.section.id !== to.section.id) return list;
+            return mapSection(list, from.section.id, (s) => ({ ...s, groups: arrayMove(s.groups, from.index, to.index) }));
+          });
         } else if (d.type === "block" && o.type === "block") {
           onItemsChange((list) => {
-            const section = sectionOfBlock(list, d.blockId);
-            if (!section) return list;
-            const from = section.blocks.findIndex((b) => b.id === d.blockId);
-            const to = section.blocks.findIndex((b) => b.id === o.blockId);
-            if (from < 0 || to < 0 || from === to) return list;
-            return list.map((it) => (it === section ? { ...section, blocks: arrayMove(section.blocks, from, to) } : it));
+            const from = findBlock(list, d.blockId);
+            const to = findBlock(list, o.blockId);
+            if (!from || !to || from.group.id !== to.group.id || from.index === to.index) return list;
+            return mapGroup(list, from.group.id, (g) => ({ ...g, blocks: arrayMove(g.blocks, from.index, to.index) }));
           });
         }
       }}
@@ -272,10 +309,22 @@ export function ProjectDndProvider({ items, onItemsChange, activation, children 
   );
 }
 
-/** Blocks of one section as a sortable list. */
-export function SectionBlocks({ section, children }: { section: PageSection; children: ReactNode }) {
+/** Children laid out in more than one column move in two dimensions. */
+const strategyFor = (grid?: GridSettings) => (gridColumns(grid).length > 1 ? rectSortingStrategy : verticalListSortingStrategy);
+
+/** The groups (Blok) of one section as a sortable list. */
+export function SectionGroups({ section, children }: { section: PageSection; children: ReactNode }) {
   return (
-    <SortableContext items={section.blocks.map((b) => blockDndId(b.id))} strategy={verticalListSortingStrategy}>
+    <SortableContext items={section.groups.map((g) => groupDndId(g.id))} strategy={strategyFor(section.grid)}>
+      {children}
+    </SortableContext>
+  );
+}
+
+/** The components (Bileşen) of one group as a sortable list. */
+export function GroupBlocks({ group, children }: { group: Group; children: ReactNode }) {
+  return (
+    <SortableContext items={group.blocks.map((b) => blockDndId(b.id))} strategy={strategyFor(group.grid)}>
       {children}
     </SortableContext>
   );
@@ -285,8 +334,14 @@ export function useSortablePageItem(item: PageItem) {
   return useSortable({ id: itemDndId(item.id), data: { type: "item", itemId: item.id, kind: item.kind } satisfies ItemData });
 }
 
-export function useSortableBlock(block: Block, sectionId: string) {
-  return useSortable({ id: blockDndId(block.id), data: { type: "block", blockId: block.id, sectionId } satisfies BlockData });
+/** A group, sortable within its section — and the drop target for components while empty. */
+export function useSortableGroup(group: Group, sectionId: string) {
+  return useSortable({ id: groupDndId(group.id), data: { type: "group", groupId: group.id, sectionId } satisfies GroupData });
+}
+
+/** A component, sortable within its group. */
+export function useSortableBlock(block: Block, groupId: string) {
+  return useSortable({ id: blockDndId(block.id), data: { type: "block", blockId: block.id, groupId } satisfies BlockData });
 }
 
 export function sortableStyle(transform: Transform | null, transition: string | undefined) {

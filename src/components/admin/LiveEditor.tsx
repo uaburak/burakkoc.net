@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Block, BlockType, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Block, BlockType, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
+import { findBlock, findGroup, layoutName, gridColumns, sectionBlocks, sectionsOf } from "@/lib/projectLayout";
 import { IconButton, PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
+import { cellProps, gridProps } from "@/components/project/LayoutGrid";
 import { EditableText } from "@/components/project/Editable";
 import { DRAG_LIFT, DragActivationContext, DragHandle } from "@/components/project/Sortable";
 import { createBlockEditApi, editorUid, localizeBlock, type BlockEditApi } from "@/components/project/editing";
@@ -14,26 +16,34 @@ import { PillLabel } from "@/components/admin/FormEditor";
 import { ProjectThemeFields } from "@/components/admin/ProjectThemeFields";
 import {
   BlockInspector,
+  GroupInspector,
   ItemInspector,
+  PlacementGroup,
   ProjectInspector,
+  SectionInspector,
+  blockSummary,
   canMoveItem,
   duplicateItem,
+  groupSummary,
   hasItem,
   itemName,
   moveItem,
+  plainText,
   removeItem,
 } from "@/components/admin/LiveInspector";
-import { BLOCK_LABELS, BlockPickerDialog } from "@/components/admin/blockCatalog";
+import { BLOCK_LABELS, BlockPickerDialog, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import {
+  GroupBlocks,
   ProjectDndProvider,
   REORDER_LIST,
   REORDER_ROOM,
   ReorderRow,
-  SectionBlocks,
+  SectionGroups,
   sortableStyle,
   usePageReorder,
   useKeepDropPosition,
   useSortableBlock,
+  useSortableGroup,
   useSortablePageItem,
 } from "@/components/admin/ProjectDnd";
 import type { EditorActions } from "@/components/admin/editorActions";
@@ -44,9 +54,12 @@ import type { EditorActions } from "@/components/admin/editorActions";
  * Layout: icon rail → settings panel → canvas.
  * - Rail: Katmanlar (page outline), Düzenle (selected element), Proje (meta),
  *   Tema (radius / colors), Yayın (link, content status, template).
- * - Canvas: click a text to type in place, click a block to select it (its
- *   settings open in the panel). Press and hold cards, blocks and sections —
- *   or use their grip — to reorder them; blocks can move between sections.
+ * - Canvas: the page is Bölüm (section) › Blok (group) › Bileşen (component,
+ *   `Block` in code); sections lay out their Bloks on a grid, Bloks their
+ *   components. Click a text to type in place, click a component, a Blok or a
+ *   section to select it (its settings open in the panel). Press and hold
+ *   cards, components, Bloks and sections — or use their grip — to reorder
+ *   them; components can move between Bloks, Bloks between sections.
  * - Links never navigate here, images never open the lightbox.
  */
 
@@ -55,32 +68,22 @@ type Selection =
   | { kind: "none" }
   | { kind: "meta"; part?: OverviewPart }
   | { kind: "section"; sectionId: string }
+  | { kind: "group"; groupId: string }
   | { kind: "block"; blockId: string; /** An item clicked inside the block (card, step, list item…) */ itemId?: string }
   | { kind: "divider"; dividerId: string };
 type Tab = "sections" | "inspect" | "theme" | "publish";
 /** Pieces of the project overview that behave like blocks. */
 type OverviewPart = "title" | "description" | "cover";
 
-function findBlock(items: PageItem[], blockId: string): { section: PageSection; block: Block } | null {
-  for (const item of items) {
-    if (item.kind !== "section") continue;
-    const block = item.blocks.find((b) => b.id === blockId);
-    if (block) return { section: item, block };
-  }
-  return null;
-}
-
 function findSection(items: PageItem[], sectionId: string): { section: PageSection; index: number } | null {
-  let index = 0;
-  for (const item of items) {
-    if (item.kind !== "section") continue;
-    if (item.id === sectionId) return { section: item, index };
-    index++;
-  }
-  return null;
+  const sections = sectionsOf(items);
+  const index = sections.findIndex((s) => s.id === sectionId);
+  return index >= 0 ? { section: sections[index], index } : null;
 }
 
 const sectionNumber = (index: number) => String(index + 1).padStart(2, "0");
+const sectionLabel = (index: number) => `${sectionNumber(index)} Bölüm`;
+const groupLabel = (index: number) => `Blok ${index + 1}`;
 
 // ── Entry blocks: what "+" adds ───────────────────────────────────────────────
 
@@ -224,8 +227,8 @@ function ChromeBar({ className, accent = false, children }: { className?: string
       className={cn(
         "flex items-center gap-0.5 h-9 p-1 rounded-full border shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-opacity duration-150",
         accent
-          // Section label: editor blue, white content.
-          ? "border-transparent bg-[var(--edit-accent)] text-white [&_button]:text-white [&_button:hover]:bg-white/15 [&_button:hover]:border-transparent"
+          // Section / Blok label: the level's colour (blue, or green inside a Blok), white content.
+          ? "border-transparent bg-[var(--edit-tone,var(--edit-accent))] text-white [&_button]:text-white [&_button:hover]:bg-white/15 [&_button:hover]:border-transparent"
           : "border-[var(--border)] bg-[var(--bg-1)]",
         className
       )}
@@ -241,11 +244,16 @@ function ChromeLabel({ onClick, children }: { onClick: () => void; children: Rea
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className="h-7 px-2 rounded-full text-[13px] font-medium leading-5 text-[var(--text-title)] whitespace-nowrap hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-full text-[13px] font-medium leading-5 text-[var(--text-title)] whitespace-nowrap hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
     >
       {children}
     </button>
   );
+}
+
+/** The colour of the level / component kind it sits in (--edit-tone). */
+function ToneDot() {
+  return <span aria-hidden className="w-2 h-2 shrink-0 rounded-full bg-[var(--edit-tone,var(--edit-accent))]" />;
 }
 
 /** Panel card — same surface as a block row in the form editor. */
@@ -479,7 +487,43 @@ const sectionChromeClass = (active: boolean) =>
 /** The section label inside a section (see useKeepDropPosition's `linger`). */
 const SECTION_LABEL = ":scope > [data-no-drag]";
 
-/** 1px frame around a canvas component; it also anchors the component's toolbar. */
+/**
+ * Dashed outline of a Blok, 8px around its components — between their frames
+ * (6px) and the section outline (10px). Green when selected, lighter while one
+ * of its components is selected or its own area (not a component) is hovered.
+ */
+function groupOutline(selected: boolean, active: boolean) {
+  return cn(
+    "rounded-[20px] outline-dashed outline-1 outline-offset-[7px] transition-[outline-color]",
+    selected
+      ? "outline-[var(--edit-group)]"
+      : active
+        ? "outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]"
+        : cn(
+            "outline-transparent hover:outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]",
+            "has-[[data-live-block]:hover]:outline-transparent"
+          )
+  );
+}
+
+/**
+ * A Blok's label, under its outline (bottom left) — the section label is top
+ * left and the components' toolbars top right. A bridge above it keeps the Blok
+ * hovered on the way down. It shows while the Blok's own area is hovered.
+ */
+const groupChromeClass = (visible: boolean) =>
+  cn(
+    "absolute -left-[8px] top-[calc(100%+12px)] z-30",
+    "before:content-[''] before:absolute before:inset-x-0 before:bottom-full before:h-[13px]",
+    visible
+      ? "opacity-100 pointer-events-auto"
+      : cn(
+          "opacity-0 pointer-events-none group-hover/blok:opacity-100 group-hover/blok:pointer-events-auto",
+          "group-has-[[data-live-block]:hover]/blok:opacity-0 group-has-[[data-live-block]:hover]/blok:pointer-events-none"
+        )
+  );
+
+/** 1px frame around a canvas component, in its kind's colour; it also anchors the component's toolbar. */
 function SelectionFrame({ frameRef, selected, dragging = false, dashed = false, children }: {
   frameRef: (el: HTMLDivElement | null) => void;
   selected: boolean;
@@ -494,10 +538,10 @@ function SelectionFrame({ frameRef, selected, dragging = false, dashed = false, 
       ref={frameRef}
       className={cn(
         "pointer-events-none absolute -inset-[6px] z-20 border transition-colors duration-150",
-        // Full blue when selected (or dragged), a lighter blue on hover.
+        // Full colour when selected (or dragged), a lighter one on hover (--edit-tone: the component's kind).
         selected || dragging
-          ? cn("border-[var(--edit-accent)]", dashed && !dragging && "border-dashed")
-          : "border-transparent group-hover/block:border-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]",
+          ? cn("border-[var(--edit-tone,var(--edit-accent))]", dashed && !dragging && "border-dashed")
+          : "border-transparent group-hover/block:border-[color-mix(in_srgb,var(--edit-tone,var(--edit-accent))_40%,transparent)]",
         dragging && "-z-10 bg-[var(--bg-1)] shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
       )}
     >
@@ -603,11 +647,12 @@ function LiveOverview({ project, lang, actions, selection, onSelect }: {
   );
 }
 
-// ── Canvas: block ─────────────────────────────────────────────────────────────
+// ── Canvas: component (Bileşen) ───────────────────────────────────────────────
 
-function LiveBlock({ block, sectionId, lang, actions, selected, selectedItemId, onSelect, onInsertAfter }: {
+function LiveBlock({ block, group, lang, actions, selected, selectedItemId, onSelect, onInsertAfter }: {
   block: Block;
-  sectionId: string;
+  /** Its Blok: where it sits for drag & drop, and the grid it covers columns of */
+  group: Group;
   lang: Lang;
   actions: EditorActions;
   selected: boolean;
@@ -617,18 +662,19 @@ function LiveBlock({ block, sectionId, lang, actions, selected, selectedItemId, 
   onSelect: (itemId?: string) => void;
   onInsertAfter: () => void;
 }) {
-  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, sectionId);
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, group.id);
   const display = useMemo(() => localizeBlock(block, lang), [block, lang]);
   const edit = useMemo(
-    () => createBlockEditApi(block, lang, (patch) => actions.updateBlock(sectionId, block.id, patch)),
-    [block, lang, sectionId, actions]
+    () => createBlockEditApi(block, lang, (patch) => actions.updateBlock(block.id, patch)),
+    [block, lang, actions]
   );
-  const update = (patch: Partial<Block>) => actions.updateBlock(sectionId, block.id, patch);
+  const update = (patch: Partial<Block>) => actions.updateBlock(block.id, patch);
   const addItemLabel = ADD_ITEM_LABEL[block.type];
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
+  const cell = cellProps(block.span, group.grid);
 
-  // Mark the selected item (SortableItem draws a blue outline for `data-selected`).
+  // Mark the selected item (SortableItem draws an outline in the block's colour for `data-selected`).
   useLayoutEffect(() => {
     const root = blockEl.current;
     if (!root) return;
@@ -643,7 +689,8 @@ function LiveBlock({ block, sectionId, lang, actions, selected, selectedItemId, 
       ref={(el) => { setNodeRef(el); rootRef(el); blockEl.current = el; }}
       data-live-block
       data-block-id={block.id}
-      style={sortableStyle(transform, transition)}
+      // --edit-tone: the colour of the component's kind — its frame, toolbar dot, cards and hovered text.
+      style={{ ...cell.style, ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
       {...listeners}
       onPointerEnter={fitFrame}
       onClick={(e) => {
@@ -652,7 +699,7 @@ function LiveBlock({ block, sectionId, lang, actions, selected, selectedItemId, 
         onSelect(item && e.currentTarget.contains(item) ? item.getAttribute("data-entry-id") ?? undefined : undefined);
       }}
       // Dragged: lifted above the page (a stacking context, so the frame's card sits right behind it).
-      className={cn("group/block relative w-full", HOVER_RING_BLOCK, isDragging && "z-30 cursor-grabbing")}
+      className={cn("group/block relative w-full", cell.className, HOVER_RING_BLOCK, isDragging && "z-30 cursor-grabbing")}
     >
       <SelectionFrame frameRef={frameRef} selected={selected} dragging={isDragging} dashed={Boolean(selectedItemId)}>
         <ChromeBar
@@ -662,14 +709,17 @@ function LiveBlock({ block, sectionId, lang, actions, selected, selectedItemId, 
             selected ? "opacity-100 pointer-events-auto" : "opacity-0 group-hover/block:opacity-100 group-hover/block:pointer-events-auto"
           )}
         >
-          <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className={handleClass} />
-          <ChromeLabel onClick={() => onSelect()}>{BLOCK_LABELS[block.type]}</ChromeLabel>
+          <DragHandle activatorRef={setActivatorNodeRef} label="Bileşeni sürükle" className={handleClass} />
+          <ChromeLabel onClick={() => onSelect()}>
+            <ToneDot />
+            {BLOCK_LABELS[block.type]}
+          </ChromeLabel>
           {addItemLabel && (
             <ToolButton label={addItemLabel} onClick={() => addItem(block, edit, update)}>{Icons.plus}</ToolButton>
           )}
-          <ToolButton label="Altına blok ekle" onClick={onInsertAfter}>{Icons.insertBelow}</ToolButton>
-          <ToolButton label="Çoğalt" onClick={() => actions.duplicateBlock(sectionId, block)}>{Icons.duplicate}</ToolButton>
-          <ToolButton label="Sil" onClick={() => actions.deleteBlock(sectionId, block.id)}>{Icons.trash}</ToolButton>
+          <ToolButton label="Altına bileşen ekle" onClick={onInsertAfter}>{Icons.insertBelow}</ToolButton>
+          <ToolButton label="Çoğalt" onClick={() => actions.duplicateBlock(block)}>{Icons.duplicate}</ToolButton>
+          <ToolButton label="Sil" onClick={() => actions.deleteBlock(block.id)}>{Icons.trash}</ToolButton>
         </ChromeBar>
       </SelectionFrame>
       <ProjectBlock block={display} edit={edit} lang={lang} />
@@ -677,33 +727,126 @@ function LiveBlock({ block, sectionId, lang, actions, selected, selectedItemId, 
   );
 }
 
+// ── Canvas: Blok (group) ──────────────────────────────────────────────────────
+
+/**
+ * A Blok on its section's grid, laying out its components on a grid of its
+ * own. Click its empty area (between components) to select it; drag it by its
+ * label's grip, or press and hold that area.
+ */
+function LiveGroup({ group, index, section, lang, actions, selected, active, selectedBlockId, selectedItemId, onSelect, onSelectBlock, onInsert }: {
+  group: Group;
+  /** Its place in the section (Blok 1, 2…) */
+  index: number;
+  section: PageSection;
+  lang: Lang;
+  actions: EditorActions;
+  selected: boolean;
+  /** One of its components is selected */
+  active: boolean;
+  selectedBlockId: string | null;
+  selectedItemId: string | null;
+  onSelect: () => void;
+  onSelectBlock: (blockId: string, itemId?: string) => void;
+  /** Opens the component picker for this Blok: after a component, else at its end */
+  onInsert: (afterBlockId?: string) => void;
+}) {
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
+  const cell = cellProps(group.span, section.grid);
+  const grid = gridProps(group.grid);
+  const columns = gridColumns(group.grid);
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-live-group
+      data-group-id={group.id}
+      style={{ ...cell.style, ...grid.style, ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
+      {...listeners}
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      className={cn(
+        "group/blok relative",
+        cell.className,
+        grid.className,
+        groupOutline(selected || isDragging, active),
+        isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]")
+      )}
+    >
+      <ChromeBar accent className={cn(groupChromeClass(selected), isDragging && "hidden")}>
+        <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className={handleClass} />
+        <ChromeLabel onClick={onSelect}>
+          {groupLabel(index)}
+          {columns.length > 1 && <span className="font-normal opacity-80 tabular-nums">{layoutName(columns)}</span>}
+        </ChromeLabel>
+        <ToolButton label="Bloğa bileşen ekle" onClick={() => onInsert()}>{Icons.plus}</ToolButton>
+        <ToolButton label="Bloğu çoğalt" onClick={() => actions.duplicateGroup(group.id)}>{Icons.duplicate}</ToolButton>
+        <ToolButton label="Bloğu sil" onClick={() => actions.deleteGroup(group.id)}>{Icons.trash}</ToolButton>
+      </ChromeBar>
+
+      <GroupBlocks group={group}>
+        {group.blocks.map((block) => (
+          <LiveBlock
+            key={block.id}
+            block={block}
+            group={group}
+            lang={lang}
+            actions={actions}
+            selected={selectedBlockId === block.id}
+            selectedItemId={selectedBlockId === block.id ? selectedItemId : null}
+            onSelect={(itemId) => onSelectBlock(block.id, itemId)}
+            onInsertAfter={() => onInsert(block.id)}
+          />
+        ))}
+      </GroupBlocks>
+
+      {group.blocks.length === 0 && (
+        // An empty Blok: add its first component — or drop one here (the Blok itself is the drop target).
+        <button
+          type="button"
+          data-no-drag
+          onClick={(e) => { e.stopPropagation(); onInsert(); }}
+          className="col-span-full flex items-center justify-center gap-1.5 w-full h-16 rounded-[14px] border border-dashed border-[var(--border-hover)] text-[13px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:border-[color-mix(in_srgb,var(--edit-group)_40%,transparent)] transition-colors cursor-pointer"
+        >
+          {Icons.plus}
+          Bileşen ekle
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── Canvas: section & divider ─────────────────────────────────────────────────
 
-function LiveSection({ section, index, lang, actions, selectedBlockId, selectedItemId, selected, onSelectSection, onSelectBlock, onInsert }: {
+function LiveSection({ section, index, lang, actions, selected, active, selectedGroupId, activeGroupId, selectedBlockId, selectedItemId, onSelect, onInsert }: {
   section: PageSection;
   index: number;
   lang: Lang;
   actions: EditorActions;
-  selectedBlockId: string | null;
   selected: boolean;
-  onSelectSection: () => void;
+  /** One of its Bloks or components is selected */
+  active: boolean;
+  selectedGroupId: string | null;
+  /** The Blok holding the selected component */
+  activeGroupId: string | null;
+  selectedBlockId: string | null;
   selectedItemId: string | null;
-  onSelectBlock: (blockId: string, itemId?: string) => void;
-  onInsert: (sectionId: string, afterBlockId?: string) => void;
+  onSelect: (next: Selection) => void;
+  /** Opens the component picker for a Blok: after a component, else at its end */
+  onInsert: (groupId: string, afterBlockId?: string) => void;
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortablePageItem(section);
   const reordering = usePageReorder();
   const dropRef = useKeepDropPosition(isDragging, SECTION_LABEL_OFFSET, SECTION_LABEL);
   const ref = (el: HTMLElement | null) => { setNodeRef(el); dropRef(el); };
-  // A selected block keeps its section in the hover state.
-  const active = selected || section.blocks.some((b) => b.id === selectedBlockId);
+  const selectSection = () => onSelect({ kind: "section", sectionId: section.id });
+  const addGroup = () => onSelect({ kind: "group", groupId: actions.addGroup(section.id) });
 
   if (reordering) {
-    const heading = section.blocks.find((b) => b.type === "heading");
+    const heading = sectionBlocks(section).find((b) => b.type === "heading");
     return (
       <section ref={ref} style={sortableStyle(transform, transition)} {...listeners} className={cn("relative w-full", isDragging && "z-30")}>
         <ReorderRow
-          label={`${sectionNumber(index)} Bölüm`}
+          label={sectionLabel(index)}
           detail={heading ? localizeBlock(heading, lang).content : undefined}
           dragging={isDragging}
           activatorRef={setActivatorNodeRef}
@@ -712,17 +855,15 @@ function LiveSection({ section, index, lang, actions, selectedBlockId, selectedI
     );
   }
 
+  const grid = gridProps(section.grid);
+
   return (
     <section
       ref={ref}
       data-section-id={section.id}
       style={sortableStyle(transform, transition)}
       {...listeners}
-      onClick={(e) => {
-        if ((e.target as Element).closest("[data-live-block]")) return;
-        e.stopPropagation();
-        onSelectSection();
-      }}
+      onClick={(e) => { e.stopPropagation(); selectSection(); }}
       className={cn(
         // scroll-mt: room for the label when the sections panel scrolls here.
         "group/section flex flex-col gap-4 items-start scroll-mt-[64px]",
@@ -732,33 +873,41 @@ function LiveSection({ section, index, lang, actions, selectedBlockId, selectedI
         isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]")
       )}
     >
-      <ChromeBar accent className={cn(sectionChromeClass(active), isDragging && "hidden")}>
+      <ChromeBar accent className={cn(sectionChromeClass(selected || active), isDragging && "hidden")}>
         <DragHandle activatorRef={setActivatorNodeRef} label="Bölümü sürükle" className={handleClass} />
-        <ChromeLabel onClick={onSelectSection}>{sectionNumber(index)} Bölüm</ChromeLabel>
-        <ToolButton label="Bölüme blok ekle" onClick={() => onInsert(section.id)}>{Icons.plus}</ToolButton>
+        <ChromeLabel onClick={selectSection}>{sectionLabel(index)}</ChromeLabel>
+        <ToolButton label="Bölüme blok ekle" onClick={addGroup}>{Icons.plus}</ToolButton>
         <ToolButton label="Bölümü sil" onClick={() => actions.deleteItem(section.id)}>{Icons.trash}</ToolButton>
       </ChromeBar>
 
-      <SectionBlocks section={section}>
-        {section.blocks.map((block) => (
-          <LiveBlock
-            key={block.id}
-            block={block}
-            sectionId={section.id}
-            lang={lang}
-            actions={actions}
-            selected={selectedBlockId === block.id}
-            selectedItemId={selectedBlockId === block.id ? selectedItemId : null}
-            onSelect={(itemId) => onSelectBlock(block.id, itemId)}
-            onInsertAfter={() => onInsert(section.id, block.id)}
-          />
-        ))}
-      </SectionBlocks>
+      {section.groups.length > 0 && (
+        <div className={grid.className} style={grid.style}>
+          <SectionGroups section={section}>
+            {section.groups.map((group, i) => (
+              <LiveGroup
+                key={group.id}
+                group={group}
+                index={i}
+                section={section}
+                lang={lang}
+                actions={actions}
+                selected={selectedGroupId === group.id}
+                active={activeGroupId === group.id}
+                selectedBlockId={selectedBlockId}
+                selectedItemId={selectedItemId}
+                onSelect={() => onSelect({ kind: "group", groupId: group.id })}
+                onSelectBlock={(blockId, itemId) => onSelect({ kind: "block", blockId, itemId })}
+                onInsert={(afterBlockId) => onInsert(group.id, afterBlockId)}
+              />
+            ))}
+          </SectionGroups>
+        </div>
+      )}
 
-      {section.blocks.length === 0 && (
+      {section.groups.length === 0 && (
         <PillButton
           size="md"
-          onClick={(e) => { e.stopPropagation(); onInsert(section.id); }}
+          onClick={(e) => { e.stopPropagation(); addGroup(); }}
           startIcon={Icons.plus}
           className="w-full justify-center border-dashed border-[var(--border-hover)] hover:border-[var(--text-subtitle)]"
         >
@@ -818,34 +967,7 @@ function LiveDivider({ divider, actions, selected, onSelect }: {
 
 // ── Panels ────────────────────────────────────────────────────────────────────
 
-function BlockTypeRows({ blocks, lang, selectedBlockId, onSelect, onDelete }: {
-  blocks: Block[];
-  lang: Lang;
-  selectedBlockId: string | null;
-  onSelect: (blockId: string) => void;
-  onDelete?: (blockId: string) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      {blocks.map((b) => {
-        const summary = blockSummary(b, lang);
-        return (
-          <PanelRow
-            key={b.id}
-            active={selectedBlockId === b.id}
-            onClick={() => onSelect(b.id)}
-            actions={onDelete && <ToolButton label="Bloğu sil" onClick={() => onDelete(b.id)}>{Icons.trash}</ToolButton>}
-          >
-            <span className="shrink-0 font-medium text-[var(--text-title)]">{BLOCK_LABELS[b.type]}</span>
-            {summary && <span className="min-w-0 truncate text-[13px] text-[var(--text-subtitle)]">{summary}</span>}
-          </PanelRow>
-        );
-      })}
-    </div>
-  );
-}
-
-/** Where the selection lives ("02 Bölüm › Süreç"); each step selects that level. */
+/** Where the selection lives ("02 Bölüm › Blok 1 › Süreç"); each step selects that level. */
 function Crumbs({ items }: { items: { label: string; detail?: string; onClick: () => void }[] }) {
   return (
     <nav aria-label="Konum" className="flex items-center gap-1 min-w-0 flex-wrap">
@@ -872,30 +994,25 @@ function Crumbs({ items }: { items: { label: string; detail?: string; onClick: (
 
 // ── Sections panel ────────────────────────────────────────────────────────────
 
-/** Plain text without the **bold** / [link](…) markers, on one line. */
-function plainText(raw?: string) {
-  return raw?.replace(/\*\*|\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim() || undefined;
-}
-
 /** Name of a section in the panel: its first heading. */
 function sectionTitle(section: PageSection, lang: Lang) {
-  const heading = section.blocks.find((b) => b.type === "heading");
+  const heading = sectionBlocks(section).find((b) => b.type === "heading");
   return heading ? plainText(localizeBlock(heading, lang).content) : undefined;
 }
 
-/** Short preview of a block's content for its row. */
-function blockSummary(block: Block, lang: Lang) {
-  const b = localizeBlock(block, lang);
-  const entry = b.entries?.[0];
-  return plainText(b.content || b.title || b.caption || b.alt || b.listItems?.[0]?.text || entry?.title || entry?.label || entry?.text);
+/** The section holding the selected Blok or component. */
+function activeSectionOf(items: PageItem[], selection: Selection): string | null {
+  if (selection.kind === "block") return findBlock(items, selection.blockId)?.section.id ?? null;
+  if (selection.kind === "group") return findGroup(items, selection.groupId)?.section.id ?? null;
+  return null;
 }
 
 type SelectFromPanel = (next: Selection, opts?: { inspect?: boolean; scroll?: boolean }) => void;
 
 /**
  * What a press lands on, if it should become the selection: the item inside a
- * block, the block, the section or the divider. Toolbar buttons don't select
- * (their drag handles do — they belong to the thing they drag).
+ * component, the component, the Blok, the section or the divider. Toolbar
+ * buttons don't select (their drag handles do — they belong to the thing they drag).
  */
 function pressTarget(target: Element): Selection | null {
   if (target.closest("[data-no-drag]") && !target.closest("[data-drag-handle]")) return null;
@@ -905,6 +1022,8 @@ function pressTarget(target: Element): Selection | null {
     const itemId = item && block.contains(item) ? item.dataset.entryId : undefined;
     return { kind: "block", blockId: block.dataset.blockId, itemId };
   }
+  const group = target.closest<HTMLElement>("[data-live-group]");
+  if (group?.dataset.groupId) return { kind: "group", groupId: group.dataset.groupId };
   const section = target.closest<HTMLElement>("[data-section-id]");
   if (section?.dataset.sectionId) return { kind: "section", sectionId: section.dataset.sectionId };
   const divider = target.closest<HTMLElement>("[data-divider-id]");
@@ -919,6 +1038,7 @@ function layerPressTarget(target: Element): Selection | null {
   if (!row || !id) return null;
   switch (row.dataset.layerKind) {
     case "block": return { kind: "block", blockId: id };
+    case "group": return { kind: "group", groupId: id };
     case "section": return { kind: "section", sectionId: id };
     case "divider": return { kind: "divider", dividerId: id };
     default: return null;
@@ -927,64 +1047,129 @@ function layerPressTarget(target: Element): Selection | null {
 
 const isPrimaryPress = (e: React.PointerEvent) => e.button === 0 && e.isPrimary;
 
-function LayerBlock({ block, sectionId, lang, selected, actions, onSelect }: {
+function LayerBlock({ block, group, lang, selection, actions, onSelect }: {
   block: Block;
-  sectionId: string;
+  /** Its Blok */
+  group: Group;
   lang: Lang;
-  selected: boolean;
+  selection: Selection;
   actions: EditorActions;
   onSelect: SelectFromPanel;
 }) {
-  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, sectionId);
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, group.id);
   const summary = blockSummary(block, lang);
+  const selected = selection.kind === "block" && selection.blockId === block.id && !selection.itemId;
   return (
     <div
       ref={setNodeRef}
       data-layer-id={block.id}
       data-layer-kind="block"
-      style={sortableStyle(transform, transition)}
+      style={{ ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
       {...listeners}
-      onClick={() => onSelect({ kind: "block", blockId: block.id })}
-      onDoubleClick={() => onSelect({ kind: "block", blockId: block.id }, { inspect: true })}
+      onClick={(e) => { e.stopPropagation(); onSelect({ kind: "block", blockId: block.id }); }}
+      onDoubleClick={(e) => { e.stopPropagation(); onSelect({ kind: "block", blockId: block.id }, { inspect: true }); }}
       className={cn(
         "group/row flex items-center gap-1 h-9 pl-0.5 pr-1 rounded-full border bg-[var(--bg-1)] text-[13px] leading-5 cursor-pointer select-none transition-colors",
-        selected ? "border-[var(--edit-accent)]" : "border-transparent hover:border-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]",
-        isDragging && cn(DRAG_LIFT, "border-[var(--edit-accent)]")
+        selected || isDragging ? "border-[var(--edit-tone)]" : "border-transparent hover:border-[color-mix(in_srgb,var(--edit-tone)_40%,transparent)]",
+        isDragging && DRAG_LIFT
       )}
     >
-      <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className={handleClass} />
+      <DragHandle activatorRef={setActivatorNodeRef} label="Bileşeni sürükle" className={handleClass} />
+      <ToneDot />
       <span className="shrink-0 font-medium text-[var(--text-title)]">{BLOCK_LABELS[block.type]}</span>
       {summary && <span className="min-w-0 truncate text-[var(--text-subtitle)]">{summary}</span>}
       <div className="ml-auto flex items-center opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
         <ToolButton label="Düzenle" onClick={() => onSelect({ kind: "block", blockId: block.id }, { inspect: true })}>{Icons.edit}</ToolButton>
-        <ToolButton label="Sil" onClick={() => actions.deleteBlock(sectionId, block.id)}>{Icons.trash}</ToolButton>
+        <ToolButton label="Sil" onClick={() => actions.deleteBlock(block.id)}>{Icons.trash}</ToolButton>
       </div>
     </div>
   );
 }
 
-function LayerSection({ section, index, lang, selection, collapsed, onToggle, actions, onSelect, onAddBlock }: {
+/** A Blok in the sections panel: its components, droppable and sortable. */
+function LayerGroup({ group, index, sectionId, lang, selection, actions, onSelect, onAddBlock }: {
+  group: Group;
+  index: number;
+  sectionId: string;
+  lang: Lang;
+  selection: Selection;
+  actions: EditorActions;
+  onSelect: SelectFromPanel;
+  onAddBlock: (groupId: string) => void;
+}) {
+  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, sectionId);
+  const selected = selection.kind === "group" && selection.groupId === group.id;
+  const columns = gridColumns(group.grid);
+  const select = (inspect = false) => onSelect({ kind: "group", groupId: group.id }, inspect ? { inspect } : undefined);
+  return (
+    <div
+      ref={setNodeRef}
+      data-layer-id={group.id}
+      data-layer-kind="group"
+      style={{ ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
+      {...listeners}
+      className={cn("flex flex-col gap-1", isDragging && cn(DRAG_LIFT, "rounded-[18px] bg-[var(--bg-4)]"))}
+    >
+      <div
+        onClick={(e) => { e.stopPropagation(); select(); }}
+        onDoubleClick={(e) => { e.stopPropagation(); select(true); }}
+        className={cn(
+          "group/row flex items-center gap-1 h-8 pl-0.5 pr-1 rounded-full border text-[12px] leading-4 cursor-pointer select-none transition-colors",
+          selected || isDragging ? "border-[var(--edit-group)] bg-[var(--bg-1)]" : "border-transparent hover:bg-[var(--bg-1)]"
+        )}
+      >
+        <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className={handleClass} />
+        <ToneDot />
+        <span className="shrink-0 font-medium text-[var(--text-title)]">{groupLabel(index)}</span>
+        {columns.length > 1 && <span className="tabular-nums text-[var(--text-subtitle)]">{layoutName(columns)}</span>}
+        <div className="ml-auto flex items-center opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+          <ToolButton label="Bloğa bileşen ekle" onClick={() => onAddBlock(group.id)}>{Icons.plus}</ToolButton>
+          <ToolButton label="Düzenle" onClick={() => select(true)}>{Icons.edit}</ToolButton>
+          <ToolButton label="Bloğu sil" onClick={() => actions.deleteGroup(group.id)}>{Icons.trash}</ToolButton>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 ml-3.5 pl-2.5 border-l border-dashed border-[var(--border-hover)]">
+        <GroupBlocks group={group}>
+          {group.blocks.map((block) => (
+            <LayerBlock
+              key={block.id}
+              block={block}
+              group={group}
+              lang={lang}
+              selection={selection}
+              actions={actions}
+              onSelect={onSelect}
+            />
+          ))}
+        </GroupBlocks>
+        {group.blocks.length === 0 && <p className="px-2.5 py-1 text-[12px] leading-4 text-[var(--text-subtitle)]">Boş — buraya bir bileşen sürükle.</p>}
+      </div>
+    </div>
+  );
+}
+
+function LayerSection({ section, index, lang, selection, active, collapsed, onToggle, actions, onSelect, onAddBlock }: {
   section: PageSection;
   index: number;
   lang: Lang;
   selection: Selection;
+  /** One of its Bloks or components is selected */
+  active: boolean;
   collapsed: boolean;
   onToggle: () => void;
   actions: EditorActions;
   onSelect: SelectFromPanel;
-  onAddBlock: (sectionId: string) => void;
+  onAddBlock: (groupId: string) => void;
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortablePageItem(section);
   const reordering = usePageReorder();
   const dropRef = useKeepDropPosition(isDragging);
   const ref = (el: HTMLElement | null) => { setNodeRef(el); dropRef(el); };
-  const label = `${sectionNumber(index)} Bölüm`;
+  const label = sectionLabel(index);
   const title = sectionTitle(section, lang);
   const selected = selection.kind === "section" && selection.sectionId === section.id;
-  const selectedBlockId = selection.kind === "block" ? selection.blockId : null;
-  const hasSelectedBlock = section.blocks.some((b) => b.id === selectedBlockId);
-  // A section holding the selected block always shows its blocks.
-  const open = !collapsed || hasSelectedBlock;
+  // A section holding the selection always shows its Bloks.
+  const open = !collapsed || active;
 
   if (reordering) {
     return (
@@ -1003,7 +1188,7 @@ function LayerSection({ section, index, lang, selection, collapsed, onToggle, ac
       {...listeners}
       className={cn(
         "flex flex-col gap-1 p-1.5 rounded-[18px] border bg-[var(--bg-4)] transition-colors",
-        selected ? "border-[var(--edit-accent)]" : hasSelectedBlock ? "border-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]" : "border-[var(--border)]",
+        selected ? "border-[var(--edit-accent)]" : active ? "border-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]" : "border-[var(--border)]",
         isDragging && cn(DRAG_LIFT, "border-[var(--edit-accent)]")
       )}
     >
@@ -1025,32 +1210,34 @@ function LayerSection({ section, index, lang, selection, collapsed, onToggle, ac
         <span className="shrink-0 font-medium text-[var(--text-title)] tabular-nums">{sectionNumber(index)}</span>
         <span className={cn("min-w-0 truncate", title ? "text-[var(--text-p)]" : "text-[var(--text-subtitle)]")}>{title ?? "Başlıksız bölüm"}</span>
         <span className="ml-auto shrink-0 px-1 text-[12px] text-[var(--text-subtitle)] tabular-nums group-hover/row:hidden">
-          {section.blocks.length} blok
+          {section.groups.length} blok
         </span>
         <div className="ml-auto hidden group-hover/row:flex items-center">
-          <ToolButton label="Bölüme blok ekle" onClick={() => onAddBlock(section.id)}>{Icons.plus}</ToolButton>
+          <ToolButton label="Bölüme blok ekle" onClick={() => onSelect({ kind: "group", groupId: actions.addGroup(section.id) })}>{Icons.plus}</ToolButton>
           <ToolButton label="Düzenle" onClick={() => onSelect({ kind: "section", sectionId: section.id }, { inspect: true })}>{Icons.edit}</ToolButton>
           <ToolButton label="Bölümü sil" onClick={() => actions.deleteItem(section.id)}>{Icons.trash}</ToolButton>
         </div>
       </div>
 
       {open && (
-        <SectionBlocks section={section}>
-          {section.blocks.map((block) => (
-            <LayerBlock
-              key={block.id}
-              block={block}
+        <SectionGroups section={section}>
+          {section.groups.map((group, i) => (
+            <LayerGroup
+              key={group.id}
+              group={group}
+              index={i}
               sectionId={section.id}
               lang={lang}
-              selected={selectedBlockId === block.id}
+              selection={selection}
               actions={actions}
               onSelect={onSelect}
+              onAddBlock={onAddBlock}
             />
           ))}
-          {section.blocks.length === 0 && (
+          {section.groups.length === 0 && (
             <p className="px-3 py-2 text-[12px] leading-5 text-[var(--text-subtitle)]">Boş bölüm — buraya bir blok sürükle ya da ekle.</p>
           )}
-        </SectionBlocks>
+        </SectionGroups>
       )}
     </div>
   );
@@ -1110,11 +1297,13 @@ function SectionsList({ project, lang, selection, collapsed, onToggle, onToggleA
   onToggleAll: (collapse: boolean) => void;
   actions: EditorActions;
   onSelect: SelectFromPanel;
-  onAddBlock: (sectionId: string) => void;
+  /** Opens the component picker for a Blok */
+  onAddBlock: (groupId: string) => void;
 }) {
   const reordering = usePageReorder();
-  const sections = project.items.filter((i): i is PageSection => i.kind === "section");
+  const sections = sectionsOf(project.items);
   const allCollapsed = sections.length > 0 && sections.every((s) => collapsed.has(s.id));
+  const activeSectionId = activeSectionOf(project.items, selection);
   let sectionIndex = 0;
 
   return (
@@ -1162,6 +1351,7 @@ function SectionsList({ project, lang, selection, collapsed, onToggle, onToggleA
             index={sectionIndex++}
             lang={lang}
             selection={selection}
+            active={activeSectionId === item.id}
             collapsed={collapsed.has(item.id)}
             onToggle={() => onToggle(item.id)}
             actions={actions}
@@ -1186,14 +1376,15 @@ function SectionsList({ project, lang, selection, collapsed, onToggle, onToggleA
 }
 
 /**
- * Page outline: sections with their blocks. Click to go to one on the canvas,
- * double-click (or ✎) to edit it. Sections, dividers and blocks reorder by drag
- * & drop here too — in a drag context of its own, so the canvas stays as it is.
+ * Page outline: sections › Bloks › components. Click to go to one on the
+ * canvas, double-click (or ✎) to edit it. Everything reorders by drag & drop
+ * here too — in a drag context of its own, so the canvas stays as it is.
  */
 function SectionsPanel(props: Parameters<typeof SectionsList>[0]) {
   const { project, actions, selection } = props;
   const selectedId =
     selection.kind === "block" ? selection.blockId
+    : selection.kind === "group" ? selection.groupId
     : selection.kind === "section" ? selection.sectionId
     : selection.kind === "divider" ? selection.dividerId
     : null;
@@ -1227,8 +1418,9 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
   const [copied, setCopied] = useState(false);
   const path = `/projects/${slug}`;
 
-  const sections = project.items.filter((i): i is PageSection => i.kind === "section");
-  const blocks = sections.reduce((n, s) => n + s.blocks.length, 0);
+  const sections = sectionsOf(project.items);
+  const groups = sections.reduce((n, s) => n + s.groups.length, 0);
+  const blocks = sections.reduce((n, s) => n + sectionBlocks(s).length, 0);
   const dividers = project.items.length - sections.length;
 
   function copy() {
@@ -1253,10 +1445,11 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
       </PanelCard>
 
       <PanelCard title="İçerik durumu">
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           {[
             { value: sections.length, label: "Bölüm" },
-            { value: blocks, label: "Blok" },
+            { value: groups, label: "Blok" },
+            { value: blocks, label: "Bileşen" },
             { value: dividers, label: "Ayırıcı" },
           ].map((s) => (
             <div key={s.label} className="flex flex-col items-center gap-0.5 py-2.5 rounded-[14px] bg-[var(--bg-1)]">
@@ -1312,7 +1505,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
 }) {
   const [tab, setTab] = useState<Tab>("inspect");
   const [rawSelection, setSelection] = useState<Selection>({ kind: "none" });
-  const [picker, setPicker] = useState<{ sectionId: string; afterBlockId?: string } | null>(null);
+  // Where the block picker adds: a section (after a block, or at its end) or a row column.
+  const [picker, setPicker] = useState<{ sectionId?: string; afterBlockId?: string; containerId?: string } | null>(null);
   // Sections folded in the sections panel (kept across tab switches).
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set());
   const reordering = usePageReorder();
@@ -1360,6 +1554,31 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
       : next.kind === "meta" ? document.getElementById("live-overview")
       : null;
     target?.scrollIntoView({ behavior: "smooth", block: next.kind === "section" || next.kind === "meta" ? "start" : "center" });
+  }
+
+  /**
+   * Where the selected block / item sits: section › (row › column) › block —
+   * each step selects that level.
+   */
+  function blockCrumbs(found: NonNullable<typeof selectedBlock>, itemId: string | null) {
+    const { section, block, containerId } = found;
+    const crumbs: { label: string; detail?: string; onClick: () => void }[] = [
+      {
+        label: `${sectionNumber(findSection(project.items, section.id)?.index ?? 0)} Bölüm`,
+        detail: itemId || containerId !== section.id ? undefined : sectionTitle(section, lang),
+        onClick: () => select({ kind: "section", sectionId: section.id }, { scroll: true }),
+      },
+    ];
+    const row = containerId !== section.id ? rowOfColumn(section, containerId) : null;
+    if (row) {
+      const columnIndex = (row.rowColumns ?? []).findIndex((c) => c.id === containerId);
+      crumbs.push(
+        { label: BLOCK_LABELS.row, onClick: () => select({ kind: "block", blockId: row.id }, { scroll: true }) },
+        { label: `Sütun ${columnIndex + 1}`, onClick: () => select({ kind: "block", blockId: row.id, itemId: containerId }, { scroll: true }) }
+      );
+    }
+    if (itemId) crumbs.push({ label: BLOCK_LABELS[block.type], onClick: () => select({ kind: "block", blockId: block.id }, { scroll: true }) });
+    return crumbs;
   }
 
   // Inspector header: what is selected and what can be done with it.
@@ -1484,18 +1703,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
             {tab === "inspect" && (
               selectedBlock ? (
                 <div className="flex flex-col gap-3">
-                  <Crumbs
-                    items={[
-                      {
-                        label: `${sectionNumber(findSection(project.items, selectedBlock.section.id)?.index ?? 0)} Bölüm`,
-                        detail: selectedItemId ? undefined : sectionTitle(selectedBlock.section, lang),
-                        onClick: () => select({ kind: "section", sectionId: selectedBlock.section.id }, { scroll: true }),
-                      },
-                      ...(selectedItemId
-                        ? [{ label: BLOCK_LABELS[selectedBlock.block.type], onClick: () => select({ kind: "block", blockId: selectedBlock.block.id }, { scroll: true }) }]
-                        : []),
-                    ]}
-                  />
+                  <Crumbs items={blockCrumbs(selectedBlock, selectedItemId)} />
                   {selectedItemId ? (
                     <ItemInspector
                       block={selectedBlock.block}
@@ -1503,6 +1711,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                       lang={lang}
                       projectSlug={slug}
                       onChange={(u) => actions.updateBlock(selectedBlock.section.id, selectedBlock.block.id, u)}
+                      onSelectBlock={(blockId) => select({ kind: "block", blockId }, { scroll: true })}
+                      onAddBlock={() => setPicker({ containerId: selectedItemId })}
                     />
                   ) : (
                     <BlockInspector
@@ -1613,6 +1823,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                     selectedItemId={selectedItemId}
                     onSelectBlock={(blockId, itemId) => select({ kind: "block", blockId, itemId })}
                     onInsert={(sectionId, afterBlockId) => setPicker({ sectionId, afterBlockId })}
+                    onAddToColumn={(containerId) => setPicker({ containerId })}
                   />
                 )
               )}
@@ -1634,10 +1845,19 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
         {picker && (
           <BlockPickerDialog
             onPick={(type: BlockType, extras) => {
-              const blockId = actions.addBlock(picker.sectionId, type, extras, picker.afterBlockId);
+              const blockId = picker.containerId
+                ? actions.addBlockToContainer(picker.containerId, type, extras)
+                : actions.addBlock(picker.sectionId ?? "", type, extras, picker.afterBlockId);
               select({ kind: "block", blockId });
             }}
             onClose={() => setPicker(null)}
+            // Rows don't nest: no İç Bölüm into a column (or right after a block inside one).
+            exclude={
+              picker.containerId ||
+              (picker.afterBlockId && picker.sectionId && containerOfBlock(project.items, picker.afterBlockId) !== picker.sectionId)
+                ? ["row"]
+                : undefined
+            }
           />
         )}
       </div>

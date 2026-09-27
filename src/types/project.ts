@@ -98,6 +98,29 @@ export interface BadgeItem {
   tab2?: SegmentedSecondTab;
 }
 
+// ── Page structure: Bölüm › Blok › Bileşen ────────────────────────────────────
+//
+// A page is a list of sections (Bölüm). A section lays out its groups (Blok)
+// on a grid; a group lays out its components (Bileşen) on a grid of its own.
+// In code a component is a `Block` (heading, text, image…) and the box around
+// components is a `Group` — the editor calls them Bileşen and Blok.
+
+export type GridGap = "sm" | "md" | "lg";
+export type GridAlign = "start" | "center" | "end";
+
+/** How a section lays out its groups, or a group its components. */
+export interface GridSettings {
+  /**
+   * Column widths in twelfths, e.g. [4, 8] — children fill the columns in
+   * order and wrap to a new line. One full-width column when unset.
+   */
+  columns?: number[];
+  /** Space between the children (default "md", 16px) */
+  gap?: GridGap;
+  /** Vertical alignment of children sharing a line (default "start") */
+  align?: GridAlign;
+}
+
 // ── Block ─────────────────────────────────────────────────────────────────────
 
 export interface Block {
@@ -143,6 +166,8 @@ export interface Block {
   tableHeader?: boolean;
   /** Video block: autoplay muted loop without controls (mp4 / webm only) */
   videoLoop?: boolean;
+  /** How many columns of its group's grid it covers (default 1) */
+  span?: number;
   // EN
   contentEn?: string;
   subheadingEn?: string;
@@ -152,10 +177,21 @@ export interface Block {
 
 // ── Section ───────────────────────────────────────────────────────────────────
 
+/** "Blok" in the editor: a box on its section's grid, laying out components on its own grid. */
+export interface Group {
+  id: string;
+  /** How many columns of its section's grid it covers (default 1) */
+  span?: number;
+  grid?: GridSettings;
+  /** Its components */
+  blocks: Block[];
+}
+
 export interface Section {
   id: string;
   title?: string;
-  blocks: Block[];
+  grid?: GridSettings;
+  groups: Group[];
 }
 
 // ── Page Items (top-level structure) ─────────────────────────────────────────

@@ -205,11 +205,11 @@ export function SortableItem({ id, as: Tag = "div", className, children, onRemov
       className={cn(
         className,
         "relative group/sortable touch-manipulation",
-        // Live editor: the same 1px blue as the selection, 1px outside the card.
-        outline && "outline outline-1 outline-offset-1 outline-transparent hover:outline-[var(--edit-accent)] data-[selected]:outline-[var(--edit-accent)] transition-[outline-color]",
+        // Live editor: 1px outside the card, in the colour of the component it belongs to.
+        outline && "outline outline-1 outline-offset-1 outline-transparent hover:outline-[var(--edit-tone,var(--edit-accent))] data-[selected]:outline-[var(--edit-tone,var(--edit-accent))] transition-[outline-color]",
         // Items without their own corners (steps, rows) get a soft one for the outline.
         outline && !/\brounded/.test(className ?? "") && "rounded-[8px]",
-        isDragging && cn(DRAG_LIFT, "outline-[var(--edit-accent)]")
+        isDragging && cn(DRAG_LIFT, "outline-[var(--edit-tone,var(--edit-accent))]")
       )}
     >
       {children}

@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ProjectData } from "@/types/project";
+import { normalizeItems } from "@/lib/projectLayout";
 
 import { CVData } from "@/types/cv";
 
@@ -59,23 +60,8 @@ function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
     items = cleaned.sections.map((sec: any) => ({ ...sec, kind: "section" }));
   }
 
-  const validItems = items.map((item: any) => {
-    if (item.kind === "section") {
-      return {
-        ...item,
-        blocks: Array.isArray(item.blocks) ? item.blocks : [],
-      };
-    }
-    if (item.kind === "divider") {
-      return item;
-    }
-    return {
-      id: item.id || Math.random().toString(36).slice(2, 10),
-      kind: "section" as const,
-      title: item.title || "",
-      blocks: Array.isArray(item.blocks) ? item.blocks : [],
-    };
-  });
+  // Sections saved before groups (Blok) existed get one; see normalizeSection.
+  const validItems = normalizeItems(items);
 
   const res: ProjectData = {
     slug: String(cleaned.slug || ""),
@@ -90,6 +76,8 @@ function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
   if (cleaned.coverImage) res.coverImage = String(cleaned.coverImage);
   if (cleaned.description) res.description = String(cleaned.description);
   if (cleaned.descriptionEn) res.descriptionEn = String(cleaned.descriptionEn);
+  // Project theme (radius / colours) — was dropped here, so saved themes never came back.
+  if (cleaned.theme && typeof cleaned.theme === "object") res.theme = cleaned.theme as ProjectData["theme"];
 
   return res;
 }

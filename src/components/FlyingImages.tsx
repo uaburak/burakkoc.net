@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { listProjects } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
+import { sectionBlocks } from "@/lib/projectLayout";
 
 interface ImageItem {
   url: string;
@@ -73,8 +74,8 @@ const collectImagesFromProjects = (projects: ProjectData[]): ImageItem[] => {
       urls.push({ url: project.coverImage, projectSlug: project.slug });
     }
     project.items?.forEach((item) => {
-      if (item.kind === "section" && item.blocks) {
-        item.blocks.forEach((block) => {
+      if (item.kind === "section") {
+        sectionBlocks(item).forEach((block) => {
           if (block.type === "image" && block.src) {
             urls.push({ url: block.src, projectSlug: project.slug });
           } else if (block.figmaCover) {

@@ -16,6 +16,7 @@ import { FormEditor } from "@/components/admin/FormEditor";
 import { LiveEditor } from "@/components/admin/LiveEditor";
 import { ProjectDndProvider } from "@/components/admin/ProjectDnd";
 import { useEditorActions } from "@/components/admin/editorActions";
+import { normalizeItems } from "@/lib/projectLayout";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ function readDraft(slug: string): ProjectData | null {
       parsed.items = parsed.sections.map((s: any) => ({ ...s, kind: "section" }));
       delete parsed.sections;
     }
-    if (!Array.isArray(parsed.items)) parsed.items = [];
+    parsed.items = Array.isArray(parsed.items) ? normalizeItems(parsed.items) : [];
     return { ...parsed, slug };
   } catch {
     return null;
@@ -272,7 +273,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
               companies={companies}
               actions={actions}
               onLoadTemplate={loadTemplate}
-              onJsonChange={setProject}
+              onJsonChange={(p) => setProject({ ...p, items: normalizeItems(Array.isArray(p.items) ? p.items : []) })}
             />
           ) : (
             <LiveEditor

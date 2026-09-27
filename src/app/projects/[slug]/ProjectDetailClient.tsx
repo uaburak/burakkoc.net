@@ -6,23 +6,21 @@ import gsap from "gsap";
 import { ArrowLeftIcon } from "@/components/icons";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
 import { loadProject, listProjects } from "@/lib/firestore";
-import { ProjectData, Section, PageItem } from "@/types/project";
+import { ProjectData, PageSection, PageItem } from "@/types/project";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import PageEntrance from "@/components/PageEntrance";
 import { projectThemeAttrs } from "@/components/project/projectTheme";
-import { ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
+import { ProjectDivider } from "@/components/project/CoreBlocks";
+import { SectionContent } from "@/components/project/LayoutGrid";
+import { sectionBlocks } from "@/lib/projectLayout";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 
-function DetailSection({ section }: { section: Section }) {
+function DetailSection({ section }: { section: PageSection }) {
   return (
-    <section id={section.id} className="flex flex-col gap-4 items-start w-full pt-10 scroll-mt-24">
-      {(section.blocks || []).map((block) => (
-        <div key={block.id} className="w-full">
-          <ProjectBlock block={block} animate />
-        </div>
-      ))}
+    <section id={section.id} className="w-full pt-10 scroll-mt-24">
+      <SectionContent section={section} animate />
     </section>
   );
 }
@@ -66,7 +64,7 @@ function getProjectCoverImage(proj?: ProjectData | null): string | null {
   if (proj.coverImage) return proj.coverImage;
   for (const item of (proj.items || [])) {
     if (item.kind === "section") {
-      const imgBlock = (item.blocks || []).find((b) => b.type === "image" && b.src);
+      const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
       if (imgBlock?.src) return imgBlock.src;
     }
   }
@@ -305,7 +303,7 @@ export function ProjectDetailClient({
   const tocItems: TocItem[] = [{ id: "overview", label: "Overview" }];
   project.items.forEach((item) => {
     if (item.kind === "section") {
-      const headingBlock = item.blocks.find(
+      const headingBlock = sectionBlocks(item).find(
         (b) => b.type === "heading" && b.content && b.content.trim() !== ""
       );
       if (headingBlock && headingBlock.content) {

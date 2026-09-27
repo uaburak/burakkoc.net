@@ -19,9 +19,16 @@
   --border:       #f2f2f2;
   --border-hover: #e4e4e4;   /* Kutu/Active Light: rgba(228,228,228,1) */
 
-  /* Admin live editor: selection and hovered editable text (blue) / text being edited (red) */
+  /* Admin live editor: text being edited (red), and one colour per level of
+     the page — hover / selection frames, toolbars, the sections panel:
+     Bölüm (blue), Blok (green), Bileşen by its kind (text, media, data, research). */
   --edit-accent: #2f6bff;
   --edit-active: #e5484d;
+  --edit-group: #16a34a;
+  --edit-text: #7c4dff;
+  --edit-media: #ea580c;
+  --edit-data: #db2777;
+  --edit-research: #a16207;
 
   /* Progress Bar */
   --progress-track: #e6e6e6;
@@ -55,6 +62,11 @@
 
   --edit-accent: #6b95ff;
   --edit-active: #ff6369;
+  --edit-group: #3fbf6f;
+  --edit-text: #a384ff;
+  --edit-media: #ff8a3d;
+  --edit-data: #f0619e;
+  --edit-research: #d69e2e;
 
   /* Progress Bar */
   --progress-track: #1e1e1e;

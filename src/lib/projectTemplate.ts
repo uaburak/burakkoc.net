@@ -1,4 +1,5 @@
 import { ProjectData } from "@/types/project";
+import { normalizeItems } from "@/lib/projectLayout";
 
 /**
  * Şablon görselleri — Firebase Storage'daki mevcut proje görsellerinden.
@@ -38,7 +39,7 @@ const TEMPLATE_MEDIA = {
  * konacağını anlatmaya devam ediyor.
  */
 export function createProjectTemplate(): Omit<ProjectData, "slug"> {
-  return {
+  const template = {
     title: "Şablon Proje",
     category: "UX / UI Design",
     year: new Date().getFullYear().toString(),
@@ -452,4 +453,6 @@ export function createProjectTemplate(): Omit<ProjectData, "slug"> {
       },
     ],
   };
+  // Written as sections of components; each section gets one full-width Blok (group).
+  return { ...template, items: normalizeItems(template.items) };
 }
