@@ -26,7 +26,7 @@ import {
   useSortablePageItem,
 } from "@/components/admin/ProjectDnd";
 import { localizeBlock } from "@/components/project/editing";
-import { GRID_PRESETS, MAX_COLUMNS, freeCells, gridColumns, hasPlacedCells, layoutCells, layoutName, roomAt, sectionBlocks, withColumnCount } from "@/lib/projectLayout";
+import { GRID_PRESETS, MAX_COLUMNS, freeCells, gridColumns, gridRows, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, sectionBlocks, withColumnCount } from "@/lib/projectLayout";
 import type { EditorActions, ProjectMeta } from "@/components/admin/editorActions";
 import { DRAG_LIFT, DragHandle } from "@/components/project/Sortable";
 
@@ -370,7 +370,7 @@ function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: Gri
 }
 
 /**
- * Where a Blok / component sits on its parent's grid (only with 2+ columns):
+ * Where a Blok / component sits on its parent's grid (only with 2+ columns or set rows):
  * its cell — any free one can be picked, the others keep theirs — and how
  * many columns it covers.
  */
@@ -382,11 +382,12 @@ function PlaceSelect({ index, siblings, parent, onPlace, onSpan }: {
   onSpan: (span: number) => void;
 }) {
   const count = gridColumns(parent).length;
-  if (count < 2 || index < 0) return null;
-  const cells = layoutCells(siblings, count);
+  const rows = gridRows(parent);
+  if ((count < 2 && rows < 2) || index < 0) return null;
+  const cells = layoutCells(siblings, count, rows);
   const cell = cells[index];
   const name = (c: { row: number; col: number }) => `${c.row}. satır · ${c.col}. sütun`;
-  const places = [cell, ...freeCells(cells, count)];
+  const places = [cell, ...freeCells(cells, count, rowCount(cells, rows, !rows))];
   const maxSpan = hasPlacedCells(siblings) ? roomAt(cells, index, cell.row, cell.col, count) : count;
   const widths = Array.from({ length: maxSpan }, (_, i) => (i + 1 === count ? "Tam genişlik" : `${i + 1} sütun`));
   return (

@@ -146,6 +146,12 @@ export interface GridSettings {
    * wrap to a new line. One full-width column when unset.
    */
   columns?: number[];
+  /**
+   * How many rows it has — they stay even when empty, so a child can be put
+   * in any of their cells. More rows are added when the children need them;
+   * unset: as many as the children need.
+   */
+  rows?: number;
   /** Space between the children (default "md", 16px) */
   gap?: GridGap;
   /** Space between the columns / the rows in px — each overrides `gap` */

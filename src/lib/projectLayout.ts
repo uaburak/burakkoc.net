@@ -4,9 +4,10 @@ import type { Block, GridSettings, Group, PageItem, PageSection } from "@/types/
  * Page structure helpers: Bölüm (section) › Blok (group) › Bileşen (block).
  *
  * Sections and groups both lay out their children on a grid (GridSettings):
- * the grid's columns have widths in twelfths and its rows grow as needed. A
- * child put in a cell (`row` / `col`) stays there — the cells around it may
- * stay empty; the others fill the free cells in order, wrapping to a new row.
+ * the grid's columns have widths in twelfths; it has as many rows as set
+ * (`rows`), more when its children need them. A child put in a cell (`row` /
+ * `col`) stays there — the cells around it may stay empty; the others fill
+ * the free cells in order, wrapping to a new row.
  * A child may cover several columns (`span`). Ids are unique across the page,
  * so groups and blocks are found by id alone.
  */
@@ -32,6 +33,18 @@ export const GRID_PRESETS: Record<number, number[][]> = {
   3: [[4, 4, 4], [3, 6, 3], [6, 3, 3], [3, 3, 6]],
   4: [[3, 3, 3, 3], [2, 4, 4, 2], [4, 2, 2, 4]],
 };
+
+/** Most rows a grid can be set to have (its children may still need more). */
+export const MAX_ROWS = 12;
+
+/**
+ * How many rows the grid was set to have — 0 when unset. Those rows stay
+ * where they are even when empty; the rows after them close up when empty.
+ */
+export function gridRows(grid?: GridSettings): number {
+  const rows = Number(grid?.rows);
+  return Number.isFinite(rows) && rows >= 1 ? Math.min(MAX_ROWS, Math.round(rows)) : 0;
+}
 
 /** The grid's column widths — one full-width column unless set. */
 export function gridColumns(grid?: GridSettings): number[] {
@@ -87,11 +100,21 @@ function takenCells(cells: Cell[]) {
 }
 
 /**
+ * Rows without any child close up — except the grid's first `rows` rows
+ * (see gridRows), which stay where they are.
+ */
+function closeRows<T extends { row: number }>(cells: T[], rows: number): T[] {
+  const after = [...new Set(cells.map((c) => c.row).filter((r) => r > rows))].sort((a, b) => a - b);
+  return cells.map((c) => (c.row <= rows ? c : { ...c, row: rows + after.indexOf(c.row) + 1 }));
+}
+
+/**
  * Where each child sits on a grid of `count` columns. A child put in a cell
  * (`row` + `col`) sits right there; the others fill the free cells in order,
- * left to right and top to bottom. Rows without any child close up.
+ * left to right and top to bottom. Rows without any child close up, after
+ * the grid's first `rows` (see gridRows).
  */
-export function layoutCells(children: Omit<Placeable, "id">[], count: number): Cell[] {
+export function layoutCells(children: Omit<Placeable, "id">[], count: number, rows = 0): Cell[] {
   const taken = new Set<string>();
   const fits = (row: number, col: number, span: number) =>
     col + span - 1 <= count && Array.from({ length: span }, (_, k) => cellKey(row, col + k)).every((k) => !taken.has(k));
@@ -126,14 +149,18 @@ export function layoutCells(children: Omit<Placeable, "id">[], count: number): C
     return cell;
   });
 
-  const rows = [...new Set(cells.map((c) => c.row))].sort((a, b) => a - b);
-  return cells.map((c) => ({ ...c, row: rows.indexOf(c.row) + 1 }));
+  return closeRows(cells, rows);
 }
 
-/** The grid's free cells, row by row — and those of one more row, for a new line. */
-export function freeCells(cells: Cell[], count: number): { row: number; col: number }[] {
+/** How many rows a grid laid out as `cells` shows: at least its set `rows`, one more for a new line when `newRow`. */
+export function rowCount(cells: Cell[], rows: number, newRow = false) {
+  const used = Math.max(0, ...cells.map((c) => c.row));
+  return Math.max(rows, used) + (newRow ? 1 : 0);
+}
+
+/** The grid's free cells, row by row, in its first `rows` rows — by default those of one more row too, for a new line. */
+export function freeCells(cells: Cell[], count: number, rows = rowCount(cells, 0, true)): { row: number; col: number }[] {
   const taken = takenCells(cells);
-  const rows = Math.max(0, ...cells.map((c) => c.row)) + 1;
   const free: { row: number; col: number }[] = [];
   for (let row = 1; row <= rows; row++) {
     for (let col = 1; col <= count; col++) if (!taken.has(cellKey(row, col))) free.push({ row, col });
@@ -153,8 +180,8 @@ export function roomAt(cells: Cell[], index: number, row: number, col: number, c
 }
 
 /** Every child keeps the cell it is in, the list in reading order (the order on small screens). */
-function pinCells<T extends Placeable>(children: T[], count: number, update?: (child: T, cell: Cell, i: number) => Cell): T[] {
-  const cells = layoutCells(children, count);
+function pinCells<T extends Placeable>(children: T[], count: number, rows: number, update?: (child: T, cell: Cell, i: number) => Cell): T[] {
+  const cells = layoutCells(children, count, rows);
   return children
     .map((child, i) => {
       const cell = update ? update(child, cells[i], i) : cells[i];
@@ -165,28 +192,28 @@ function pinCells<T extends Placeable>(children: T[], count: number, update?: (c
 
 /**
  * Puts child `id` in the free cell at `row` / `col` — covering as many of its
- * columns as fit there. Every other child keeps its cell.
+ * columns as fit there. Every other child keeps its cell. `rows`: the grid's
+ * set rows (see gridRows).
  */
-export function placeInCell<T extends Placeable>(children: T[], id: string, row: number, col: number, count: number): T[] {
+export function placeInCell<T extends Placeable>(children: T[], id: string, row: number, col: number, count: number, rows = 0): T[] {
   const index = children.findIndex((c) => c.id === id);
   if (index < 0) return children;
-  const cells = layoutCells(children, count);
+  const cells = layoutCells(children, count, rows);
   const room = roomAt(cells, index, row, col, count);
   if (room === 0) return children;
-  const next = pinCells(children, count, (_, cell, i) => (i === index ? { row, col, span: Math.min(cell.span, room) } : cell));
+  const next = pinCells(children, count, rows, (_, cell, i) => (i === index ? { row, col, span: Math.min(cell.span, room) } : cell));
   // Rows left empty close up.
-  const rows = [...new Set(next.map((c) => c.row!))].sort((a, b) => a - b);
-  return next.map((c) => ({ ...c, row: rows.indexOf(c.row!) + 1 }));
+  return closeRows(next.map((c) => ({ ...c, row: c.row! })), rows);
 }
 
-/** Swaps the cells of two children (each keeps its width where it fits). */
-export function swapCells<T extends Placeable>(children: T[], aId: string, bId: string, count: number): T[] {
+/** Swaps the cells of two children (each keeps its width where it fits). `rows`: the grid's set rows. */
+export function swapCells<T extends Placeable>(children: T[], aId: string, bId: string, count: number, rows = 0): T[] {
   const a = children.findIndex((c) => c.id === aId);
   const b = children.findIndex((c) => c.id === bId);
   if (a < 0 || b < 0 || a === b) return children;
-  const cells = layoutCells(children, count);
+  const cells = layoutCells(children, count, rows);
   const swapped = cells.map((cell, i) => (i === a ? { ...cells[b], span: cell.span } : i === b ? { ...cells[a], span: cell.span } : cell));
-  return pinCells(children, count, (_, __, i) => {
+  return pinCells(children, count, rows, (_, __, i) => {
     const cell = swapped[i];
     if (i !== a && i !== b) return cell;
     return { ...cell, span: Math.max(1, Math.min(cell.span, roomAt(swapped, i, cell.row, cell.col, count))) };
@@ -283,13 +310,23 @@ export function moveGroupToSection(items: PageItem[], groupId: string, toSection
 /** Puts a component in a free cell of a Blok's grid (moving it there from another Blok if need be). */
 export function placeBlock(items: PageItem[], blockId: string, groupId: string, row: number, col: number): PageItem[] {
   const moved = moveBlockToGroup(items, blockId, groupId, null);
-  return mapGroup(moved, groupId, (g) => ({ ...g, blocks: placeInCell(g.blocks, blockId, row, col, gridColumns(g.grid).length) }));
+  return mapGroup(moved, groupId, (g) => ({ ...g, blocks: placeInCell(g.blocks, blockId, row, col, gridColumns(g.grid).length, gridRows(g.grid)) }));
 }
 
 /** Puts a Blok in a free cell of a section's grid (moving it there from another section if need be). */
 export function placeGroup(items: PageItem[], groupId: string, sectionId: string, row: number, col: number): PageItem[] {
   const moved = moveGroupToSection(items, groupId, sectionId, null);
-  return mapSection(moved, sectionId, (s) => ({ ...s, groups: placeInCell(s.groups, groupId, row, col, gridColumns(s.grid).length) }));
+  return mapSection(moved, sectionId, (s) => ({ ...s, groups: placeInCell(s.groups, groupId, row, col, gridColumns(s.grid).length, gridRows(s.grid)) }));
+}
+
+/** Swaps the cells of two Bloks of a section. */
+export function swapGroups(items: PageItem[], sectionId: string, aId: string, bId: string): PageItem[] {
+  return mapSection(items, sectionId, (s) => ({ ...s, groups: swapCells(s.groups, aId, bId, gridColumns(s.grid).length, gridRows(s.grid)) }));
+}
+
+/** Swaps the cells of two components of a Blok. */
+export function swapBlocks(items: PageItem[], groupId: string, aId: string, bId: string): PageItem[] {
+  return mapGroup(items, groupId, (g) => ({ ...g, blocks: swapCells(g.blocks, aId, bId, gridColumns(g.grid).length, gridRows(g.grid)) }));
 }
 
 /**
