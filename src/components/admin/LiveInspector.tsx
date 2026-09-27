@@ -16,6 +16,7 @@ import { boundValue, canAlias, modeValue, resolvedValue, type ThemeMode } from "
 import { splitName } from "@/components/admin/VariablesPanel";
 import { TYPOGRAPHY_KINDS } from "@/components/project/designAtoms";
 import { AtomSample, atomMetrics } from "@/components/admin/AtomsPanel";
+import { FigmaIcon, type FigmaIconName } from "@/components/admin/figmaIcons";
 import { useTheme } from "@/context/ThemeContext";
 import type { DesignAtom, DesignMolecule, DesignVariable, FrameLook, MoleculeSlot, Stroke, Paint, SpacingKey, StrokeAlign, Typography, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
@@ -249,9 +250,7 @@ function SelectField({ label, value, options, placeholder, suffix, onChange }: {
         ))}
       </select>
       {suffix && <span className="absolute right-6 flex items-center">{suffix}</span>}
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden className="pointer-events-none absolute right-2 text-[var(--text-subtitle)]">
-        <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <FigmaIcon name="16.chevron.down" className="pointer-events-none absolute right-1 text-[var(--text-subtitle)]" />
     </div>
   );
 }
@@ -293,258 +292,68 @@ function ToggleButton({ label, pressed, disabled = false, onClick, children }: {
   );
 }
 
+/**
+ * A Figma icon (see figmaIcons) in 12px of room: its glyph, in the middle
+ * of its 24px box, where a field's prefix or a button's icon goes — the box
+ * spilling around it, as a Figma 24px button would be.
+ */
+const glyph = (name: FigmaIconName) => <FigmaIcon name={name} className="-m-1.5 shrink-0" />;
+
+/** The panel's icons: Figma's own (UI3), by what they do here. */
 const Glyphs = {
   /** Apply a variable (Figma's hexagon) */
-  variable: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M7 1.75l4.55 2.625v5.25L7 12.25 2.45 9.625v-5.25L7 1.75z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-    </svg>
-  ),
+  variable: glyph("variable.small"),
   /** Detach a variable (Figma's broken link) */
-  detach: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M5.2 6.2L3.9 7.5a2.1 2.1 0 003 3l1.3-1.3M8.8 7.8l1.3-1.3a2.1 2.1 0 00-3-3L5.8 4.8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-      <path d="M2 2l1.6 1.6M12 12l-1.6-1.6M5 1.5v1.3M1.5 5h1.3M9 12.5v-1.3M12.5 9h-1.3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-    </svg>
-  ),
+  detach: glyph("detach.small"),
   /** Styles and variables (Figma's four dots) */
-  styles: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <circle cx="4.25" cy="4.25" r="1.75" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="9.75" cy="4.25" r="1.75" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="4.25" cy="9.75" r="1.75" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="9.75" cy="9.75" r="1.75" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  /** Shown (a fill, a stroke) */
-  eye: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M1.5 7S3.5 3.25 7 3.25 12.5 7 12.5 7 10.5 10.75 7 10.75 1.5 7 1.5 7z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-      <circle cx="7" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  /** Hidden (a fill, a stroke) */
-  eyeOff: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M1.5 7s1.1-2.1 3.2-3.2M12.5 7s-.8 1.5-2.3 2.6M5.9 3.35A5 5 0 017 3.25C10.5 3.25 12.5 7 12.5 7M8.2 10.6a5 5 0 01-1.2.15C3.5 10.75 1.5 7 1.5 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-      <path d="M2.5 2.5l9 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-    </svg>
-  ),
-  /** Remove (a fill, a stroke) */
-  minus: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M3 7h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  ),
-  /** Opacity: a dotted square, Figma's */
-  opacity: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M4.5 10.5v-3h3v-3h3" stroke="currentColor" strokeWidth="1" opacity="0.6" />
-    </svg>
-  ),
-  /** Corner radius: a rounded corner */
-  radius: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M2 10.5V6.5a4.5 4.5 0 014.5-4.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  ),
-  /** A stroke's weight: lines getting thicker */
-  strokeWeight: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="1.5" y="2" width="9" height="3" rx="0.6" stroke="currentColor" strokeWidth="1" />
-      <rect x="1.5" y="7" width="9" height="3" rx="0.6" stroke="currentColor" strokeWidth="1" />
-    </svg>
-  ),
-  /** A molecule: atoms bound together */
-  molecule: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <circle cx="3" cy="8.5" r="1.8" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="9" cy="8.5" r="1.8" stroke="currentColor" strokeWidth="1.1" />
-      <circle cx="6" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M4.8 8.5h2.4M3.9 6.9L5.1 4.6M8.1 6.9L6.9 4.6" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  /** An atom: a nucleus and its orbit */
-  atom: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <ellipse cx="6" cy="6" rx="5" ry="2.2" stroke="currentColor" strokeWidth="1.1" transform="rotate(-30 6 6)" />
-      <ellipse cx="6" cy="6" rx="5" ry="2.2" stroke="currentColor" strokeWidth="1.1" transform="rotate(30 6 6)" />
-      <circle cx="6" cy="6" r="1.2" fill="currentColor" />
-    </svg>
-  ),
-  /** Go to (the atom it uses) */
-  goTo: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M4 2.5h5.5V8M9.5 2.5L3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
+  styles: glyph("styles"),
+  /** Shown / hidden (a fill, a stroke) */
+  eye: glyph("eye.small"),
+  eyeOff: glyph("hidden.small"),
+  /** Add / remove (a fill, a stroke, a row…) */
+  plus: glyph("plus.small"),
+  minus: glyph("minus.small"),
+  opacity: glyph("opacity"),
+  /** Corner radius */
+  radius: glyph("radius.top.left"),
+  strokeWeight: glyph("stroke-weight"),
+  /** Go to (the main component, the atom it uses) */
+  goTo: glyph("go.to.main.component.small"),
   /** Figma's instance mark: a diamond */
-  instance: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M6 1.5L10.5 6 6 10.5 1.5 6z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Figma's component mark: four diamonds */
-  mainComponent: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
-      <path d="M6 .8l1.7 1.7L6 4.2 4.3 2.5zM2.5 4.3L4.2 6 2.5 7.7.8 6zM9.5 4.3L11.2 6 9.5 7.7 7.8 6zM6 7.8l1.7 1.7L6 11.2 4.3 9.5z" />
-    </svg>
-  ),
-  plus: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  ),
-  chevron: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M4.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Column count */
-  columns: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="1.5" y="2" width="2.5" height="8" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="4.75" y="2" width="2.5" height="8" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="8" y="2" width="2.5" height="8" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  /** Row (position) */
-  row: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="1.5" y="4" width="9" height="4" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M1.5 1.5h9M1.5 10.5h9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" opacity="0.5" />
-    </svg>
-  ),
-  /** Column (position) */
-  column: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="4" y="1.5" width="4" height="9" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M1.5 1.5v9M10.5 1.5v9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" opacity="0.5" />
-    </svg>
-  ),
-  /** Width */
-  width: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M1.5 2.5v7M10.5 2.5v7M3 6h6M4.5 4.5L3 6l1.5 1.5M7.5 4.5L9 6 7.5 7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  minWidth: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M6 2v8M1.5 6h2.5M10.5 6H8M3 4.5L4.5 6 3 7.5M9 4.5L7.5 6 9 7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  maxWidth: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M1.5 2.5v7M10.5 2.5v7M3.5 6h5M5 4.5L3.5 6 5 7.5M7 4.5L8.5 6 7 7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  minHeight: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M2 6h8M6 1.5V4M6 10.5V8M4.5 3L6 4.5 7.5 3M4.5 9L6 7.5 7.5 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  maxHeight: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M2.5 1.5h7M2.5 10.5h7M6 3.5v5M4.5 5L6 3.5 7.5 5M4.5 7L6 8.5 7.5 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Gap between columns: ]·[ */
-  gapX: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M2 2h1.5v8H2M10 2H8.5v8H10M6 5v2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Stacked (Figma's vertical auto layout) */
-  flowVertical: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="2" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M10 2.5v8.5M8 9l2 2 2-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Side by side (horizontal) */
-  flowHorizontal: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M2.5 10h8.5M9 8l2 2-2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Wrap: side by side, on to the next line (Figma's ↩) */
-  wrap: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2.5 3.5h7a2.5 2.5 0 010 5H4.5M6 6.5l-2 2 2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Out of the auto layout (Figma's absolute position) */
-  absolute: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.1" strokeDasharray="2 1.6" />
-      <path d="M7 4.5v5M4.5 7h5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  ),
-  /** Padding for each side on its own */
-  padSides: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M5 5h4v4H5z" stroke="currentColor" strokeWidth="1.1" opacity="0.6" />
-    </svg>
-  ),
-  /** On a grid */
-  flowGrid: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="2" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <rect x="8" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  ),
-  /** Gap between rows */
-  gapY: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M2 2v1.5h8V2M2 10V8.5h8V10M5 6h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Padding left and right */
-  padX: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M4 4v4M8 4v4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-    </svg>
-  ),
-  /** Padding top and bottom */
-  padY: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M4 4h4M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-    </svg>
-  ),
-  /** Row count */
-  rows: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <rect x="2" y="1.5" width="8" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="2" y="4.75" width="8" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="2" y="8" width="8" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  /** A Blok, as in the layer tree */
-  group: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="8" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="2" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="8" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  ),
+  instance: glyph("instance.small"),
+  chevron: glyph("chevron.right"),
+  /** Column / row count */
+  columns: glyph("grid-column"),
+  rows: glyph("grid-row"),
+  /** Min / max width and height */
+  minWidth: glyph("al.width-min"),
+  maxWidth: glyph("al.width-max"),
+  minHeight: glyph("al.height-min"),
+  maxHeight: glyph("al.height-max"),
+  /** Gap between columns / rows */
+  gapX: glyph("al.spacing-horizontal"),
+  gapY: glyph("al.spacing-vertical"),
+  /** Auto layout's directions: stacked, side by side, on a grid; wrap */
+  flowVertical: glyph("al.layout-vertical"),
+  flowHorizontal: glyph("al.layout-horizontal"),
+  flowGrid: glyph("grid"),
+  wrap: glyph("al.layout-wrap"),
+  /** Padding: left and right, top and bottom, each side on its own */
+  padX: glyph("al.padding-horizontal"),
+  padY: glyph("al.padding-vertical"),
+  padSides: glyph("al.padding-sides"),
+  padLeft: glyph("al.padding-left"),
+  padTop: glyph("al.padding-top"),
+  padRight: glyph("al.padding-right"),
+  padBottom: glyph("al.padding-bottom"),
 };
 
-/** Figma's marks for the design system's kinds — for the inspector's header. */
+/** Figma's marks for the design system's kinds — for the inspector's header (16px, as the layer tree's). */
 export const DesignGlyphs = {
-  instance: Glyphs.instance,
-  mainComponent: Glyphs.mainComponent,
-  atom: Glyphs.atom,
-  variable: Glyphs.variable,
+  instance: <FigmaIcon name="16.instance" />,
+  mainComponent: <FigmaIcon name="16.component" />,
+  atom: <FigmaIcon name="16.text" />,
+  variable: <FigmaIcon name="16.variable" />,
 };
 
 // ── Images ────────────────────────────────────────────────────────────────────
@@ -1203,10 +1012,10 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
         <div className="grid grid-cols-2 gap-2 flex-1 min-w-0">
           {perSide ? (
             <>
-              {spacing("paddingLeft", { label: "Soldaki iç boşluk", prefix: "S", value: side("paddingLeft", "paddingX"), min: 0, max: 400, onChange: (paddingLeft) => onChange({ ...grid, paddingLeft }) })}
-              {spacing("paddingTop", { label: "Üstteki iç boşluk", prefix: "Ü", value: side("paddingTop", "paddingY"), min: 0, max: 400, onChange: (paddingTop) => onChange({ ...grid, paddingTop }) })}
-              {spacing("paddingRight", { label: "Sağdaki iç boşluk", prefix: "Sğ", value: side("paddingRight", "paddingX"), min: 0, max: 400, onChange: (paddingRight) => onChange({ ...grid, paddingRight }) })}
-              {spacing("paddingBottom", { label: "Alttaki iç boşluk", prefix: "A", value: side("paddingBottom", "paddingY"), min: 0, max: 400, onChange: (paddingBottom) => onChange({ ...grid, paddingBottom }) })}
+              {spacing("paddingLeft", { label: "Soldaki iç boşluk", prefix: Glyphs.padLeft, value: side("paddingLeft", "paddingX"), min: 0, max: 400, onChange: (paddingLeft) => onChange({ ...grid, paddingLeft }) })}
+              {spacing("paddingTop", { label: "Üstteki iç boşluk", prefix: Glyphs.padTop, value: side("paddingTop", "paddingY"), min: 0, max: 400, onChange: (paddingTop) => onChange({ ...grid, paddingTop }) })}
+              {spacing("paddingRight", { label: "Sağdaki iç boşluk", prefix: Glyphs.padRight, value: side("paddingRight", "paddingX"), min: 0, max: 400, onChange: (paddingRight) => onChange({ ...grid, paddingRight }) })}
+              {spacing("paddingBottom", { label: "Alttaki iç boşluk", prefix: Glyphs.padBottom, value: side("paddingBottom", "paddingY"), min: 0, max: 400, onChange: (paddingBottom) => onChange({ ...grid, paddingBottom }) })}
             </>
           ) : (
             <>
@@ -1234,9 +1043,7 @@ function CheckRow({ label, checked, onChange }: { label: string; checked: boolea
         className="flex items-center justify-center w-4 h-4 rounded-[4px] border border-[var(--border-hover)] text-[var(--bg-1)] peer-checked:bg-[var(--text-title)] peer-checked:border-[var(--text-title)] peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--edit-accent)] transition-colors"
       >
         {checked && (
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-            <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <FigmaIcon name="16.check" />
         )}
       </span>
       <span className="text-[12px] text-[var(--text-title)]">{label}</span>
@@ -1341,9 +1148,7 @@ function FieldMenu({ label, items, children }: {
         className="flex items-center gap-1 h-6 pl-1.5 pr-1 -mr-1 rounded-[4px] text-[12px] text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
       >
         {children}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden className="text-[var(--text-subtitle)]">
-          <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <FigmaIcon name="16.chevron.down" className="-mx-1 text-[var(--text-subtitle)]" />
       </button>
       {at && <MenuList at={at} width={MENU_WIDTH} items={items} onClose={close} />}
     </div>
@@ -1371,13 +1176,7 @@ function MenuList({ at, width, items, onClose }: { at: { top: number; left: numb
             }}
             className="flex items-center gap-2 w-full h-8 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
           >
-            <span className="w-3 shrink-0 text-[var(--text-title)]">
-              {item.checked && (
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                  <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              )}
-            </span>
+            <span className="flex w-4 shrink-0 text-[var(--text-title)]">{item.checked && <FigmaIcon name="16.check" />}</span>
             <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{item.label}</span>
             {item.hint && <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)]">{item.hint}</span>}
           </button>
@@ -1412,12 +1211,10 @@ export function InspectorHeader({ icon, tone, title, menu = [], actions }: {
           onClick={(e) => toggle(e.currentTarget, "left")}
           className="flex min-w-0 items-center gap-1.5 h-8 px-1.5 rounded-[6px] enabled:hover:bg-[var(--bg-4)] enabled:cursor-pointer transition-colors"
         >
-          {icon && <span className="flex shrink-0 items-center [&_svg]:w-3.5 [&_svg]:h-3.5" style={{ color: tone }}>{icon}</span>}
+          {icon && <span className="flex shrink-0 items-center" style={{ color: tone }}>{icon}</span>}
           <span className="min-w-0 truncate text-[13px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</span>
           {menu.length > 0 && (
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden className="shrink-0 text-[var(--text-subtitle)]">
-              <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <FigmaIcon name="16.chevron.down" className="-ml-1 shrink-0 text-[var(--text-subtitle)]" />
           )}
         </button>
         {at && <MenuList at={at} width={220} items={menu} onClose={close} />}
@@ -1607,7 +1404,7 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
       onClick={onClick}
       className="group/item flex items-center gap-2 w-[calc(100%+16px)] h-8 -mx-2 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
     >
-      <span className="flex items-center justify-center w-4 h-4 shrink-0 [&_svg]:w-3.5 [&_svg]:h-3.5" style={{ color: tone }}>{icon}</span>
+      <span className="flex items-center justify-center w-4 h-4 shrink-0" style={{ color: tone }}>{icon}</span>
       <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{label}</span>
       <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-subtitle)]">{detail}</span>
       <span className="shrink-0 text-[var(--text-subtitle)] opacity-0 group-hover/item:opacity-100 transition-opacity">{Glyphs.chevron}</span>
@@ -1615,8 +1412,8 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
   );
 }
 
-/** A component's icon, from the catalog. */
-const blockIcon = (type: BlockType) => BLOCK_DEFS.find((d) => d.type === type)?.icon;
+/** A component's icon, from the catalog (16px, drawn at 14px). */
+const blockIcon = (type: BlockType) => <span className="flex [&_svg]:w-3.5 [&_svg]:h-3.5">{BLOCK_DEFS.find((d) => d.type === type)?.icon}</span>;
 
 /** Where `children` sit on their grid. */
 const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid?: GridSettings) =>
@@ -1969,16 +1766,10 @@ function VariablePicker({ at, variables, byId, mode, selectedId, onPick }: {
                   onClick={() => onPick(v.id)}
                   className="flex items-center gap-2 w-full h-7 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
                 >
-                  {v.kind === "color" ? <Swatch color={value} /> : <span className="w-3.5 shrink-0 text-center text-[11px] text-[var(--text-subtitle)]">{v.kind === "weight" ? "B" : "#"}</span>}
+                  {v.kind === "color" ? <Swatch color={value} /> : <FigmaIcon name="16.number" className="-m-px shrink-0 text-[var(--text-subtitle)]" />}
                   <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{splitName(v.name)[1] || v.name}</span>
                   {v.kind !== "color" && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{value ?? "—"}</span>}
-                  <span className="w-3 shrink-0 text-[var(--text-title)]">
-                    {v.id === selectedId && (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                        <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </span>
+                  <span className="flex w-4 shrink-0 text-[var(--text-title)]">{v.id === selectedId && <FigmaIcon name="16.check" />}</span>
                 </button>
               );
             })}
@@ -2363,7 +2154,7 @@ function UsesGroup({ uses, empty }: { uses: DesignUse[]; empty: string }) {
 export const typeUse = (type: BlockType) => ({ icon: blockIcon(type), tone: blockTone(type), label: BLOCK_LABELS[type] });
 
 /** A molecule in a use (a slot of it holds an atom). */
-export const moleculeUse = (name: string) => ({ icon: Glyphs.molecule, tone: "var(--edit-molecule)", label: name });
+export const moleculeUse = (name: string) => ({ icon: <FigmaIcon name="16.component" />, tone: "var(--edit-molecule)", label: name });
 
 /**
  * An atom: its name and its typography — each value its own or bound to a

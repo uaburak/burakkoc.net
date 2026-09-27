@@ -5,6 +5,7 @@ import { useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, ComponentDesign, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import type { MoleculeSlot } from "@/types/design";
 import { cn } from "@/lib/utils";
+import { fi, type FigmaIconName } from "@/components/admin/figmaIcons";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
@@ -143,134 +144,42 @@ const sectionName = (section: PageSection, index: number) => section.name?.trim(
 const groupName = (group: Group, index: number) => group.name?.trim() || groupLabel(index);
 const blockName = (block: Block) => block.name?.trim() || BLOCK_LABELS[block.type];
 
-// ── Icons (20px rail / 14px panel, 1.5 stroke like the rest of the site) ───────
+// ── Icons: Figma's own (UI3 — see figmaIcons) ───────────────────────────────
 
 const RailIcons = {
-  // Figma's assets: the component catalog.
-  components: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path d="M10 2.75l2.75 2.75L10 8.25 7.25 5.5 10 2.75zM5.5 7.25L8.25 10 5.5 12.75 2.75 10 5.5 7.25zM14.5 7.25L17.25 10l-2.75 2.75L11.75 10l2.75-2.75zM10 11.75l2.75 2.75L10 17.25l-2.75-2.75L10 11.75z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-    </svg>
-  ),
-  layers: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path d="M10 3l7 3.5-7 3.5-7-3.5L10 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M3 10l7 3.5 7-3.5M3 13.5L10 17l7-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  theme: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path d="M10 3a7 7 0 100 14c1.1 0 1.6-.8 1.3-1.7-.3-.9.2-1.8 1.2-1.8H14a3 3 0 003-3A7 7 0 0010 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <circle cx="6.75" cy="9.5" r="1" fill="currentColor" />
-      <circle cx="9" cy="6.5" r="1" fill="currentColor" />
-      <circle cx="12.75" cy="7" r="1" fill="currentColor" />
-    </svg>
-  ),
-  // Figma's variables: a hexagon.
-  variables: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path d="M10 2.75l6.25 3.6v7.3L10 17.25l-6.25-3.6v-7.3L10 2.75z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  ),
-  // Atoms: a nucleus and its orbits.
-  atoms: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <ellipse cx="10" cy="10" rx="7.25" ry="3" stroke="currentColor" strokeWidth="1.5" transform="rotate(-30 10 10)" />
-      <ellipse cx="10" cy="10" rx="7.25" ry="3" stroke="currentColor" strokeWidth="1.5" transform="rotate(30 10 10)" />
-      <circle cx="10" cy="10" r="1.5" fill="currentColor" />
-    </svg>
-  ),
-  // Molecules: atoms bound together.
-  molecules: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <circle cx="5" cy="14" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="15" cy="14" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="10" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M7.5 14h5M6.3 11.8l2.4-4M13.7 11.8l-2.4-4" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  ),
-  publish: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M3 10h14M10 3c1.8 1.9 2.7 4.2 2.7 7s-.9 5.1-2.7 7c-1.8-1.9-2.7-4.2-2.7-7S8.2 4.9 10 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-    </svg>
-  ),
+  layers: fi("list-view"),
+  // Figma's assets: the component library.
+  components: fi("library"),
+  theme: fi("swatch.small"),
+  variables: fi("variable.small"),
+  // Atoms: Figma's text styles.
+  atoms: fi("text.library"),
+  // Molecules: main components.
+  molecules: fi("component.small"),
+  publish: fi("public.small"),
 };
 
+/**
+ * The panels' action icons — 24 ones in 12px of room (their glyph; the box
+ * is the button's), as the inspector's (see LiveInspector's glyph).
+ */
+const icon = (name: FigmaIconName) => fi(name, undefined, "-m-1.5 shrink-0");
+
 const Icons = {
-  // Back to the value it had: an arrow turning back.
-  reset: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M3 5.5A4.5 4.5 0 117 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M2.5 2.5v3h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  plus: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  ),
-  duplicate: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="4.5" y="4.5" width="8" height="8" rx="1.8" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M9.5 2.5H3.3A1.3 1.3 0 002 3.8v6.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  ),
-  trash: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2 3.5h10M5.5 3.5V2h3v1.5M4 3.5l.5 8h5l.5-8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  external: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M8 2h4v4M12 2L6.5 7.5M5.5 3H3a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V8.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  arrowUp: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M7 11.5v-9M3.5 6L7 2.5 10.5 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  arrowDown: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M7 2.5v9M3.5 8L7 11.5 10.5 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  edit: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M9.5 2.5l2 2L5 11H3V9l6.5-6.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-    </svg>
-  ),
-  // Figma's "Collapse layers": the chevrons point in; "expand": out.
-  collapseLayers: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M1.75 3.5h6M1.75 7h6M1.75 10.5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M9.75 3l1.5 1.5L12.75 3M9.75 11l1.5-1.5 1.5 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  expandLayers: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M1.75 3.5h6M1.75 7h6M1.75 10.5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <path d="M9.75 4.5l1.5-1.5 1.5 1.5M9.75 9.5l1.5 1.5 1.5-1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  chevron: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  close: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  ),
-  copy: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="4.5" y="4.5" width="7.5" height="7.5" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M9.5 2.5H3.3A1.3 1.3 0 002 3.8v5.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  ),
+  // Back to the value it had.
+  reset: icon("reset.instance.small"),
+  plus: icon("plus.small"),
+  duplicate: icon("duplicate.small"),
+  trash: icon("trash"),
+  external: icon("new.tab"),
+  arrowUp: icon("al.layout-vertical-up"),
+  arrowDown: icon("al.layout-vertical"),
+  edit: icon("pencil.small"),
+  // Figma's "Collapse layers" / "Expand layers".
+  collapseLayers: icon("collapse-layers.small"),
+  expandLayers: icon("expand"),
+  chevron: fi("16.chevron.down"),
+  copy: icon("copy.small"),
 };
 
 // ── Shared chrome ─────────────────────────────────────────────────────────────
@@ -317,7 +226,7 @@ function RailButton({ icon, label, active, indicator, onClick }: {
         aria-pressed={active}
         onClick={onClick}
         className={cn(
-          "flex items-center justify-center w-8 h-8 rounded-[8px] transition-colors cursor-pointer [&_svg]:w-4 [&_svg]:h-4",
+          "flex items-center justify-center w-8 h-8 rounded-[8px] transition-colors cursor-pointer",
           active
             ? "bg-[var(--bg-4)] text-[var(--text-title)]"
             : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[color-mix(in_srgb,var(--bg-4)_60%,transparent)]"
@@ -1237,51 +1146,24 @@ const isPrimaryPress = (e: React.PointerEvent) => e.button === 0 && e.isPrimary;
 
 const LayerIcons = {
   // Figma's frame, for the page's own (the root layer).
-  frame: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="3" y="3" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M1.5 3h1M11.5 3h1M1.5 11h1M11.5 11h1M3 1.5v1M11 1.5v1M3 11.5v1M11 11.5v1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  ),
-  page: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M3.5 1.75h4.75L10.5 4v8.25h-7V1.75z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-      <path d="M8.25 1.75V4h2.25" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-    </svg>
-  ),
-  // Figma's frame: a section.
-  section: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M4.5 1.5v11M9.5 1.5v11M1.5 4.5h11M1.5 9.5h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  ),
-  // A grid of its own: a Blok.
-  group: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="8" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="2" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="8" y="8" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  ),
-  divider: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M1.5 7h11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  ),
-  // An item of a component (a card, a row…): a frame of its own.
-  item: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="3" width="10" height="8" rx="2" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  ),
+  frame: fi("16.frame"),
+  page: fi("16.page"),
+  section: fi("16.section"),
+  divider: fi("16.line"),
+  // An item of a component (a card, a row…): a frame of its own — an instance, when it is its molecule's.
+  item: fi("16.frame"),
+  instance: fi("16.instance"),
   // Figma's text layer.
-  text: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M3 3.5h8M7 3.5v7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  ),
+  text: fi("16.text"),
 };
+
+/** A Blok's icon, as Figma's frames: its auto layout's direction — on a grid, a frame. */
+function groupIcon(grid?: GridSettings) {
+  const flow = gridFlow(grid);
+  if (flow === "vertical") return fi("16.autolayout.vertical");
+  if (flow === "horizontal") return fi(grid?.wrap ? "16.autolayout.wrap" : "16.autolayout.horizontal");
+  return LayerIcons.frame;
+}
 
 /** A component's icon, from the catalog (16px, drawn at 14px). */
 function blockIcon(type: BlockType) {
@@ -1521,6 +1403,7 @@ function LayerItem({ block, itemId, selection, onSelect }: {
   const { open: opened, toggle } = useContext(OpenComponentsContext);
   // Its text layers: its molecule's slots.
   const texts = useComponentDesign(block.type).item.molecule.slots.map((slot) => ({ field: slot.field, name: slot.name }));
+  const instance = DESIGNED_TYPES.has(block.type);
   const open = opened.has(itemId);
   const item = `[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`;
   const select = () => onSelect({ kind: "block", blockId: block.id, itemId });
@@ -1528,8 +1411,8 @@ function LayerItem({ block, itemId, selection, onSelect }: {
     <div data-layer-id={itemId} data-layer-kind="item" data-no-drag className={layerNode(inside, false)}>
       <LayerRow
         depth={3}
-        tone={tone}
-        icon={LayerIcons.item}
+        tone={instance ? "var(--edit-molecule)" : tone}
+        icon={instance ? LayerIcons.instance : LayerIcons.item}
         name={itemName(block, itemId)}
         selected={inside && !selection.text}
         open={texts.length > 0 ? open : undefined}
@@ -1587,7 +1470,7 @@ function LayerGroup({ group, index, section, selection, collapsed, onToggle, act
       <LayerRow
         depth={1}
         tone={GROUP_TONE}
-        icon={LayerIcons.group}
+        icon={groupIcon(group.grid)}
         name={groupName(group, index)}
         selected={selected}
         open={open}
@@ -2272,7 +2155,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     header = blockDesign
       ? {
           // An instance of its molecule, as Figma's: the molecule's name.
-          icon: DesignGlyphs.instance,
+          icon: LayerIcons.instance,
           tone: "var(--edit-molecule)",
           title: blockDesign.item.molecule.name,
           menu: [...holders({ section, group, block }), { label: "Moleküle git", hint: blockDesign.item.molecule.name, divided: true, onSelect: () => openMolecule(blockDesign.item.molecule.id) }],
@@ -2306,7 +2189,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     );
   } else if (selectedGroup) {
     const { group, section } = selectedGroup;
-    header = { icon: LayerIcons.group, tone: GROUP_TONE, title: "Blok", menu: holders({ section }) };
+    header = { icon: groupIcon(group.grid), tone: GROUP_TONE, title: "Blok", menu: holders({ section }) };
     inspectorActions = (
       <>
         <LayerButton label="Bileşen ekle" onClick={() => setPicker({ groupId: group.id })}>{Icons.plus}</LayerButton>

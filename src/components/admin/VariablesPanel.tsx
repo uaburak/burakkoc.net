@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { DesignVariable, VariableKind } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { resolvedValue } from "@/components/project/designVariables";
+import { FigmaIcon } from "@/components/admin/figmaIcons";
 
 /**
  * The live editor's "Değişkenler" tab — the site's design variables, as
@@ -12,17 +13,10 @@ import { resolvedValue } from "@/components/project/designVariables";
  * the inspector. New ones are added from the top.
  */
 
+/** Figma's number variable, for numbers and weights alike. */
 const KIND_ICON: Record<Exclude<VariableKind, "color">, ReactNode> = {
-  number: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M4.5 1.5l-1 9M8.5 1.5l-1 9M2 4.25h8.5M1.5 7.75H10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  ),
-  weight: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M3.5 2h3a2 2 0 010 4h-3zM3.5 6h3.5a2 2 0 010 4H3.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-    </svg>
-  ),
+  number: <FigmaIcon name="16.number" />,
+  weight: <FigmaIcon name="16.number" />,
 };
 
 const ADD: { kind: VariableKind; label: string }[] = [
@@ -86,7 +80,7 @@ export function VariablesPanel({ variables, selectedId, onSelect, onAdd }: {
                 {v.kind === "color" ? (
                   <span className="block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)]" style={{ backgroundColor: typeof light === "string" ? light : "transparent" }} />
                 ) : (
-                  <span className="flex items-center justify-center w-3.5 h-3.5 shrink-0 text-[var(--text-subtitle)]">{KIND_ICON[v.kind]}</span>
+                  <span className="flex items-center justify-center w-3.5 h-3.5 shrink-0 text-[var(--text-subtitle)]"><span className="flex -m-px">{KIND_ICON[v.kind]}</span></span>
                 )}
                 <span className="min-w-0 flex-1 truncate font-medium text-[var(--text-title)]">{splitName(v.name)[1] || "Adsız"}</span>
                 <span className={cn("shrink-0 max-w-[45%] truncate text-[11px] tabular-nums", alias ? "text-[var(--edit-accent)]" : "text-[var(--text-subtitle)]")}>{shown}</span>
