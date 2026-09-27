@@ -10,8 +10,8 @@ import { renderRichText } from "./RichText";
  *
  * Without `onChange` it renders plain (or rich) text and nothing else, so the
  * public page markup is unchanged. With `onChange` it shows the formatted text
- * (blue on hover; a single click selects the surrounding block), and a
- * double-click swaps it to a contentEditable element holding the raw value
+ * (a single click selects the surrounding block; blue on hover once it is
+ * selected), and a double-click swaps it to a contentEditable element holding the raw value
  * (with its **markers**), shown in red while it is being edited. Enter commits single-line fields, Escape reverts.
  * The same values can also be edited from the settings panel.
  */
@@ -143,8 +143,11 @@ export function EditableText({
           setEditing(true);
         }}
       >
-        {/* Inline wrapper: the hover tint follows the text itself, not the field's full-width box. */}
-        <span className="transition-colors duration-150 hover:text-[var(--edit-tone,var(--edit-accent))]">
+        {/*
+          Inline wrapper: the hover tint follows the text itself, not the field's full-width box. It shows
+          once a double-click edits it — in the live editor, inside the selected component (`data-live-selected`).
+        */}
+        <span className="transition-colors duration-150 [[data-live-selected]_&:hover]:text-[var(--edit-tone,var(--edit-accent))]">
           {content ?? <Hint>{placeholder}</Hint>}
         </span>
       </Tag>

@@ -18,14 +18,14 @@ export interface BlockEditApi {
   setText(key: BlockTextKey, value: string): void;
   setEntryText(entryId: string, key: EntryTextKey, value: string): void;
   addEntry(): void;
-  removeEntry(entryId: string): void;
-  moveEntry(activeId: string, overId: string): void;
+  /** `copy` (an Alt-drag): a copy of it stays where it was — see SortableGroup. */
+  moveEntry(activeId: string, overId: string, copy?: boolean): void;
   setListItemText(itemId: string, value: string): void;
   toggleListItem(itemId: string): void;
   /** Inserts an empty item after `afterId` (or at the end) and returns its id. */
   addListItem(afterId?: string): string;
   removeListItem(itemId: string): void;
-  moveListItem(activeId: string, overId: string): void;
+  moveListItem(activeId: string, overId: string, copy?: boolean): void;
   setTableCell(rowId: string, col: number, value: string): void;
 }
 
@@ -43,13 +43,19 @@ const SHARED_ENTRY_KEYS: Partial<Record<Block["type"], ReadonlySet<EntryTextKey>
   palette: new Set(["value"]),
 };
 
-function move<T extends { id: string }>(list: T[], activeId: string, overId: string): T[] {
+/**
+ * Moves `activeId` to where `overId` is. With `copyId` (an Alt-drag) a copy of
+ * it, under that id, stays where it was — the moved one keeps its id (and the
+ * selection), as in Figma.
+ */
+function move<T extends { id: string }>(list: T[], activeId: string, overId: string, copyId?: string): T[] {
   const from = list.findIndex((x) => x.id === activeId);
   const to = list.findIndex((x) => x.id === overId);
-  if (from < 0 || to < 0 || from === to) return list;
+  if (from < 0 || to < 0 || (from === to && !copyId)) return list;
   const next = [...list];
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
+  if (copyId) next.splice(to > from ? from : from + 1, 0, { ...structuredClone(item), id: copyId });
   return next;
 }
 
@@ -74,11 +80,8 @@ export function createBlockEditApi(raw: Block, lang: Lang, onChange: (patch: Par
       if (raw.type === "bars") entry.value = "50";
       onChange({ entries: [...entries, entry] });
     },
-    removeEntry(entryId) {
-      onChange({ entries: entries.filter((e) => e.id !== entryId) });
-    },
-    moveEntry(activeId, overId) {
-      onChange({ entries: move(entries, activeId, overId) });
+    moveEntry(activeId, overId, copy) {
+      onChange({ entries: move(entries, activeId, overId, copy ? editorUid("en") : undefined) });
     },
     setListItemText(itemId, value) {
       onChange({ listItems: items.map((it) => (it.id === itemId ? { ...it, [en ? "textEn" : "text"]: value } : it)) });
@@ -97,8 +100,8 @@ export function createBlockEditApi(raw: Block, lang: Lang, onChange: (patch: Par
     removeListItem(itemId) {
       onChange({ listItems: items.filter((it) => it.id !== itemId) });
     },
-    moveListItem(activeId, overId) {
-      onChange({ listItems: move(items, activeId, overId) });
+    moveListItem(activeId, overId, copy) {
+      onChange({ listItems: move(items, activeId, overId, copy ? editorUid("li") : undefined) });
     },
     setTableCell(rowId, col, value) {
       const rows = raw.tableRows ?? [];

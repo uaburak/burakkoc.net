@@ -5,14 +5,14 @@ import { useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, GridSettings, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
-import { IconButton, PillButton } from "@/components/Button";
+import { PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
 import { FillHeightContext, ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
 import { absoluteProps, cellProps, gridProps, pageFrameProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
 import { EditableText } from "@/components/project/Editable";
-import { DRAG_LIFT, DragActivationContext, DragHandle } from "@/components/project/Sortable";
-import { createBlockEditApi, editorUid, localizeBlock, type BlockEditApi } from "@/components/project/editing";
+import { DRAG_LIFT, DragActivationContext, setDragTarget } from "@/components/project/Sortable";
+import { createBlockEditApi, localizeBlock } from "@/components/project/editing";
 import { projectThemeAttrs } from "@/components/project/projectTheme";
 import { PillLabel } from "@/components/admin/FormEditor";
 import { ProjectThemeFields } from "@/components/admin/ProjectThemeFields";
@@ -67,10 +67,14 @@ import type { EditorActions } from "@/components/admin/editorActions";
  * - Inspector (Düzenle, right): whatever is selected — the project when nothing is.
  * - Canvas: the page is Bölüm (section) › Blok (group) › Bileşen (component,
  *   `Block` in code); sections lay out their Bloks on a grid, Bloks their
- *   components. Click a text to type in place, click a component, a Blok or a
- *   section to select it (its settings open in the panel). Press and hold
- *   cards, components, Bloks and sections — or use their grip — to reorder
- *   them; components can move between Bloks, Bloks between sections.
+ *   components. As in Figma, each click goes a level deeper: the section, its
+ *   Blok, the component, a card inside it (see pressOn) — its settings open in
+ *   the panel; double-click a text of the selected component to type in place.
+ *   With Cmd / Ctrl held a click picks the innermost layer at once, and a
+ *   double-click types in any text.
+ *   Drag what is selected to reorder it; components can move between Bloks,
+ *   Bloks between sections. Under the selection, a badge shows its size (SizeBadge).
+ *   With Alt held, the drop leaves a copy where it was (see ProjectDnd).
  * - Links never navigate here, images never open the lightbox.
  */
 
@@ -104,26 +108,7 @@ const sectionName = (section: PageSection, index: number) => section.name?.trim(
 const groupName = (group: Group, index: number) => group.name?.trim() || groupLabel(index);
 const blockName = (block: Block) => block.name?.trim() || BLOCK_LABELS[block.type];
 
-// ── Entry blocks: what "+" adds ───────────────────────────────────────────────
-
-const ADD_ITEM_LABEL: Partial<Record<BlockType, string>> = {
-  links: "Bağlantı ekle", tags: "Etiket ekle", info: "Satır ekle", stats: "Metrik ekle",
-  cards: "Kart ekle", steps: "Adım ekle", gallery: "Görsel ekle", accordion: "Madde ekle",
-  bars: "Çubuk ekle", persona: "Grup ekle", team: "Kişi ekle", palette: "Renk ekle",
-  mockup: "Ekran ekle", list: "Öğe ekle", table: "Satır ekle",
-};
-
-/** Adds an empty card / row / item at the end of an entry, list or table block. */
-function addItem(block: Block, edit: BlockEditApi, onChange: (patch: Partial<Block>) => void) {
-  if (block.type === "list") edit.addListItem();
-  else if (block.type === "table") {
-    const rows = block.tableRows ?? [];
-    const cols = Math.max(1, ...rows.map((r) => r.cells.length));
-    onChange({ tableRows: [...rows, { id: editorUid("row"), cells: Array(cols).fill("") }] });
-  } else edit.addEntry();
-}
-
-// ── Icons (20px rail / 14px toolbar, 1.5 stroke like the rest of the site) ─────
+// ── Icons (20px rail / 14px panel, 1.5 stroke like the rest of the site) ───────
 
 const RailIcons = {
   // Figma's assets: the component catalog.
@@ -158,12 +143,6 @@ const Icons = {
   plus: (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  ),
-  insertBelow: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <rect x="2" y="1.75" width="10" height="4.5" rx="1.25" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M7 8.25v4M5 10.25h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   ),
   duplicate: (
@@ -230,62 +209,6 @@ const Icons = {
 
 // ── Shared chrome ─────────────────────────────────────────────────────────────
 
-/** Borderless icon button for toolbars and card headers (IconButton, xs). */
-function ToolButton({ label, onClick, disabled = false, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
-  return (
-    <IconButton
-      size="xs"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className="border-transparent bg-transparent text-[var(--text-subtitle)] hover:text-[var(--text-title)] disabled:opacity-30 disabled:pointer-events-none"
-    >
-      {children}
-    </IconButton>
-  );
-}
-
-const handleClass = "w-7 h-7 rounded-full text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)]";
-
-/** Floating pill toolbar used above blocks and sections on the canvas. */
-function ChromeBar({ className, accent = false, children }: { className?: string; accent?: boolean; children: ReactNode }) {
-  return (
-    <div
-      data-no-drag
-      onClick={(e) => e.stopPropagation()}
-      className={cn(
-        "flex items-center gap-0.5 h-9 p-1 rounded-full border shadow-[0_8px_24px_rgba(0,0,0,0.08)] transition-opacity duration-150",
-        accent
-          // Section / Blok label: the level's colour (blue, or green inside a Blok), white content.
-          ? "border-transparent bg-[var(--edit-tone,var(--edit-accent))] text-white [&_button]:text-white [&_button:hover]:bg-white/15 [&_button:hover]:border-transparent"
-          : "border-[var(--border)] bg-[var(--bg-1)]",
-        className
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-/** Name in a canvas toolbar; clicking it selects that block / section. */
-function ChromeLabel({ onClick, children }: { onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className="inline-flex items-center gap-1.5 h-7 px-2 rounded-full text-[13px] font-medium leading-5 text-[var(--text-title)] whitespace-nowrap hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
-    >
-      {children}
-    </button>
-  );
-}
-
-/** The colour of the level / component kind it sits in (--edit-tone). */
-function ToneDot() {
-  return <span aria-hidden className="w-2 h-2 shrink-0 rounded-full bg-[var(--edit-tone,var(--edit-accent))]" />;
-}
-
 /** Panel card — same surface as a block row in the form editor. */
 function PanelCard({ title, actions, children, className }: {
   title?: ReactNode;
@@ -350,14 +273,14 @@ function RailButton({ icon, label, active, indicator, onClick }: {
 
 // ── Selection frame ───────────────────────────────────────────────────────────
 
+/**
+ * The lines on the canvas, as Figma's: a component's frame is drawn on its
+ * edge; each layer holding it draws its own 4px further out — its Blok (see
+ * groupOutline), its section (SECTION_BOX), the page (PAGE_LINE).
+ */
+
 /** Corner radius around plain text (it has no surface of its own). */
 const TEXT_RADIUS = 8;
-/**
- * The block frame sits 5px outside the component (+ its 1px border): blocks are
- * 16px apart, so two frames keep 4px between them — and 4px to the section
- * outline (SECTION_BOX's 10px padding).
- */
-const FRAME_GAP = 6;
 const TRANSPARENT = /^(transparent|rgba\(0, 0, 0, 0\))$/;
 
 /**
@@ -408,9 +331,9 @@ function surfaceEdge(root: HTMLElement, edge: "top" | "bottom"): { inset: number
 }
 
 /**
- * Fits a component's selection frame to its visible surface (and the project
- * theme's radius). Refits on hover and on every render while selected.
- * Returns [root ref, frame ref, fit].
+ * Fits a component's selection frame to its visible surface — on its edge, with
+ * its corners (the project theme's radius). Refits on hover and on every render
+ * while selected. Returns [root ref, frame ref, fit].
  */
 function useSelectionFrame(selected: boolean) {
   const root = useRef<HTMLElement | null>(null);
@@ -423,11 +346,9 @@ function useSelectionFrame(selected: boolean) {
     if (!r || !f) return;
     const top = surfaceEdge(r, "top");
     const bottom = surfaceEdge(r, "bottom");
-    const t = top.radius + FRAME_GAP;
-    const b = bottom.radius + FRAME_GAP;
-    f.style.top = `${top.inset - FRAME_GAP}px`;
-    f.style.bottom = `${bottom.inset - FRAME_GAP}px`;
-    f.style.borderRadius = `${t}px ${t}px ${b}px ${b}px`;
+    f.style.top = `${top.inset}px`;
+    f.style.bottom = `${bottom.inset}px`;
+    f.style.borderRadius = `${top.radius}px ${top.radius}px ${bottom.radius}px ${bottom.radius}px`;
   }, []);
   useLayoutEffect(() => {
     if (selected) fit();
@@ -436,77 +357,60 @@ function useSelectionFrame(selected: boolean) {
 }
 
 /**
- * Invisible hit area reaching out to where a block's frame is drawn, so hovering
- * or clicking right on the line already counts. It sits at z -1 (inside the
- * canvas's isolated `main`): any neighbouring content stays on top.
- */
-const HOVER_RING_BLOCK = "before:content-[''] before:absolute before:-inset-[6px] before:-z-10";
-
-/**
  * Box of a section on the canvas (the project overview counts as one): its
- * dashed outline is drawn on the box edge, 10px around the blocks on every side
- * (the box reaches 10px into the page gutter, so the blocks stay where they are
- * on the live page).
+ * outline is drawn on the box edge, 10px around the Bloks on every side — 4px
+ * outside theirs (the box reaches 10px into the page gutter, so the Bloks stay
+ * where they are on the live page). Its corners follow the Bloks' (see
+ * groupOutline), 5px further out.
  */
 const SECTION_BOX = "relative -mx-[10px] w-[calc(100%+20px)] p-[10px]";
 /**
- * Room above a section for its label, in place of the live page's 40px gap
- * between sections — so the label never covers the content above it.
+ * Room between two sections, in place of the live page's 40px gap — the size
+ * badge of a selected section sits in it.
  */
 const SECTION_GAP = "mt-[52px]";
 
 /**
- * Dashed outline of a section: full blue when selected, the lighter hover blue
- * while it or one of its blocks is hovered, or while one of its blocks is selected.
+ * Outline of a section: solid blue when selected; dashed in the lighter hover
+ * blue while a click would select it (`data-canvas-hover`, see hoverOn), or
+ * while one of its blocks is selected.
  */
 function sectionOutline(selected: boolean, active: boolean) {
   return cn(
-    "rounded-[24px] outline-dashed outline-1 -outline-offset-1 transition-[outline-color]",
+    // The corners of the Bloks' outlines (25px), 5px further out.
+    "rounded-[30px] outline-1 -outline-offset-1 transition-[outline-color]",
     selected
-      ? "outline-[var(--edit-accent)]"
+      ? "outline-solid outline-[var(--edit-accent)]"
       : active
-        ? "outline-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]"
-        : "outline-transparent hover:outline-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)] data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_70%,transparent)]"
+        ? "outline-dashed outline-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]"
+        : "outline-dashed outline-transparent data-[canvas-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)] data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_70%,transparent)]"
   );
 }
 
-/** The section label's top, relative to the section box (h-9 label + 4px gap above it). */
-const SECTION_LABEL_OFFSET = -40;
-
 /**
- * Section label, just above the dashed outline (top left), in the room left by
- * SECTION_GAP. A small bridge under it keeps the section hovered while the
- * pointer moves up onto it. It shows at once on hover and lingers for 2s after
- * the pointer leaves (still clickable), then fades out.
+ * The page frame's line, as a Figma frame's — only while it is selected (the
+ * root layer) or hovered in the layers. It sits 4px outside its sections'
+ * outlines: they reach 10px into the gutter on the sides (SECTION_BOX), none
+ * above or below.
  */
-const sectionChromeClass = (active: boolean) =>
-  cn(
-    "absolute left-0 -top-1 -translate-y-full z-30",
-    "after:content-[''] after:absolute after:inset-x-0 after:top-full after:h-[5px]",
-    "transition-[opacity,visibility] duration-150",
-    active
-      ? "visible opacity-100"
-      : "invisible opacity-0 delay-[2000ms] group-hover/section:visible group-hover/section:opacity-100 group-hover/section:delay-0"
-  );
-
-/** The section label inside a section (see useKeepDropPosition's `linger`). */
-const SECTION_LABEL = ":scope > [data-no-drag]";
+const PAGE_LINE = "relative before:content-[''] before:pointer-events-none before:absolute before:-inset-x-[15px] before:-inset-y-[5px] before:rounded-[2px] before:border before:border-transparent";
+const PAGE_LINE_HOVER = "data-[layer-hover]:before:border-[color-mix(in_srgb,var(--edit-accent)_60%,transparent)]";
 
 /**
- * Dashed outline of a Blok, 8px around its components — between their frames
- * (6px) and the section outline (10px). Green when selected, lighter while one
- * of its components is selected or its own area (not a component) is hovered.
+ * Outline of a Blok, 4px outside its components' frames (drawn on their edge)
+ * and 4px inside its section's: solid green when selected; dashed and lighter
+ * while one of its components is selected or a click would select it.
  */
 function groupOutline(selected: boolean, active: boolean) {
   return cn(
-    "rounded-[20px] outline-dashed outline-1 outline-offset-[7px] transition-[outline-color]",
+    // 1.25rem (20px — corners of 25px out there): not a px class, which the project theme's radius would change (globals.css).
+    "rounded-[1.25rem] outline-1 outline-offset-[4px] transition-[outline-color]",
     selected
-      ? "outline-[var(--edit-group)]"
+      ? "outline-solid outline-[var(--edit-group)]"
       : active
-        ? "outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]"
+        ? "outline-dashed outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]"
         : cn(
-            "outline-transparent hover:outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]",
-            "has-[[data-live-block]:hover]:outline-transparent",
+            "outline-dashed outline-transparent data-[canvas-hover]:outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]",
             // Hovered in the layer tree.
             "data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-group)_70%,transparent)]"
           )
@@ -514,21 +418,61 @@ function groupOutline(selected: boolean, active: boolean) {
 }
 
 /**
- * A Blok's label, under its outline (bottom left) — the section label is top
- * left and the components' toolbars top right. A bridge above it keeps the Blok
- * hovered on the way down. It shows while the Blok's own area is hovered.
+ * What the size badge (SizeBadge) shows: the element `selector` finds, its
+ * line `below` px under its bottom (under a component's frame with `frame`),
+ * `padded` for the editor's 10px around a section (SECTION_BOX), in `tone`.
  */
-const groupChromeClass = (visible: boolean) =>
-  cn(
-    "absolute -left-[8px] top-[calc(100%+12px)] z-30",
-    "before:content-[''] before:absolute before:inset-x-0 before:bottom-full before:h-[13px]",
-    visible
-      ? "opacity-100 pointer-events-auto"
-      : cn(
-          "opacity-0 pointer-events-none group-hover/blok:opacity-100 group-hover/blok:pointer-events-auto",
-          "group-has-[[data-live-block]:hover]/blok:opacity-0 group-has-[[data-live-block]:hover]/blok:pointer-events-none"
-        )
+type BadgeTarget = { selector: string; tone: string; below?: number; frame?: boolean; padded?: boolean };
+
+/**
+ * The selection's size (W × H), as Figma's: a small badge centred 4px under its
+ * line, in its level's colour — the section's blue, the Blok's green, the
+ * component's kind. It follows the element each frame while selected (typing,
+ * images loading, the page moving). Render it in the canvas's `main`.
+ */
+function SizeBadge({ selector, tone, below = 0, frame = false, padded = false }: BadgeTarget) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const badge = ref.current;
+    if (!badge) return;
+    let raf = 0;
+    let shown = "";
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const el = document.querySelector<HTMLElement>(selector);
+      const main = badge.offsetParent;
+      if (!el || !main) {
+        badge.style.visibility = "hidden";
+        shown = "";
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      const line = frame && el.firstElementChild ? el.firstElementChild.getBoundingClientRect().bottom : r.bottom + below;
+      const m = main.getBoundingClientRect();
+      const pad = padded ? 20 : 0;
+      const text = `${Math.round(r.width - pad)} × ${Math.round(r.height - pad)}`;
+      const left = Math.round(r.left + r.width / 2 - m.left);
+      const top = Math.round(line + 4 - m.top);
+      const next = `${text}|${left}|${top}`;
+      if (next === shown) return;
+      shown = next;
+      badge.textContent = text;
+      badge.style.left = `${left}px`;
+      badge.style.top = `${top}px`;
+      badge.style.visibility = "visible";
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [selector, below, frame, padded]);
+  return (
+    <span
+      ref={ref}
+      aria-hidden
+      style={{ background: tone }}
+      className="invisible pointer-events-none absolute z-40 -translate-x-1/2 px-1 rounded-[3px] text-[11px] font-medium leading-4 text-white tabular-nums whitespace-nowrap select-none"
+    />
   );
+}
 
 /** Where the component picker adds: into a Blok — after one of its components, at its end, or in a free cell. */
 type PickerTarget = { groupId: string; afterBlockId?: string; cell?: { row: number; col: number } };
@@ -610,42 +554,41 @@ function FreeCells({ level, containerId, cells, count, rows, newRow, noun, onAdd
     ));
 }
 
-/** 1px frame around a canvas component, in its kind's colour; it also anchors the component's toolbar. */
-function SelectionFrame({ frameRef, selected, dragging = false, dashed = false, children }: {
+/**
+ * 1px frame on a canvas component's edge, in its kind's colour — the first
+ * child of the component (SizeBadge reads its bottom).
+ */
+function SelectionFrame({ frameRef, selected, dragging = false, dashed = false }: {
   frameRef: (el: HTMLDivElement | null) => void;
   selected: boolean;
   /** Being dragged: the frame becomes the lifted card behind the component */
   dragging?: boolean;
   /** An item inside is the actual selection: the block's frame turns dashed */
   dashed?: boolean;
-  children?: ReactNode;
 }) {
   return (
     <div
       ref={frameRef}
       className={cn(
-        "pointer-events-none absolute -inset-[6px] z-20 border transition-colors duration-150",
-        // Full colour when selected (or dragged), a lighter one on hover (--edit-tone: the component's kind).
+        "pointer-events-none absolute inset-0 z-20 border transition-colors duration-150",
+        // Full colour when selected (or dragged), a lighter one while a click would select it (--edit-tone: the component's kind).
         selected || dragging
           ? cn("border-[var(--edit-tone,var(--edit-accent))]", dashed && !dragging && "border-dashed")
           : cn(
-              "border-transparent group-hover/block:border-[color-mix(in_srgb,var(--edit-tone,var(--edit-accent))_40%,transparent)]",
+              "border-transparent group-data-[canvas-hover]/block:border-[color-mix(in_srgb,var(--edit-tone,var(--edit-accent))_40%,transparent)]",
               // Hovered in the layer tree.
               "group-data-[layer-hover]/block:border-[color-mix(in_srgb,var(--edit-tone,var(--edit-accent))_70%,transparent)]"
             ),
         dragging && "-z-10 bg-[var(--bg-1)] shadow-[0_18px_40px_rgba(0,0,0,0.18)]"
       )}
-    >
-      {!dragging && children}
-    </div>
+    />
   );
 }
 
-/** A piece of the overview with a block's hover frame and label (no drag / actions). */
-function OverviewBlock({ label, selected, onSelect, className, children }: {
-  label: string;
+/** A piece of the overview with a block's frame (no drag / actions). */
+function OverviewBlock({ part, selected, className, children }: {
+  part: OverviewPart;
   selected: boolean;
-  onSelect: () => void;
   className?: string;
   children: ReactNode;
 }) {
@@ -653,32 +596,26 @@ function OverviewBlock({ label, selected, onSelect, className, children }: {
   return (
     <div
       ref={rootRef}
+      data-overview-part={part}
+      // Its texts are edited in place (a double-click) while it is selected.
+      data-live-selected={selected ? "" : undefined}
       onPointerEnter={fitFrame}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
-      className={cn("group/block relative w-full", HOVER_RING_BLOCK, className)}
+      // Selected on press (see pressOn); the click must not reach the canvas, which clears the selection.
+      onClick={(e) => e.stopPropagation()}
+      className={cn("group/block relative w-full", className)}
     >
-      <SelectionFrame frameRef={frameRef} selected={selected}>
-        <ChromeBar
-          className={cn(
-            "absolute -top-1 -right-px -translate-y-full",
-            selected ? "opacity-100 pointer-events-auto" : "opacity-0 group-hover/block:opacity-100 group-hover/block:pointer-events-auto"
-          )}
-        >
-          <ChromeLabel onClick={onSelect}>{label}</ChromeLabel>
-        </ChromeBar>
-      </SelectionFrame>
+      <SelectionFrame frameRef={frameRef} selected={selected} />
       {children}
     </div>
   );
 }
 
 /** The project overview (title, description, cover) — edited like a section of blocks. */
-function LiveOverview({ project, lang, actions, selection, onSelect }: {
+function LiveOverview({ project, lang, actions, selection }: {
   project: ProjectData;
   lang: Lang;
   actions: EditorActions;
   selection: Selection;
-  onSelect: (part?: OverviewPart) => void;
 }) {
   const en = lang === "en";
   const active = selection.kind === "meta";
@@ -686,14 +623,10 @@ function LiveOverview({ project, lang, actions, selection, onSelect }: {
   return (
     <section
       id="live-overview"
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      onClick={(e) => e.stopPropagation()}
       className={cn("group/section flex flex-col items-start scroll-mt-[64px]", SECTION_BOX, sectionOutline(active && !part, active))}
     >
-      <ChromeBar accent className={sectionChromeClass(active)}>
-        <ChromeLabel onClick={() => onSelect()}>Proje bilgileri</ChromeLabel>
-      </ChromeBar>
-
-      <OverviewBlock label="Başlık" selected={part === "title"} onSelect={() => onSelect("title")}>
+      <OverviewBlock part="title" selected={part === "title"}>
         <EditableText
           as="h1"
           className="w-full text-base font-medium leading-5 text-[var(--text-title)]"
@@ -708,7 +641,7 @@ function LiveOverview({ project, lang, actions, selection, onSelect }: {
         </p>
       </OverviewBlock>
 
-      <OverviewBlock label="Açıklama" selected={part === "description"} onSelect={() => onSelect("description")} className="mt-6">
+      <OverviewBlock part="description" selected={part === "description"} className="mt-6">
         <EditableText
           as="p"
           multiline
@@ -719,7 +652,7 @@ function LiveOverview({ project, lang, actions, selection, onSelect }: {
         />
       </OverviewBlock>
 
-      <OverviewBlock label="Kapak görseli" selected={part === "cover"} onSelect={() => onSelect("cover")} className="mt-12">
+      <OverviewBlock part="cover" selected={part === "cover"} className="mt-12">
         <div
           className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
           style={{ aspectRatio: "940/518" }}
@@ -740,7 +673,7 @@ function LiveOverview({ project, lang, actions, selection, onSelect }: {
 
 // ── Canvas: component (Bileşen) ───────────────────────────────────────────────
 
-function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId, onSelect, onInsertAfter }: {
+function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId }: {
   block: Block;
   /** Its Blok: where it sits for drag & drop */
   group: Group;
@@ -748,21 +681,17 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   cell: Cell;
   lang: Lang;
   actions: EditorActions;
+  /** It, or an item inside it, is selected */
   selected: boolean;
   /** Item selected inside this block */
   selectedItemId: string | null;
-  /** Select the block — or, when a card / step / list item was clicked, that item */
-  onSelect: (itemId?: string) => void;
-  onInsertAfter: () => void;
 }) {
-  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, group.id);
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, group.id);
   const display = useMemo(() => localizeBlock(block, lang), [block, lang]);
   const edit = useMemo(
     () => createBlockEditApi(block, lang, (patch) => actions.updateBlock(block.id, patch)),
     [block, lang, actions]
   );
-  const update = (patch: Partial<Block>) => actions.updateBlock(block.id, patch);
-  const addItemLabel = ADD_ITEM_LABEL[block.type];
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
   const place = cellProps(cell, gridFlow(group.grid) !== "grid" || Boolean(block.absolute));
@@ -787,39 +716,18 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
       ref={(el) => { setNodeRef(el); rootRef(el); blockEl.current = el; }}
       data-live-block
       data-block-id={block.id}
-      // --edit-tone: the colour of the component's kind — its frame, toolbar dot, cards and hovered text.
+      // --edit-tone: the colour of the component's kind — its frame, cards and hovered text.
       style={{ ...place.style, ...size.style, ...free.style, ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
       {...listeners}
+      // Its texts are edited in place (a double-click) while it, or an item inside it, is selected.
+      data-live-selected={selected ? "" : undefined}
       onPointerEnter={fitFrame}
-      onClick={(e) => {
-        e.stopPropagation();
-        const item = (e.target as Element).closest("[data-entry-id]");
-        onSelect(item && e.currentTarget.contains(item) ? item.getAttribute("data-entry-id") ?? undefined : undefined);
-      }}
+      // Selected on press (see pressOn); the click must not reach the canvas, which clears the selection.
+      onClick={(e) => e.stopPropagation()}
       // Dragged: lifted above the page (a stacking context, so the frame's card sits right behind it).
-      className={cn("group/block relative w-full", place.className, size.className, free.className, HOVER_RING_BLOCK, isDragging && "z-30 cursor-grabbing")}
+      className={cn("group/block relative w-full", place.className, size.className, free.className, isDragging && "z-30 cursor-grabbing")}
     >
-      <SelectionFrame frameRef={frameRef} selected={selected} dragging={isDragging} dashed={Boolean(selectedItemId)}>
-        <ChromeBar
-          className={cn(
-            // The frame ignores the pointer; the toolbar opts back in while visible.
-            "absolute -top-1 -right-px -translate-y-full",
-            selected ? "opacity-100 pointer-events-auto" : "opacity-0 group-hover/block:opacity-100 group-hover/block:pointer-events-auto"
-          )}
-        >
-          <DragHandle activatorRef={setActivatorNodeRef} label="Bileşeni sürükle" className={handleClass} />
-          <ChromeLabel onClick={() => onSelect()}>
-            <ToneDot />
-            {blockName(block)}
-          </ChromeLabel>
-          {addItemLabel && (
-            <ToolButton label={addItemLabel} onClick={() => addItem(block, edit, update)}>{Icons.plus}</ToolButton>
-          )}
-          <ToolButton label="Altına bileşen ekle" onClick={onInsertAfter}>{Icons.insertBelow}</ToolButton>
-          <ToolButton label="Çoğalt" onClick={() => actions.duplicateBlock(block)}>{Icons.duplicate}</ToolButton>
-          <ToolButton label="Sil" onClick={() => actions.deleteBlock(block.id)}>{Icons.trash}</ToolButton>
-        </ChromeBar>
-      </SelectionFrame>
+      <SelectionFrame frameRef={frameRef} selected={selected} dragging={isDragging} dashed={Boolean(selectedItemId)} />
       {line && (
         <span
           aria-hidden
@@ -843,13 +751,11 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
 
 /**
  * A Blok on its section's grid, laying out its components on a grid of its
- * own. Click its empty area (between components) to select it; drag it by its
- * label's grip, or press and hold that area.
+ * own. A click in its selected section selects it (see pressOn); drag it once
+ * it is selected.
  */
-function LiveGroup({ group, index, section, cell, lang, actions, selected, active, selectedBlockId, selectedItemId, onSelect, onSelectBlock, onInsert }: {
+function LiveGroup({ group, section, cell, lang, actions, selected, active, selectedBlockId, selectedItemId, onInsert }: {
   group: Group;
-  /** Its place in the section (Blok 1, 2…) */
-  index: number;
   section: PageSection;
   /** Its cell of the section's grid */
   cell: Cell;
@@ -860,12 +766,10 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
   active: boolean;
   selectedBlockId: string | null;
   selectedItemId: string | null;
-  onSelect: () => void;
-  onSelectBlock: (blockId: string, itemId?: string) => void;
-  /** Opens the component picker for this Blok: after a component, in a free cell, else at its end */
-  onInsert: (at?: { afterBlockId?: string; cell?: { row: number; col: number } }) => void;
+  /** Opens the component picker for this Blok: in a free cell, else at its end */
+  onInsert: (at?: { cell?: { row: number; col: number } }) => void;
 }) {
-  const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
   const place = cellProps(cell, gridFlow(section.grid) !== "grid" || Boolean(group.absolute));
   const size = sizeProps(group.size, false, group.cellAlign, gridFlow(section.grid));
   const free = absoluteProps(group.absolute);
@@ -888,7 +792,8 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
       data-group-id={group.id}
       style={{ ...place.style, ...grid.style, ...size.style, ...free.style, ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
       {...listeners}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      // Selected on press (see pressOn); the click must not reach the canvas, which clears the selection.
+      onClick={(e) => e.stopPropagation()}
       className={cn(
         "group/blok relative",
         place.className,
@@ -899,17 +804,6 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
         isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]")
       )}
     >
-      <ChromeBar accent className={cn(groupChromeClass(selected), isDragging && "hidden")}>
-        <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className={handleClass} />
-        <ChromeLabel onClick={onSelect}>
-          {groupName(group, index)}
-          {gridFlow(group.grid) === "grid" && (count > 1 || rows > 1) && <span className="font-normal opacity-80 tabular-nums">{count}×{rowCount(blockCells, rows)}</span>}
-        </ChromeLabel>
-        <ToolButton label="Bloğa bileşen ekle" onClick={() => onInsert()}>{Icons.plus}</ToolButton>
-        <ToolButton label="Bloğu çoğalt" onClick={() => actions.duplicateGroup(group.id)}>{Icons.duplicate}</ToolButton>
-        <ToolButton label="Bloğu sil" onClick={() => actions.deleteGroup(group.id)}>{Icons.trash}</ToolButton>
-      </ChromeBar>
-
       <GroupBlocks group={group}>
         {group.blocks.map((block, i) => (
           <LiveBlock
@@ -921,8 +815,6 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
             actions={actions}
             selected={selectedBlockId === block.id}
             selectedItemId={selectedBlockId === block.id ? selectedItemId : null}
-            onSelect={(itemId) => onSelectBlock(block.id, itemId)}
-            onInsertAfter={() => onInsert({ afterBlockId: block.id })}
           />
         ))}
       </GroupBlocks>
@@ -979,9 +871,8 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortablePageItem(section);
   const reordering = usePageReorder();
-  const dropRef = useKeepDropPosition(isDragging, SECTION_LABEL_OFFSET, SECTION_LABEL);
+  const dropRef = useKeepDropPosition(isDragging);
   const ref = (el: HTMLElement | null) => { setNodeRef(el); dropRef(el); };
-  const selectSection = () => onSelect({ kind: "section", sectionId: section.id });
   const addGroup = () => onSelect({ kind: "group", groupId: actions.addGroup(section.id) });
   /** A new Blok in a free cell of the section's grid. */
   const addGroupAt = (row: number, col: number) => {
@@ -1020,9 +911,10 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
       data-section-id={section.id}
       style={sortableStyle(transform, transition)}
       {...listeners}
-      onClick={(e) => { e.stopPropagation(); selectSection(); }}
+      // Selected on press (see pressOn); the click must not reach the canvas, which clears the selection.
+      onClick={(e) => e.stopPropagation()}
       className={cn(
-        // scroll-mt: room for the label when the sections panel scrolls here.
+        // scroll-mt: some room above it when the layers panel scrolls here.
         "group/section flex flex-col gap-4 items-start scroll-mt-[64px]",
         SECTION_BOX,
         // The outline wraps its frame: narrower than the page (Hug / Fixed W), so is the outline.
@@ -1032,13 +924,6 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
         isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]")
       )}
     >
-      <ChromeBar accent className={cn(sectionChromeClass(selected || active), isDragging && "hidden")}>
-        <DragHandle activatorRef={setActivatorNodeRef} label="Bölümü sürükle" className={handleClass} />
-        <ChromeLabel onClick={selectSection}>{sectionName(section, index)}</ChromeLabel>
-        <ToolButton label="Bölüme blok ekle" onClick={addGroup}>{Icons.plus}</ToolButton>
-        <ToolButton label="Bölümü sil" onClick={() => actions.deleteItem(section.id)}>{Icons.trash}</ToolButton>
-      </ChromeBar>
-
       {(!empty || showCells) && (
         <div data-section-frame className={grid.className} style={grid.style}>
           <SectionGroups section={section}>
@@ -1046,7 +931,6 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
               <LiveGroup
                 key={group.id}
                 group={group}
-                index={i}
                 section={section}
                 cell={groupCells[i]}
                 lang={lang}
@@ -1055,8 +939,6 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
                 active={activeGroupId === group.id}
                 selectedBlockId={selectedBlockId}
                 selectedItemId={selectedItemId}
-                onSelect={() => onSelect({ kind: "group", groupId: group.id })}
-                onSelectBlock={(blockId, itemId) => onSelect({ kind: "block", blockId, itemId })}
                 onInsert={(at) => onInsert({ groupId: group.id, ...at })}
               />
             ))}
@@ -1092,11 +974,9 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
   );
 }
 
-function LiveDivider({ divider, actions, selected, onSelect }: {
+function LiveDivider({ divider, selected }: {
   divider: PageDivider;
-  actions: EditorActions;
   selected: boolean;
-  onSelect: () => void;
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortablePageItem(divider);
   const reordering = usePageReorder();
@@ -1117,24 +997,18 @@ function LiveDivider({ divider, actions, selected, onSelect }: {
       data-divider-id={divider.id}
       style={sortableStyle(transform, transition)}
       {...listeners}
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
+      // Selected on press (see pressOn); the click must not reach the canvas, which clears the selection.
+      onClick={(e) => e.stopPropagation()}
       className={cn(
-        "group/divider relative w-full py-3 rounded-full outline-dashed outline-1 outline-offset-4 cursor-pointer transition-[outline-color]",
-        selected ? "outline-[var(--edit-accent)]" : "outline-transparent data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_70%,transparent)]",
+        "relative w-full py-3 rounded-full outline-1 outline-offset-4 cursor-pointer transition-[outline-color]",
+        // Solid when selected, as a section's.
+        selected
+          ? "outline-solid outline-[var(--edit-accent)]"
+          : "outline-dashed outline-transparent data-[canvas-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)] data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_70%,transparent)]",
         isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)] outline-[var(--edit-accent)]")
       )}
     >
       <ProjectDivider />
-      <ChromeBar
-        className={cn(
-          "absolute right-0 top-1/2 -translate-y-1/2",
-          selected ? "opacity-100" : "opacity-0 group-hover/divider:opacity-100",
-          isDragging && "hidden"
-        )}
-      >
-        <DragHandle activatorRef={setActivatorNodeRef} label="Ayırıcıyı sürükle" className={handleClass} />
-        <ToolButton label="Ayırıcıyı sil" onClick={() => actions.deleteItem(divider.id)}>{Icons.trash}</ToolButton>
-      </ChromeBar>
     </div>
   );
 }
@@ -1172,27 +1046,114 @@ function sectionTitle(section: PageSection, lang: Lang) {
 
 type SelectFromPanel = (next: Selection, opts?: { scroll?: boolean }) => void;
 
+/** A layer on the canvas: what selecting it means, and its element. */
+type Layer = { selection: Selection; el: HTMLElement };
+
 /**
- * What a press lands on, if it should become the selection: the item inside a
- * component, the component, the Blok, the section or the divider. Toolbar
- * buttons don't select (their drag handles do — they belong to the thing they drag).
+ * The layers under a point of the canvas, outermost first: section › Blok ›
+ * component › the item under it (a card, a step, a list item…) — or the
+ * overview › its part, or a divider.
  */
-function pressTarget(target: Element): Selection | null {
-  if (target.closest("[data-no-drag]") && !target.closest("[data-drag-handle]")) return null;
-  const block = target.closest<HTMLElement>("[data-live-block]");
-  if (block?.dataset.blockId) {
-    const item = target.closest<HTMLElement>("[data-entry-id]");
-    const itemId = item && block.contains(item) ? item.dataset.entryId : undefined;
-    return { kind: "block", blockId: block.dataset.blockId, itemId };
-  }
-  const group = target.closest<HTMLElement>("[data-live-group]");
-  if (group?.dataset.groupId) return { kind: "group", groupId: group.dataset.groupId };
+function layersAt(target: Element): Layer[] {
   const section = target.closest<HTMLElement>("[data-section-id]");
-  if (section?.dataset.sectionId) return { kind: "section", sectionId: section.dataset.sectionId };
+  if (section?.dataset.sectionId) {
+    const layers: Layer[] = [{ selection: { kind: "section", sectionId: section.dataset.sectionId }, el: section }];
+    const group = target.closest<HTMLElement>("[data-live-group]");
+    if (!group?.dataset.groupId || !section.contains(group)) return layers;
+    layers.push({ selection: { kind: "group", groupId: group.dataset.groupId }, el: group });
+    const block = target.closest<HTMLElement>("[data-live-block]");
+    const blockId = block?.dataset.blockId;
+    if (!block || !blockId || !group.contains(block)) return layers;
+    layers.push({ selection: { kind: "block", blockId }, el: block });
+    const item = target.closest<HTMLElement>("[data-entry-id]");
+    if (item?.dataset.entryId && block.contains(item)) layers.push({ selection: { kind: "block", blockId, itemId: item.dataset.entryId }, el: item });
+    return layers;
+  }
+  const overview = target.closest<HTMLElement>("#live-overview");
+  if (overview) {
+    const layers: Layer[] = [{ selection: { kind: "meta" }, el: overview }];
+    const part = target.closest<HTMLElement>("[data-overview-part]");
+    if (part && overview.contains(part)) layers.push({ selection: { kind: "meta", part: part.dataset.overviewPart as OverviewPart }, el: part });
+    return layers;
+  }
   const divider = target.closest<HTMLElement>("[data-divider-id]");
-  if (divider?.dataset.dividerId) return { kind: "divider", dividerId: divider.dataset.dividerId };
-  return null;
+  return divider?.dataset.dividerId ? [{ selection: { kind: "divider", dividerId: divider.dataset.dividerId }, el: divider }] : [];
 }
+
+/** The same layers for a selection (the ones holding it, and itself). */
+function selectionLayers(selection: Selection, items: PageItem[]): Selection[] {
+  switch (selection.kind) {
+    case "section":
+      return [selection];
+    case "group": {
+      const found = findGroup(items, selection.groupId);
+      return found ? [{ kind: "section", sectionId: found.section.id }, selection] : [];
+    }
+    case "block": {
+      const found = findBlock(items, selection.blockId);
+      if (!found) return [];
+      const holders: Selection[] = [{ kind: "section", sectionId: found.section.id }, { kind: "group", groupId: found.group.id }, { kind: "block", blockId: selection.blockId }];
+      return selection.itemId ? [...holders, selection] : holders;
+    }
+    case "meta":
+      return selection.part ? [{ kind: "meta" }, selection] : [selection];
+    case "divider":
+      return [selection];
+    default:
+      return [];
+  }
+}
+
+function layerKey(s: Selection): string {
+  switch (s.kind) {
+    case "section": return `section:${s.sectionId}`;
+    case "group": return `group:${s.groupId}`;
+    case "block": return s.itemId ? `item:${s.blockId}:${s.itemId}` : `block:${s.blockId}`;
+    case "meta": return `meta:${s.part ?? ""}`;
+    case "divider": return `divider:${s.dividerId}`;
+    default: return s.kind;
+  }
+}
+
+/**
+ * What a press on the canvas does, as in Figma — each click goes a level
+ * deeper: the section, its Blok, the component, the item inside it (the
+ * overview, then its part):
+ * - Inside the selection, the selection stays — it is what a drag moves — and
+ *   the click (`drill`) selects the layer one level down under the pointer.
+ * - Elsewhere the layer beside the selection, or beside one of the layers
+ *   holding it, is selected at once — the section when nothing is selected
+ *   (a component of another Blok selects that Blok; the Blok's own area, the Blok).
+ * - `deep` (Cmd / Ctrl held, as Figma's deep select): the innermost layer
+ *   under the pointer at once — a list item or card inside a component too.
+ * - A drag handle selects its own layer; the rest of a toolbar, nothing.
+ * `armed`: the press is inside the selected component (or overview part), so
+ * a double-click there edits its text and its own buttons work.
+ */
+function pressOn(target: Element, selected: Selection[], deep = false): { layer: Layer; drill: Layer | null; armed: boolean } | null {
+  const handle = Boolean(target.closest("[data-drag-handle]"));
+  if (target.closest("[data-no-drag]") && !handle) return null;
+  const layers = layersAt(target);
+  if (!layers.length) return null;
+  if (handle) return { layer: layers[layers.length - 1], drill: null, armed: false };
+  let shared = 0;
+  while (shared < layers.length && shared < selected.length && layerKey(layers[shared].selection) === layerKey(selected[shared])) shared++;
+  const leaf = selected.findIndex((s) => s.kind === "block" || (s.kind === "meta" && Boolean(s.part)));
+  const armed = leaf >= 0 && shared > leaf;
+  if (deep) return { layer: layers[layers.length - 1], drill: null, armed };
+  const next = layers[Math.min(shared, layers.length - 1)];
+  return selected.length > 0 && shared === selected.length ? { layer: layers[shared - 1], drill: next, armed } : { layer: next, drill: null, armed };
+}
+
+/** The layer a click at `target` would select — outlined on hover; a toolbar keeps its own layer's. */
+function hoverOn(target: Element, selected: Selection[], deep = false): HTMLElement | null {
+  if (target.closest("[data-no-drag]")) return layersAt(target).at(-1)?.el ?? null;
+  const press = pressOn(target, selected, deep);
+  return (press?.drill ?? press?.layer)?.el ?? null;
+}
+
+/** Cmd (Mac) / Ctrl held: a click picks the innermost layer (see pressOn). */
+const deepSelect = (e: { metaKey: boolean; ctrlKey: boolean }) => e.metaKey || e.ctrlKey;
 
 /** The same for a row of the sections panel. */
 function layerPressTarget(target: Element): Selection | null {
@@ -1998,6 +1959,40 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
     });
   }
 
+  // ── Picking on the canvas, as in Figma (see pressOn) ──
+  const picked: Selection = selection.kind === "block" ? { kind: "block", blockId: selection.blockId, itemId: selectedItemId ?? undefined } : selection;
+  const pickedLayers = selectionLayers(picked, project.items);
+  /** The last press: the layer its click goes down to — and whether it, and the one before it, was in the selected component. */
+  const press = useRef<{ drill: Selection | null; armed: boolean; armedBefore: boolean }>({ drill: null, armed: false, armedBefore: false });
+  // The layer a click would select carries `data-canvas-hover`: its hover outline.
+  const hovered = useRef<HTMLElement | null>(null);
+  const pointerOn = useRef<Element | null>(null);
+  function showHover(el: HTMLElement | null) {
+    if (hovered.current === el) return;
+    hovered.current?.removeAttribute("data-canvas-hover");
+    el?.setAttribute("data-canvas-hover", "");
+    hovered.current = el;
+  }
+  // Cmd / Ctrl held (deep select): pressed or let go with the pointer still, the hover follows too.
+  const [deep, setDeep] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => setDeep(deepSelect(e));
+    const reset = () => setDeep(false);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    window.addEventListener("blur", reset);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+      window.removeEventListener("blur", reset);
+    };
+  }, []);
+  // A new selection (or Cmd / Ctrl) changes what a click would select.
+  useEffect(() => {
+    const at = pointerOn.current;
+    showHover(at?.isConnected ? hoverOn(at, pickedLayers, deep) : null);
+  });
+
   /** A catalog click adds the component where the selection is: after the selected component, into the selected Blok or section, else at the page's end. */
   function addFromCatalog(type: BlockType) {
     const blockId = selectedBlock
@@ -2127,6 +2122,23 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
     inspectorActions = <LayerButton label="Ayırıcıyı sil" onClick={() => actions.deleteItem(dividerId)}>{Icons.trash}</LayerButton>;
   }
 
+  // The selection's size under its line (SizeBadge), in its level's colour — not while the page is the compact list.
+  let badge: BadgeTarget | null = null;
+  if (reordering) badge = null;
+  else if (selectedBlock) {
+    const { id, type } = selectedBlock.block;
+    badge = selectedItemId
+      ? { selector: `[data-block-id="${id}"] [data-entry-id="${selectedItemId}"]`, tone: blockTone(type) }
+      : { selector: `[data-block-id="${id}"]`, tone: blockTone(type), frame: true };
+  } else if (selectedGroup) badge = { selector: `[data-group-id="${selectedGroup.group.id}"]`, tone: GROUP_TONE, below: 5 };
+  else if (selectedSection) badge = { selector: `[data-section-id="${selectedSection.section.id}"]`, tone: SECTION_TONE, padded: true };
+  else if (selection.kind === "meta") {
+    badge = selection.part
+      ? { selector: `[data-overview-part="${selection.part}"]`, tone: SECTION_TONE, frame: true }
+      : { selector: "#live-overview", tone: SECTION_TONE, padded: true };
+  } else if (selection.kind === "divider") badge = { selector: `[data-divider-id="${selection.dividerId}"]`, tone: SECTION_TONE, below: 5 };
+  else if (selection.kind === "page") badge = { selector: "[data-page-frame]", tone: SECTION_TONE, below: 5 };
+
   let sectionIndex = 0;
 
   const pageFrame = pageFrameProps(project.frame);
@@ -2199,13 +2211,42 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
           // No native image / link dragging — reordering is done with dnd-kit.
           onDragStart={(e) => e.preventDefault()}
         >
-          {/* `isolate`: the hover rings below (z -1) stay above the canvas background but under all content. */}
+          {/* `relative`: the size badge (SizeBadge) is placed in it; `isolate`: the canvas's layers stay above its background. */}
           <main
-            className={cn("isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40", reordering && REORDER_ROOM)}
-            // Pressing selects at once, so whatever gets dragged is the selection (capture phase: drag handling untouched).
+            className={cn("relative isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40", reordering && REORDER_ROOM)}
+            // A press selects a layer beside the selection at once, so whatever gets dragged is the selection
+            // (capture phase: before the draggables under the pointer see it); inside it, the click goes a level down.
             onPointerDownCapture={(e) => {
-              const next = isPrimaryPress(e) ? pressTarget(e.target as Element) : null;
-              if (next) select(next);
+              if (!isPrimaryPress(e)) return;
+              const found = pressOn(e.target as Element, pickedLayers, deepSelect(e));
+              press.current = { drill: found?.drill?.selection ?? null, armed: found?.armed ?? false, armedBefore: press.current.armed };
+              if (!found) return;
+              setDragTarget(e.nativeEvent, found.layer.el);
+              if (!found.drill) select(found.layer.selection);
+            }}
+            // (No click follows a drag: dnd-kit swallows it.)
+            onClickCapture={(e) => {
+              const { drill, armed } = press.current;
+              press.current.drill = null;
+              if (drill && layerKey(drill) !== layerKey(picked)) select(drill);
+              // A click that picks a component (or a layer above it) stops there: its texts, checkboxes,
+              // "add item" buttons… answer the next one.
+              const target = e.target as Element;
+              if (!armed && target.closest("[data-live-block], [data-overview-part]") && !target.closest("[data-no-drag]")) e.stopPropagation();
+            }}
+            // A double-click edits a text only in the component selected before it — not in one its clicks just
+            // picked — or straight away with Cmd / Ctrl held (deep select).
+            onDoubleClickCapture={(e) => { if (!press.current.armedBefore && !deepSelect(e)) e.stopPropagation(); }}
+            onPointerOver={(e) => {
+              pointerOn.current = e.target as Element;
+              if (deepSelect(e) !== deep) setDeep(deepSelect(e));
+              showHover(hoverOn(e.target as Element, pickedLayers, deepSelect(e)));
+            }}
+            // Ctrl-click is the Mac's right click: on the canvas it deep-selects instead of opening the menu.
+            onContextMenu={(e) => { if (e.ctrlKey) e.preventDefault(); }}
+            onPointerLeave={() => {
+              pointerOn.current = null;
+              showHover(null);
             }}
           >
             {/*
@@ -2218,14 +2259,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
               className={
                 reordering
                   ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]")
-                  : cn(
-                      pageFrame.className,
-                      // Selected (the root layer) or hovered in the layers: its outline, as a Figma frame's. It encloses
-                      // everything in it, as a parent's does: sections' outlines reach 10px out (SECTION_BOX), Bloks' 7px,
-                      // components' 6px — the page's sits 13px out.
-                      "outline-1 outline-offset-[13px] rounded-[2px]",
-                      selection.kind === "page" ? "outline outline-[var(--edit-accent)]" : "data-[layer-hover]:outline data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_60%,transparent)]"
-                    )
+                  : cn(pageFrame.className, PAGE_LINE, selection.kind === "page" ? "before:border-[var(--edit-accent)]" : PAGE_LINE_HOVER)
               }
               style={reordering ? undefined : pageFrame.style}
             >
@@ -2236,7 +2270,6 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                   lang={lang}
                   actions={actions}
                   selection={selection}
-                  onSelect={(part) => select({ kind: "meta", part })}
                 />
               )}
               {project.items.map((item) =>
@@ -2244,9 +2277,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                   <LiveDivider
                     key={item.id}
                     divider={item}
-                    actions={actions}
                     selected={selection.kind === "divider" && selection.dividerId === item.id}
-                    onSelect={() => select({ kind: "divider", dividerId: item.id })}
                   />
                 ) : (
                   <LiveSection
@@ -2289,6 +2320,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                 </PillButton>
               </div>
             )}
+
+            {badge && <SizeBadge {...badge} />}
           </main>
         </div>
 
@@ -2377,7 +2410,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
             ) : selection.kind === "page" ? (
               <PageFrameInspector project={project} onChange={(frame) => actions.updateMeta({ frame })} />
             ) : selection.kind === "divider" ? (
-              <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Tutamacından ya da basılı tutarak sürükleyip taşıyabilirsin.</p>
+              <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Seçip sürükleyerek taşıyabilirsin.</p>
             ) : (
               // Nothing selected: the inspector is never empty — it shows the project settings.
               <ProjectInspector project={project} lang={lang} slug={slug} companies={companies} onChange={actions.updateMeta} />

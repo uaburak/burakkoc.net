@@ -627,6 +627,13 @@ export function BlockInspector({ block, lang, projectSlug, placement, onChange, 
     const fit = (cells: string[], n: number) => [...cells.slice(0, n), ...Array<string>(Math.max(0, n - cells.length)).fill("")];
     const setColumns = (n: number) =>
       onChange({ tableRows: rows.map((r) => ({ ...r, cells: fit(r.cells, n), ...(r.cellsEn ? { cellsEn: fit(r.cellsEn, n) } : {}) })) });
+    // More rows are added empty at the end; fewer drop the last ones.
+    const setRows = (n: number) =>
+      onChange({
+        tableRows: n <= rows.length
+          ? rows.slice(0, n)
+          : [...rows, ...Array.from({ length: n - rows.length }, () => ({ id: editorUid("row"), cells: Array<string>(columnCount).fill("") }))],
+      });
     options.push(
       <Row key="header" label="İlk satır">
         <Choice
@@ -637,6 +644,9 @@ export function BlockInspector({ block, lang, projectSlug, placement, onChange, 
       </Row>,
       <Row key="cols" label="Sütunlar">
         <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={columnCount} min={1} max={6} onChange={setColumns} />
+      </Row>,
+      <Row key="rows" label="Satırlar">
+        <NumberField label="Satır sayısı" prefix={Glyphs.rows} value={rows.length} min={1} max={50} onChange={setRows} />
       </Row>
     );
   }

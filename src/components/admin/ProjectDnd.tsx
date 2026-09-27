@@ -16,8 +16,8 @@ import {
 import { SortableContext, arrayMove, horizontalListSortingStrategy, rectSortingStrategy, useSortable, verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import { CSS, getEventCoordinates, type Transform } from "@dnd-kit/utilities";
 import { Block, BlockType, GridSettings, Group, PageItem, PageSection } from "@/types/project";
-import { DragHandle, DragScrollFix, useEditorSensors, type DragActivation } from "@/components/project/Sortable";
-import { BLOCK_DEFS, BLOCK_LABELS, blockTone, makeBlock, uid } from "@/components/admin/blockCatalog";
+import { DragHandle, DragScrollFix, altDrag, useEditorSensors, type DragActivation } from "@/components/project/Sortable";
+import { BLOCK_DEFS, BLOCK_LABELS, blockTone, cloneBlock, cloneGroup, cloneItem, makeBlock, uid } from "@/components/admin/blockCatalog";
 import {
   findBlock,
   findGroup,
@@ -26,6 +26,7 @@ import {
   gridFlow,
   gridRows,
   hasPlacedCells,
+  layoutCells,
   mapGroup,
   mapSection,
   moveBlockToGroup,
@@ -34,6 +35,7 @@ import {
   placeBlockInSection,
   placeGroup,
   placedByHand,
+  roomAt,
   swapCells,
 } from "@/lib/projectLayout";
 
@@ -52,6 +54,8 @@ import {
  *   before / after a component (the line shows where — useInsertion), in an
  *   empty Blok, in a free cell or in a section. It follows the pointer as a
  *   chip (DragOverlay), since the catalog panel clips its own content.
+ * - with Alt (⌥) held at the drop, as in Figma, a copy stays where the dragged
+ *   element was (leaveCopy) — on the page and in the layer tree.
  *
  * The layer tree (variant "tree") drags like Figma's: the dragged row stays
  * where it is (the tree doesn't apply the transform), nothing makes room, a
@@ -166,6 +170,58 @@ function dropInTree(list: PageItem[], d: DndData, drop: TreeDrop): PageItem[] {
     return to ? moveBlockInTree(list, d.blockId, to.group.id, drop.id, after) : list;
   }
   return list;
+}
+
+/**
+ * Puts `copy` back where the original was among `before` (its siblings when
+ * the drag started) in `children` (them now): before the next of them still
+ * there — on a grid laid out by hand, in the original's cell, unless something
+ * has taken it since (then in the next free one).
+ */
+function putBack<T extends { id: string; span?: number; row?: number; col?: number; absolute?: unknown }>(
+  children: T[], before: T[], index: number, copy: T, grid?: GridSettings
+): T[] {
+  const next = before.slice(index + 1).find((s) => children.some((c) => c.id === s.id));
+  const at = next ? children.findIndex((c) => c.id === next.id) : children.length;
+  let placed = copy;
+  if (grid && gridFlow(grid) === "grid" && !copy.absolute && (hasPlacedCells(children) || hasPlacedCells([copy]))) {
+    const count = gridColumns(grid).length;
+    const rows = gridRows(grid);
+    const cell = layoutCells(before, count, rows)[index];
+    const room = roomAt(layoutCells(children, count, rows), -1, cell.row, cell.col, count);
+    placed = room > 0 ? { ...copy, row: cell.row, col: cell.col, span: Math.min(cell.span, room) } : { ...copy, row: undefined, col: undefined };
+  }
+  return [...children.slice(0, at), placed, ...children.slice(at)];
+}
+
+/**
+ * An Alt-drag leaves a copy behind, as in Figma: the dragged element — still
+ * selected — is where it was dropped (`moved`), a copy of it with fresh ids
+ * where it was (`start`). A component dropped alone in a section's free cell
+ * takes its Blok along: then a copy of the Blok stays.
+ */
+function leaveCopy(start: PageItem[], moved: PageItem[], d: DndData): PageItem[] {
+  if (d.type === "item") {
+    const index = start.findIndex((i) => i.id === d.itemId);
+    return index < 0 ? moved : putBack(moved, start, index, cloneItem(start[index]));
+  }
+  if (d.type === "group") {
+    const from = findGroup(start, d.groupId);
+    if (!from) return moved;
+    return mapSection(moved, from.section.id, (s) => ({ ...s, groups: putBack(s.groups, from.section.groups, from.index, cloneGroup(from.group), s.grid) }));
+  }
+  if (d.type === "block") {
+    const from = findBlock(start, d.blockId);
+    if (!from) return moved;
+    const now = findGroup(moved, from.group.id);
+    const stayed = now && now.section.id === from.section.id && now.group.row === from.group.row && now.group.col === from.group.col;
+    if (stayed) {
+      return mapGroup(moved, from.group.id, (g) => ({ ...g, blocks: putBack(g.blocks, from.group.blocks, from.index, cloneBlock(from.block), g.grid) }));
+    }
+    const groupIndex = from.section.groups.findIndex((g) => g.id === from.group.id);
+    return mapSection(moved, from.section.id, (s) => ({ ...s, groups: putBack(s.groups, from.section.groups, groupIndex, cloneGroup(from.group), s.grid) }));
+  }
+  return moved;
 }
 
 const itemDndId = (id: string) => `item:${id}`;
@@ -304,6 +360,53 @@ function dropNewBlock(list: PageItem[], block: Block, o: DndData, insertion: Ins
   return list;
 }
 
+/**
+ * What dropping a section / divider, Blok or component `d` on the page (on
+ * `o`) does to the list — none when it lands nowhere.
+ */
+function dropOnPage(d: DndData | undefined, o: DndData | undefined): ((list: PageItem[]) => PageItem[]) | null {
+  if (!d || !o) return null;
+  if (o.type === "cell") {
+    const { level, containerId, row, col } = o;
+    if (d.type === "block") {
+      return (list) => (level === "group" ? placeBlock(list, d.blockId, containerId, row, col) : placeBlockInSection(list, d.blockId, containerId, row, col, uid()));
+    }
+    if (d.type === "group" && level === "section") return (list) => placeGroup(list, d.groupId, containerId, row, col);
+    return null;
+  }
+  if (d.type === "item" && o.type === "item") {
+    return (list) => {
+      const from = list.findIndex((i) => i.id === d.itemId);
+      const to = list.findIndex((i) => i.id === o.itemId);
+      return from < 0 || to < 0 ? list : arrayMove(list, from, to);
+    };
+  }
+  if (d.type === "group" && o.type === "group") {
+    return (list) => {
+      const from = findGroup(list, d.groupId);
+      const to = findGroup(list, o.groupId);
+      if (!from || !to || from.section.id !== to.section.id) return list;
+      return mapSection(list, from.section.id, (s) => ({
+        ...s,
+        // Laid out by hand: the two swap cells; otherwise the order changes.
+        groups: placedByHand(s.grid, s.groups) ? swapCells(s.groups, d.groupId, o.groupId, gridColumns(s.grid).length, gridRows(s.grid)) : arrayMove(s.groups, from.index, to.index),
+      }));
+    };
+  }
+  if (d.type === "block" && o.type === "block") {
+    return (list) => {
+      const from = findBlock(list, d.blockId);
+      const to = findBlock(list, o.blockId);
+      if (!from || !to || from.group.id !== to.group.id || from.index === to.index) return list;
+      return mapGroup(list, from.group.id, (g) => ({
+        ...g,
+        blocks: placedByHand(g.grid, g.blocks) ? swapCells(g.blocks, d.blockId, o.blockId, gridColumns(g.grid).length, gridRows(g.grid)) : arrayMove(g.blocks, from.index, to.index),
+      }));
+    };
+  }
+  return null;
+}
+
 /** The chip that follows the pointer while a catalog component is dragged. */
 function NewBlockChip({ type }: { type: BlockType }) {
   const def = BLOCK_DEFS.find((d) => d.type === type);
@@ -334,17 +437,12 @@ function layoutTop(el: HTMLElement) {
   return el.getBoundingClientRect().top - transformY - translateY;
 }
 
-/** How long a section label stays up after a drop (and after hover, in CSS). */
-const LABEL_LINGER_MS = 2000;
-
 /**
  * The page expands again on drop. Keep the dropped section or divider where it
- * was released: scroll so that its label (`anchorOffset` px from the element's
- * top) lands where the dragged row was let go, and let the page fill in around
- * it. `linger` selects a label to keep visible for 2s after the drop.
- * Returns a ref for the element.
+ * was released: scroll so that its top lands where the dragged row was let go,
+ * and let the page fill in around it. Returns a ref for the element.
  */
-export function useKeepDropPosition(isDragging: boolean, anchorOffset = 0, linger?: string) {
+export function useKeepDropPosition(isDragging: boolean) {
   const reordering = usePageReorder();
   const dropTop = useContext(DropTopContext);
   const node = useRef<HTMLElement | null>(null);
@@ -359,18 +457,8 @@ export function useKeepDropPosition(isDragging: boolean, anchorOffset = 0, linge
     const top = dropTop.current;
     const scroller = el && scrollParent(el);
     if (!el || top == null || !scroller) return;
-    scroller.scrollTop += layoutTop(el) + anchorOffset - top;
-    // The label was just (re)created hidden: keep it up for a moment, then fade.
-    const label = linger ? el.querySelector<HTMLElement>(linger) : null;
-    label?.animate(
-      [
-        { opacity: 1, visibility: "visible" },
-        { opacity: 1, visibility: "visible", offset: LABEL_LINGER_MS / (LABEL_LINGER_MS + 150) },
-        { opacity: 0, visibility: "hidden" },
-      ],
-      { duration: LABEL_LINGER_MS + 150 }
-    );
-  }, [reordering, dropTop, anchorOffset, linger]);
+    scroller.scrollTop += layoutTop(el) - top;
+  }, [reordering, dropTop]);
   return useCallback((el: HTMLElement | null) => { node.current = el; }, []);
 }
 
@@ -457,6 +545,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
       autoScroll={{ layoutShiftCompensation: false }}
       // Set in the same update as the drag start, so the collapse is part of it.
       onDragStart={({ active: a }) => {
+        altDrag.begin();
         itemsAtStart.current = items;
         const d = dataOf(a);
         setReordering(!tree && d?.type === "item");
@@ -499,6 +588,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
         setInsertion((prev) => (prev?.blockId === o.blockId && prev.before === before ? prev : { blockId: o.blockId, before, horizontal, blockType: d.blockType }));
       }}
       onDragCancel={({ active: a }) => {
+        altDrag.end();
         dropTop.current = a.rect.current.translated?.top ?? null;
         setTreeDrop(null);
         setNewType(null);
@@ -526,7 +616,9 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
       onDragEnd={({ active: a, over }) => {
         dropTop.current = a.rect.current.translated?.top ?? null;
         setReordering(false);
+        const start = itemsAtStart.current;
         itemsAtStart.current = null;
+        const copy = altDrag.end();
         const d = dataOf(a);
         const o = over ? dataOf(over) : undefined;
         const lastInsertion = insertion;
@@ -534,55 +626,18 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
         setNewType(null);
         setInsertion(null);
         setTreeDrop(null);
-        if (tree) {
-          if (d && lastTreeDrop) onItemsChange((list) => dropInTree(list, d, lastTreeDrop));
-          return;
-        }
-        if (!d || !o || a.id === over?.id) return;
-        if (d.type === "new") {
+        if (d?.type === "new") {
+          if (!o) return;
           const block = makeBlock(d.blockType, { id: d.blockId });
           onItemsChange((list) => dropNewBlock(list, block, o, lastInsertion));
           return;
         }
-        if (o.type === "cell") {
-          const { level, containerId, row, col } = o;
-          if (d.type === "block") {
-            onItemsChange((list) =>
-              level === "group" ? placeBlock(list, d.blockId, containerId, row, col) : placeBlockInSection(list, d.blockId, containerId, row, col, uid())
-            );
-          } else if (d.type === "group" && level === "section") {
-            onItemsChange((list) => placeGroup(list, d.groupId, containerId, row, col));
-          }
-          return;
-        }
-        if (d.type === "item" && o.type === "item") {
-          onItemsChange((list) => {
-            const from = list.findIndex((i) => i.id === d.itemId);
-            const to = list.findIndex((i) => i.id === o.itemId);
-            return from < 0 || to < 0 ? list : arrayMove(list, from, to);
-          });
-        } else if (d.type === "group" && o.type === "group") {
-          onItemsChange((list) => {
-            const from = findGroup(list, d.groupId);
-            const to = findGroup(list, o.groupId);
-            if (!from || !to || from.section.id !== to.section.id) return list;
-            return mapSection(list, from.section.id, (s) => ({
-              ...s,
-              // Laid out by hand: the two swap cells; otherwise the order changes.
-              groups: placedByHand(s.grid, s.groups) ? swapCells(s.groups, d.groupId, o.groupId, gridColumns(s.grid).length, gridRows(s.grid)) : arrayMove(s.groups, from.index, to.index),
-            }));
-          });
-        } else if (d.type === "block" && o.type === "block") {
-          onItemsChange((list) => {
-            const from = findBlock(list, d.blockId);
-            const to = findBlock(list, o.blockId);
-            if (!from || !to || from.group.id !== to.group.id || from.index === to.index) return list;
-            return mapGroup(list, from.group.id, (g) => ({
-              ...g,
-              blocks: placedByHand(g.grid, g.blocks) ? swapCells(g.blocks, d.blockId, o.blockId, gridColumns(g.grid).length, gridRows(g.grid)) : arrayMove(g.blocks, from.index, to.index),
-            }));
-          });
-        }
+        const drop = tree
+          ? d && lastTreeDrop ? (list: PageItem[]) => dropInTree(list, d, lastTreeDrop) : null
+          : a.id === over?.id ? null : dropOnPage(d, o);
+        // With Alt held the dragged element still goes where it was dropped, and a copy stays where it was.
+        if (copy && d && start) onItemsChange((list) => leaveCopy(start, drop ? drop(list) : list, d));
+        else if (drop) onItemsChange(drop);
       }}
     >
       <ReorderAligner reordering={reordering} />

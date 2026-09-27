@@ -1,6 +1,6 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { Block, BlockType, GridAlign, GridSettings, Group, PageItem, PageSection, ProjectData } from "@/types/project";
-import { makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
+import { cloneBlock, cloneGroup, makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
 import { findBlock, findGroup, gridColumns, gridRows, placedByHand, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
 
 /**
@@ -14,21 +14,6 @@ import { findBlock, findGroup, gridColumns, gridRows, placedByHand, mapBlock, ma
 
 export type ProjectMeta = Pick<ProjectData,
   "title" | "titleEn" | "category" | "year" | "company" | "slug" | "coverImage" | "description" | "descriptionEn" | "theme" | "frame">;
-
-/** Copy of a component with fresh ids for it and all its rows. */
-function cloneBlock(block: Block): Block {
-  const copy: Block = structuredClone(block);
-  copy.id = uid();
-  copy.entries = copy.entries?.map((e) => ({ ...e, id: uid() }));
-  copy.listItems = copy.listItems?.map((it) => ({ ...it, id: uid() }));
-  copy.tableRows = copy.tableRows?.map((r) => ({ ...r, id: uid() }));
-  return copy;
-}
-
-/** Copy of a group with fresh ids for it and its components. */
-function cloneGroup(group: Group): Group {
-  return { ...structuredClone(group), id: uid(), blocks: group.blocks.map(cloneBlock) };
-}
 
 function moveBy<T>(list: T[], index: number, delta: number): T[] {
   const to = index + delta;

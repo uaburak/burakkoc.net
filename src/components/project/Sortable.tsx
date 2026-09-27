@@ -9,6 +9,7 @@ import {
   useDndContext,
   useSensor,
   useSensors,
+  type DraggableNode,
   type KeyboardSensorOptions,
   type PointerSensorOptions,
 } from "@dnd-kit/core";
@@ -34,7 +35,8 @@ import { cn } from "@/lib/utils";
  * Either way plain clicks stay free: a click without moving still selects /
  * starts typing. Drags never start from form controls, buttons or the field
  * being typed in. Nested groups (cards inside a block inside a section) work because
- * dnd-kit lets the innermost draggable claim the pointer event first.
+ * dnd-kit lets the innermost draggable claim the pointer event first — unless
+ * the press names the one to drag (setDragTarget).
  */
 
 const NO_DRAG = [
@@ -56,6 +58,18 @@ function onHandle(event: Event) {
   return Boolean(targetOf(event)?.closest("[data-drag-handle]"));
 }
 
+const dragTargets = new WeakMap<Event, Element>();
+
+/**
+ * Names the one element a press may drag — the live editor's: the layer the
+ * press selects, not the innermost one under the pointer. The draggables
+ * inside it leave the press to it. Call it before the press reaches them
+ * (in the capture phase).
+ */
+export function setDragTarget(event: Event, el: Element) {
+  dragTargets.set(event, el);
+}
+
 /**
  * One pointer sensor for both gestures — dnd-kit keys listeners by event name,
  * so two sensors on `onPointerDown` would overwrite each other. The hold delay
@@ -64,11 +78,14 @@ function onHandle(event: Event) {
 class EditorPointerSensor extends PointerSensor {
   static activators = [{
     eventName: "onPointerDown" as const,
-    handler: ({ nativeEvent }: ReactPointerEvent, { onActivation }: PointerSensorOptions) => {
+    // dnd-kit passes the draggable as the third argument (PointerSensor's own type leaves it out).
+    handler: ({ nativeEvent }: ReactPointerEvent, { onActivation }: PointerSensorOptions, context?: { active: DraggableNode }) => {
       const target = targetOf(nativeEvent);
       if (!isPrimaryPress(nativeEvent) || !target) return false;
       // A handle always drags, even inside a no-drag toolbar.
       if (!target.closest("[data-drag-handle]") && target.closest(NO_DRAG)) return false;
+      const only = dragTargets.get(nativeEvent);
+      if (only && context?.active.node.current !== only) return false;
       onActivation?.({ event: nativeEvent });
       return true;
     },
@@ -85,6 +102,45 @@ class HandleKeyboardSensor extends KeyboardSensor {
     },
   }];
 }
+
+// ── Alt-drag: the drop leaves a copy, as in Figma ─────────────────────────────
+
+let altHeld = false;
+let copyDragging = false;
+let trackingAlt = false;
+
+/** While a drag goes on with Alt (⌥) held, every cursor is the copy one (globals.css). */
+function showCopyCursor() {
+  document.documentElement.toggleAttribute("data-drag-copy", copyDragging && altHeld);
+}
+
+function trackAlt(e: KeyboardEvent | PointerEvent) {
+  if (e.altKey === altHeld) return;
+  altHeld = e.altKey;
+  showCopyCursor();
+}
+
+/**
+ * Alt, held or pressed during a drag, turns its drop into a copy: the editors
+ * call `begin` when a drag starts and read `end()` at the drop (or cancel).
+ */
+export const altDrag = {
+  begin() {
+    if (!trackingAlt) {
+      trackingAlt = true;
+      for (const type of ["pointerdown", "pointermove", "keydown", "keyup"] as const) window.addEventListener(type, trackAlt, true);
+      window.addEventListener("blur", () => { altHeld = false; showCopyCursor(); });
+    }
+    copyDragging = true;
+    showCopyCursor();
+  },
+  /** Was Alt held at the drop? */
+  end() {
+    copyDragging = false;
+    showCopyCursor();
+    return altHeld;
+  },
+};
 
 export type DragActivation = "hold" | "press";
 
@@ -155,7 +211,11 @@ export function DragScrollFix() {
 
 interface SortableGroupProps {
   ids: string[];
-  onMove: (activeId: string, overId: string) => void;
+  /**
+   * `copy`: dropped with Alt held — the dragged item goes to `overId` as usual,
+   * and a copy of it stays where it was (dropped where it was: next to it).
+   */
+  onMove: (activeId: string, overId: string, copy: boolean) => void;
   /** `grid` for multi-column layouts, `vertical` for stacks */
   strategy?: "grid" | "vertical";
   children: ReactNode;
@@ -167,8 +227,11 @@ export function SortableGroup({ ids, onMove, strategy = "vertical", children }: 
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
+      onDragStart={altDrag.begin}
+      onDragCancel={altDrag.end}
       onDragEnd={({ active, over }) => {
-        if (over && active.id !== over.id) onMove(String(active.id), String(over.id));
+        const copy = altDrag.end();
+        if (over && (active.id !== over.id || copy)) onMove(String(active.id), String(over.id), copy);
       }}
     >
       <SortableContext items={ids} strategy={strategy === "grid" ? rectSortingStrategy : verticalListSortingStrategy}>
@@ -186,14 +249,11 @@ interface SortableItemProps {
   as?: ElementType;
   className?: string;
   children: ReactNode;
-  /** Shows a remove button in the corner on hover */
-  onRemove?: () => void;
-  removeLabel?: string;
   /** Live-editor hover outline */
   outline?: boolean;
 }
 
-export function SortableItem({ id, as: Tag = "div", className, children, onRemove, removeLabel = "Sil", outline = true }: SortableItemProps) {
+export function SortableItem({ id, as: Tag = "div", className, children, outline = true }: SortableItemProps) {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id });
   return (
     <Tag
@@ -204,28 +264,16 @@ export function SortableItem({ id, as: Tag = "div", className, children, onRemov
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
         className,
-        "relative group/sortable touch-manipulation",
-        // Live editor: 1px outside the card, in the colour of the component it belongs to.
-        outline && "outline outline-1 outline-offset-1 outline-transparent hover:outline-[var(--edit-tone,var(--edit-accent))] data-[selected]:outline-[var(--edit-tone,var(--edit-accent))] transition-[outline-color]",
+        "relative touch-manipulation",
+        // Live editor: a line on the card's edge (as its component's frame), in the colour of the component it
+        // belongs to — on hover once a click would select it (`data-canvas-hover`, see the live editor), and while selected.
+        outline && "outline outline-1 -outline-offset-1 outline-transparent data-[canvas-hover]:outline-[var(--edit-tone,var(--edit-accent))] data-[selected]:outline-[var(--edit-tone,var(--edit-accent))] transition-[outline-color]",
         // Items without their own corners (steps, rows) get a soft one for the outline.
         outline && !/\brounded/.test(className ?? "") && "rounded-[8px]",
         isDragging && cn(DRAG_LIFT, "outline-[var(--edit-tone,var(--edit-accent))]")
       )}
     >
       {children}
-      {onRemove && (
-        <button
-          type="button"
-          aria-label={removeLabel}
-          title={removeLabel}
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          className="absolute -top-2.5 -right-2.5 z-30 flex items-center justify-center w-6 h-6 rounded-full border border-[var(--border)] bg-[var(--bg-1)] text-[var(--text-subtitle)] shadow-sm opacity-0 group-hover/sortable:opacity-100 focus-visible:opacity-100 hover:text-[var(--text-title)] hover:border-[var(--border-hover)] transition-opacity cursor-pointer"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
-            <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-      )}
     </Tag>
   );
 }

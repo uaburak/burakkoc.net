@@ -110,12 +110,11 @@ const GRID_SM_COLS: Record<2 | 3 | 4, string> = {
 
 /**
  * A block's entries. Static list on the page; in the editor a sortable group
- * (press-and-hold to move, hover × to remove). New entries are added from the
- * block toolbar.
+ * (drag to move). Entries are added and removed from the inspector (or with
+ * Delete once selected).
  */
 function Entries({
-  entries, edit, as: Tag = "div", className, itemAs: ItemTag = "div", itemClassName, strategy = "grid",
-  fixed = false, render,
+  entries, edit, as: Tag = "div", className, itemAs: ItemTag = "div", itemClassName, strategy = "grid", render,
 }: {
   entries: BlockEntry[];
   edit?: BlockEditApi;
@@ -124,8 +123,6 @@ function Entries({
   itemAs?: ElementType;
   itemClassName?: string | ((entry: BlockEntry, index: number) => string);
   strategy?: "grid" | "vertical";
-  /** Fixed number of entries (compare): no add / remove */
-  fixed?: boolean;
   render: (entry: BlockEntry, index: number) => ReactNode;
 }) {
   const cls = (e: BlockEntry, i: number) => (typeof itemClassName === "function" ? itemClassName(e, i) : itemClassName);
@@ -142,7 +139,7 @@ function Entries({
     <SortableGroup ids={entries.map((e) => e.id)} onMove={edit.moveEntry} strategy={strategy}>
       <Tag className={className}>
         {entries.map((e, i) => (
-          <SortableItem key={e.id} id={e.id} as={ItemTag} className={cls(e, i)} onRemove={fixed ? undefined : () => edit.removeEntry(e.id)}>
+          <SortableItem key={e.id} id={e.id} as={ItemTag} className={cls(e, i)}>
             {render(e, i)}
           </SortableItem>
         ))}

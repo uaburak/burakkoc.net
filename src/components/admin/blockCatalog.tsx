@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Block, BlockType, Group, ListStyle, PageDivider, PageSection } from "@/types/project";
+import { Block, BlockType, Group, ListStyle, PageDivider, PageItem, PageSection } from "@/types/project";
 import { createCaseStudyBlockDefaults } from "@/components/admin/CaseStudyBlockEditor";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,26 @@ export function makeSection(blocks: Block[] = []): PageSection {
 
 export function makeDivider(): PageDivider {
   return { id: uid(), kind: "divider" };
+}
+
+/** Copy of a component with fresh ids for it and all its rows. */
+export function cloneBlock(block: Block): Block {
+  const copy: Block = structuredClone(block);
+  copy.id = uid();
+  copy.entries = copy.entries?.map((e) => ({ ...e, id: uid() }));
+  copy.listItems = copy.listItems?.map((it) => ({ ...it, id: uid() }));
+  copy.tableRows = copy.tableRows?.map((r) => ({ ...r, id: uid() }));
+  return copy;
+}
+
+/** Copy of a group with fresh ids for it and its components. */
+export function cloneGroup(group: Group): Group {
+  return { ...structuredClone(group), id: uid(), blocks: group.blocks.map(cloneBlock) };
+}
+
+/** Copy of a section (fresh ids all the way down) or a divider. */
+export function cloneItem(item: PageItem): PageItem {
+  return item.kind === "section" ? { ...structuredClone(item), id: uid(), groups: item.groups.map(cloneGroup) } : { ...item, id: uid() };
 }
 
 // ── Block type registry (no divider — it's a top-level page item) ─────────────

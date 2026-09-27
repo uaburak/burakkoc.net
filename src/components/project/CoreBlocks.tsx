@@ -532,7 +532,7 @@ function ListBlock({ block, animate, edit }: CoreProps) {
           {items.map((item, idx) => {
             const isChecked = style === "check" && Boolean(item.checked);
             return (
-              <SortableItem key={item.id} id={item.id} className={LIST_ITEM_CLASS} onRemove={() => edit.removeListItem(item.id)}>
+              <SortableItem key={item.id} id={item.id} className={LIST_ITEM_CLASS}>
                 <ListMarker style={style} index={idx} checked={isChecked} onToggle={style === "check" ? () => edit.toggleListItem(item.id) : undefined} />
                 <EditableText
                   className={cn("flex-1 min-w-0", isChecked && "line-through opacity-50")}

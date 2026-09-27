@@ -502,3 +502,10 @@ pre[class*="language-"] {
   border-radius: var(--project-radius-sm) !important;
 }
 
+
+/* ── Editors: Alt (⌥) held while dragging ──────────────────────
+   The drop leaves a copy (see altDrag in Sortable.tsx). */
+html[data-drag-copy],
+html[data-drag-copy] * {
+  cursor: copy !important;
+}
