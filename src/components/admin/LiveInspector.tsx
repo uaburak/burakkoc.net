@@ -12,11 +12,12 @@ import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/ad
 import { gridGaps } from "@/components/project/LayoutGrid";
 import type { ResolvedDesign } from "@/components/project/componentDesign";
 import { moleculeLayout } from "@/components/project/designMolecules";
-import { boundValue, canAlias, modeValue, type ThemeMode } from "@/components/project/designVariables";
+import { boundValue, canAlias, modeValue, resolvedValue, type ThemeMode } from "@/components/project/designVariables";
+import { splitName } from "@/components/admin/VariablesPanel";
 import { TYPOGRAPHY_KINDS } from "@/components/project/designAtoms";
 import { AtomSample, atomMetrics } from "@/components/admin/AtomsPanel";
 import { useTheme } from "@/context/ThemeContext";
-import type { DesignAtom, DesignMolecule, DesignVariable, MoleculeSlot, SpacingKey, Typography, VariableKind, VariableValue } from "@/types/design";
+import type { DesignAtom, DesignMolecule, DesignVariable, MoleculeSlot, MoleculeStroke, Paint, SpacingKey, StrokeAlign, Typography, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, sectionsOf, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
@@ -66,9 +67,9 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** The grey box every field sits in. */
+/** The grey box every field sits in (`group/field`: marks at its end show on its hover, see Bindable). */
 const FIELD =
-  "h-7 rounded-[6px] bg-[var(--bg-4)] border border-transparent hover:border-[var(--border-hover)] focus-within:border-[var(--text-subtitle)] transition-colors";
+  "group/field h-7 rounded-[6px] bg-[var(--bg-4)] border border-transparent hover:border-[var(--border-hover)] focus-within:border-[var(--text-subtitle)] transition-colors";
 
 /** The chosen option of a segmented control: raised (white; a step lighter in the dark theme). */
 const RAISED = "bg-[var(--bg-1)] [[data-theme=dark]_&]:bg-[var(--bg-5)] text-[var(--text-title)] shadow-[0_1px_2px_rgba(0,0,0,0.08)]";
@@ -195,14 +196,15 @@ function NumberField({ label, prefix, value, min, max, suffix, placeholder, fall
   );
 }
 
-/** A one-line text field in the grey box, with an optional prefix (icon, colour swatch). */
-function TextField({ label, value, onChange, placeholder, type = "text", prefix }: {
+/** A one-line text field in the grey box, with an optional prefix (icon, colour swatch) and suffix. */
+function TextField({ label, value, onChange, placeholder, type = "text", prefix, suffix }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   type?: "text" | "url";
   prefix?: ReactNode;
+  suffix?: ReactNode;
 }) {
   return (
     <div className={cn("flex w-full min-w-0 items-center gap-1.5 px-2", FIELD)}>
@@ -215,16 +217,18 @@ function TextField({ label, value, onChange, placeholder, type = "text", prefix 
         onChange={(e) => onChange(e.target.value)}
         className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
       />
+      {suffix}
     </div>
   );
 }
 
-/** A dropdown in the grey box (the system's own menu). */
-function SelectField({ label, value, options, placeholder, onChange }: {
+/** A dropdown in the grey box (the system's own menu), with an optional suffix before its chevron. */
+function SelectField({ label, value, options, placeholder, suffix, onChange }: {
   label: string;
   value: string;
   options: { value: string; label: string }[];
   placeholder?: string;
+  suffix?: ReactNode;
   onChange: (value: string) => void;
 }) {
   return (
@@ -233,13 +237,14 @@ function SelectField({ label, value, options, placeholder, onChange }: {
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full h-full pl-2 pr-6 appearance-none bg-transparent text-[12px] text-[var(--text-title)] outline-none cursor-pointer"
+        className={cn("w-full h-full pl-2 appearance-none bg-transparent text-[12px] text-[var(--text-title)] outline-none cursor-pointer", suffix ? "pr-12" : "pr-6")}
       >
         {placeholder !== undefined && <option value="">{placeholder}</option>}
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
+      {suffix && <span className="absolute right-6 flex items-center">{suffix}</span>}
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden className="pointer-events-none absolute right-2 text-[var(--text-subtitle)]">
         <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -290,6 +295,61 @@ function Hint({ children }: { children: ReactNode }) {
 }
 
 const Glyphs = {
+  /** Apply a variable (Figma's hexagon) */
+  variable: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M7 1.75l4.55 2.625v5.25L7 12.25 2.45 9.625v-5.25L7 1.75z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Detach a variable (Figma's broken link) */
+  detach: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M5.2 6.2L3.9 7.5a2.1 2.1 0 003 3l1.3-1.3M8.8 7.8l1.3-1.3a2.1 2.1 0 00-3-3L5.8 4.8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M2 2l1.6 1.6M12 12l-1.6-1.6M5 1.5v1.3M1.5 5h1.3M9 12.5v-1.3M12.5 9h-1.3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  ),
+  /** Styles and variables (Figma's four dots) */
+  styles: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <circle cx="4.25" cy="4.25" r="1.75" stroke="currentColor" strokeWidth="1.1" />
+      <circle cx="9.75" cy="4.25" r="1.75" stroke="currentColor" strokeWidth="1.1" />
+      <circle cx="4.25" cy="9.75" r="1.75" stroke="currentColor" strokeWidth="1.1" />
+      <circle cx="9.75" cy="9.75" r="1.75" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  ),
+  /** Shown (a fill, a stroke) */
+  eye: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M1.5 7S3.5 3.25 7 3.25 12.5 7 12.5 7 10.5 10.75 7 10.75 1.5 7 1.5 7z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+      <circle cx="7" cy="7" r="1.75" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  ),
+  /** Hidden (a fill, a stroke) */
+  eyeOff: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M1.5 7s1.1-2.1 3.2-3.2M12.5 7s-.8 1.5-2.3 2.6M5.9 3.35A5 5 0 017 3.25C10.5 3.25 12.5 7 12.5 7M8.2 10.6a5 5 0 01-1.2.15C3.5 10.75 1.5 7 1.5 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M2.5 2.5l9 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  ),
+  /** Remove (a fill, a stroke) */
+  minus: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M3 7h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  ),
+  /** Corner radius: a rounded corner */
+  radius: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M2 10.5V6.5a4.5 4.5 0 014.5-4.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  ),
+  /** A stroke's weight: lines getting thicker */
+  strokeWeight: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <rect x="1.5" y="2" width="9" height="3" rx="0.6" stroke="currentColor" strokeWidth="1" />
+      <rect x="1.5" y="7" width="9" height="3" rx="0.6" stroke="currentColor" strokeWidth="1" />
+    </svg>
+  ),
   /** A molecule: atoms bound together */
   molecule: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
@@ -311,12 +371,6 @@ const Glyphs = {
   goTo: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
       <path d="M4 2.5h5.5V8M9.5 2.5L3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  /** Bound to a variable (Figma's variable link) */
-  link: (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-      <path d="M5 7l2-2M4.2 5.3L3 6.5a1.8 1.8 0 002.5 2.5l1.2-1.2M7.8 6.7L9 5.5A1.8 1.8 0 006.5 3L5.3 4.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   ),
   /** Figma's component mark: four diamonds */
@@ -1052,27 +1106,27 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
         : { ...grid, paddingTop: grid?.paddingY ?? 0, paddingBottom: grid?.paddingY ?? 0, paddingLeft: grid?.paddingX ?? 0, paddingRight: grid?.paddingX ?? 0 }
     );
   const side = (key: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft", pair: "paddingX" | "paddingY") => grid?.[key] ?? grid?.[pair] ?? 0;
+  const bindById = new Map((bind?.variables ?? []).map((v) => [v.id, v]));
   /**
-   * A gap or padding field — bindable, with `bind`: bound, it shows its
-   * variable's name, and the menu at its end binds, swaps or unbinds it
-   * (after the field's own choices, `items`).
+   * A gap or padding field — with `bind`, bindable to a size variable as in
+   * Figma (see Bindable): the variable mark on hover, the variable's pill
+   * once bound. `extra`: the field's own control at its end (Auto / fixed).
    */
-  const spacing = (key: SpacingKey, field: Parameters<typeof NumberField>[0], items: MenuItem[] = []) => {
-    if (!bind) return <NumberField {...field} />;
+  const spacing = (key: SpacingKey, field: Parameters<typeof NumberField>[0], extra?: ReactNode) => {
+    if (!bind) return <NumberField {...field} suffix={extra} />;
     const boundId = bind.bound[key];
-    const variable = boundId ? bind.variables.find((v) => v.id === boundId) : undefined;
-    const binding: MenuItem[] = [
-      ...bind.variables.map((v, i) => ({ label: v.name, checked: v.id === boundId, divided: i === 0 && items.length > 0, onSelect: () => bind.onBind(key, v.id) })),
-      ...(boundId ? [{ label: "Bağlantıyı kaldır", hint: "değerini kendisi tutsun", divided: true, onSelect: () => bind.onBind(key, null) }] : []),
-    ];
-    const menu = <FieldMenu label={`${field.label}: değişkene bağla`} items={[...items, ...binding]}>{Glyphs.link}</FieldMenu>;
-    if (!boundId) return <NumberField {...field} suffix={menu} />;
     return (
-      <div className={cn("flex items-center gap-1.5 min-w-0 px-2", FIELD)} title={`${field.label}: ${variable?.name ?? "bulunamadı"}`}>
-        <span className="flex shrink-0 items-center text-[11px] leading-none text-[var(--text-subtitle)]">{field.prefix}</span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{variable?.name ?? "Bulunamadı"}</span>
-        {menu}
-      </div>
+      <Bindable
+        kind="number"
+        value={boundId ? { alias: boundId } : { value: field.value ?? 0 }}
+        targets={bind.variables}
+        byId={bindById}
+        mode="light"
+        prefix={field.prefix}
+        onChange={(value) => bind.onBind(key, "alias" in value ? value.alias : null)}
+      >
+        {(mark) => <NumberField {...field} suffix={<span className="flex items-center gap-1">{mark}{extra}</span>} />}
+      </Bindable>
     );
   };
 
@@ -1122,7 +1176,7 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
             {spacing("rowGap", { label: "Satırlar arası boşluk", prefix: Glyphs.gapY, value: gaps.row, min: 0, max: 400, onChange: (rowGap) => onChange({ ...grid, rowGap }) })}
           </>
         ) : (() => {
-          // Auto / fixed: the field's own choices — with `bind`, in the same menu as the variables.
+          // Auto / fixed: its own menu, past a line at its end — as in Figma.
           const autoItems: MenuItem[] = [
             { label: "Auto", hint: "boşluğu aralarına dağıt", checked: Boolean(grid?.spread), onSelect: () => onChange({ ...grid, spread: true }) },
             { label: "Sabit", hint: `${gap} px`, checked: !grid?.spread, onSelect: () => setGap(gap) },
@@ -1137,9 +1191,13 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
             max: 400,
             onChange: setGap,
           };
-          return bind
-            ? spacing(across ? "columnGap" : "rowGap", field, autoItems)
-            : <NumberField {...field} suffix={<FieldMenu label="Aradaki boşluk: Auto ya da sabit" items={autoItems} />} />;
+          return spacing(
+            across ? "columnGap" : "rowGap",
+            field,
+            <span className="flex items-center h-4 pl-1 border-l border-[var(--border-hover)]">
+              <FieldMenu label="Aradaki boşluk: Auto ya da sabit" items={autoItems} />
+            </span>
+          );
         })()}
         {/* Wrapping: the gap between the lines. */}
         {wrapping && spacing("rowGap", { label: "Satırlar arası boşluk", prefix: Glyphs.gapY, value: gaps.row, min: 0, max: 400, onChange: (rowGap) => onChange({ ...grid, rowGap }) })}
@@ -1388,19 +1446,11 @@ function useRenderedSize(selector: string, revision: string) {
 const MENU_WIDTH = 188;
 
 /**
- * A small menu at the end of a field: its trigger (`children` and a chevron)
- * opens a list of choices. The list is fixed to the screen under the trigger,
- * so the panel's edges never clip it; it closes on a choice, a click
- * elsewhere or a scroll.
+ * A popover fixed to the screen under what opened it — the panel's edges
+ * never clip it. It lives inside `box` (with what opens it): a click outside
+ * the box, or a scroll outside it, closes it.
  */
-/** A choice in a FieldMenu: `divided` puts a line above it. */
-type MenuItem = { label: string; hint?: string; checked?: boolean; disabled?: boolean; divided?: boolean; onSelect: () => void };
-
-function FieldMenu({ label, items, children }: {
-  label: string;
-  items: MenuItem[];
-  children?: ReactNode;
-}) {
+function usePopover(width: number) {
   const [at, setAt] = useState<{ top: number; left: number } | null>(null);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1415,6 +1465,27 @@ function FieldMenu({ label, items, children }: {
       document.removeEventListener("scroll", close, true);
     };
   }, [at]);
+  /** Opens it under `under` (right-aligned with it), or closes it. */
+  const toggle = (under: Element) => {
+    const r = under.getBoundingClientRect();
+    setAt((open) => (open ? null : { top: r.bottom + 6, left: Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8) }));
+  };
+  return { at, box, toggle, close: () => setAt(null) };
+}
+
+/** A choice in a FieldMenu: `divided` puts a line above it. */
+type MenuItem = { label: string; hint?: string; checked?: boolean; disabled?: boolean; divided?: boolean; onSelect: () => void };
+
+/**
+ * A small menu at the end of a field: its trigger (`children` and a chevron)
+ * opens a list of choices (see usePopover); it closes on a choice too.
+ */
+function FieldMenu({ label, items, children }: {
+  label: string;
+  items: MenuItem[];
+  children?: ReactNode;
+}) {
+  const { at, box, toggle, close } = usePopover(MENU_WIDTH);
   return (
     <div ref={box} className="relative flex shrink-0 items-center">
       <button
@@ -1423,10 +1494,7 @@ function FieldMenu({ label, items, children }: {
         aria-expanded={Boolean(at)}
         aria-label={label}
         title={label}
-        onClick={(e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          setAt(at ? null : { top: r.bottom + 6, left: Math.min(Math.max(8, r.right - MENU_WIDTH), window.innerWidth - MENU_WIDTH - 8) });
-        }}
+        onClick={(e) => toggle(e.currentTarget)}
         className="flex items-center gap-1 h-6 pl-1.5 pr-1 -mr-1 rounded-[4px] text-[12px] text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
       >
         {children}
@@ -1449,7 +1517,7 @@ function FieldMenu({ label, items, children }: {
               disabled={item.disabled}
               onClick={() => {
                 item.onSelect();
-                setAt(null);
+                close();
               }}
               className="flex items-center gap-2 w-full h-8 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
             >
@@ -1799,7 +1867,7 @@ function MoleculeHint({ molecule, children, onOpen }: { molecule: DesignMolecule
   );
 }
 
-/** The molecule's frame: its Yerleşim — spacing bindable to variables — and its look (corners, background); with `onSize`, an instance's W / H in its component. */
+/** The molecule's frame: its Yerleşim — spacing bindable to variables — and its look: corners, fill, stroke; with `onSize`, an instance's W / H in its component. */
 function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onChange }: {
   molecule: DesignMolecule;
   variables: DesignVariable[];
@@ -1813,13 +1881,15 @@ function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onCha
   const byId = new Map(variables.map((v) => [v.id, v]));
   const layout = moleculeLayout(molecule, byId);
   const sizes = variables.filter((v) => v.kind === "number");
+  const colors = variables.filter((v) => v.kind === "color");
   const setLayout = (next: GridSettings) => onChange({ ...molecule, layout: next });
   const bind = (key: SpacingKey, variableId: string | null) => {
     const spacing = { ...molecule.spacing };
     if (variableId) spacing[key] = variableId;
     else delete spacing[key];
-    // Unbound, it keeps the value it had.
-    onChange({ ...molecule, spacing, layout: variableId ? molecule.layout : { ...molecule.layout, [key]: layout[key] } });
+    // Bound, a gap is a fixed one (not Auto); unbound, it keeps the value it had.
+    const gap = key === "columnGap" || key === "rowGap";
+    onChange({ ...molecule, spacing, layout: variableId ? { ...molecule.layout, ...(gap ? { spread: undefined } : {}) } : { ...molecule.layout, [key]: layout[key] } });
   };
   return (
     <>
@@ -1834,24 +1904,59 @@ function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onCha
         bind={{ bound: molecule.spacing ?? {}, variables: sizes, onBind: bind }}
       />
       <Group title="Görünüş">
-        <Field label="Köşe">
-          <BoundField label="Köşe" kind="number" value={molecule.radius ?? { value: 0 }} targets={sizes} byId={byId} mode={theme} onChange={(radius) => onChange({ ...molecule, radius })} />
-        </Field>
-        <Field label="Arka plan">
-          <BoundField
-            label="Arka plan"
-            kind="color"
-            value={molecule.background ?? { value: "transparent" }}
-            targets={variables.filter((v) => v.kind === "color")}
-            byId={byId}
-            mode={theme}
-            onChange={(background) => onChange({ ...molecule, background })}
-          />
-        </Field>
+        <Row label="Köşe">
+          <BoundField label="Köşe" kind="number" prefix={Glyphs.radius} value={molecule.radius ?? { value: 0 }} targets={sizes} byId={byId} mode={theme} onChange={(radius) => onChange({ ...molecule, radius })} />
+        </Row>
       </Group>
+      <PaintGroup
+        title="Dolgu"
+        paint={molecule.fill}
+        create={() => ({ color: { alias: "bg-4" } })}
+        colors={colors}
+        byId={byId}
+        mode={theme}
+        onChange={(fill) => onChange({ ...molecule, fill })}
+      />
+      <PaintGroup
+        title="Kenar çizgisi"
+        paint={molecule.stroke}
+        create={(): MoleculeStroke => ({ color: { alias: "border" }, weight: { value: 1 }, align: "inside" })}
+        colors={colors}
+        byId={byId}
+        mode={theme}
+        onChange={(stroke) => onChange({ ...molecule, stroke })}
+      >
+        {molecule.stroke && (
+          <div className="grid grid-cols-2 gap-2">
+            <SelectField
+              label="Kenar çizgisinin yeri"
+              value={molecule.stroke.align}
+              options={STROKE_ALIGNS}
+              onChange={(align) => molecule.stroke && onChange({ ...molecule, stroke: { ...molecule.stroke, align: align as StrokeAlign } })}
+            />
+            <BoundField
+              label="Kenar çizgisinin kalınlığı"
+              kind="number"
+              prefix={Glyphs.strokeWeight}
+              value={molecule.stroke.weight}
+              targets={sizes}
+              byId={byId}
+              mode={theme}
+              onChange={(weight) => molecule.stroke && onChange({ ...molecule, stroke: { ...molecule.stroke, weight } })}
+            />
+          </div>
+        )}
+      </PaintGroup>
     </>
   );
 }
+
+/** Where a stroke is drawn, as Figma names it. */
+const STROKE_ALIGNS: { value: StrokeAlign; label: string }[] = [
+  { value: "inside", label: "İçeride" },
+  { value: "center", label: "Ortada" },
+  { value: "outside", label: "Dışarıda" },
+];
 
 /** A component laid out by its main component: how it lays out its items, and the molecule they are. */
 export function ComponentLayoutGroup({ block, design, molecules, onChange, onMolecule, onOpenMolecule }: {
@@ -2012,14 +2117,111 @@ function Swatch({ color }: { color: string | number | null }) {
   return <span className="block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)]" style={{ backgroundColor: typeof color === "string" ? color : "transparent" }} />;
 }
 
+const PICKER_WIDTH = 240;
+
 /**
- * A value that can be bound to a variable, as in Figma: its own — a size, a
- * weight, a colour — or a variable's, whose name (and value) the field then
- * shows. The menu at its end binds it to one of `targets`, or unbinds it:
- * it keeps the value it had.
+ * Figma's variable picker: the variables a value can be bound to, grouped by
+ * their names' paths and found by a search — each with its swatch (a colour)
+ * or its value; the bound one ticked.
  */
-function BoundField({ label, kind, value, targets, byId, mode, onChange }: {
-  label: string;
+function VariablePicker({ at, variables, byId, mode, selectedId, onPick }: {
+  at: { top: number; left: number };
+  variables: DesignVariable[];
+  byId: Map<string, DesignVariable>;
+  mode: ThemeMode;
+  selectedId?: string;
+  onPick: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLocaleLowerCase("tr");
+  // Groups in the order they first appear.
+  const groups = new Map<string, DesignVariable[]>();
+  for (const v of variables) {
+    if (q && !v.name.toLocaleLowerCase("tr").includes(q)) continue;
+    const [group] = splitName(v.name);
+    groups.set(group, [...(groups.get(group) ?? []), v]);
+  }
+  return (
+    <div
+      role="dialog"
+      aria-label="Değişkenler"
+      style={{ top: at.top, left: at.left, width: PICKER_WIDTH, maxHeight: `min(360px, calc(100vh - ${at.top + 8}px))` }}
+      className="fixed z-50 flex flex-col rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+    >
+      <div className="shrink-0 p-2 border-b border-[var(--border)]">
+        <input
+          autoFocus
+          aria-label="Değişken ara"
+          placeholder="Ara"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full h-7 px-2 rounded-[6px] bg-[var(--bg-4)] text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
+        />
+      </div>
+      <div className="min-h-0 overflow-y-auto overscroll-contain p-1">
+        {[...groups].map(([group, list]) => (
+          <div key={group || "—"}>
+            {group && <p className="h-6 flex items-center px-2 text-[11px] font-medium text-[var(--text-subtitle)] select-none">{group}</p>}
+            {list.map((v) => {
+              const value = resolvedValue(v, mode, byId);
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={v.id === selectedId}
+                  title={v.name}
+                  onClick={() => onPick(v.id)}
+                  className="flex items-center gap-2 w-full h-7 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+                >
+                  {v.kind === "color" ? <Swatch color={value} /> : <span className="w-3.5 shrink-0 text-center text-[11px] text-[var(--text-subtitle)]">{v.kind === "weight" ? "B" : "#"}</span>}
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{splitName(v.name)[1] || v.name}</span>
+                  {v.kind !== "color" && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{value ?? "—"}</span>}
+                  <span className="w-3 shrink-0 text-[var(--text-title)]">
+                    {v.id === selectedId && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                        <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        {groups.size === 0 && (
+          <p className="px-2 py-3 text-[11px] text-[var(--text-subtitle)]">{variables.length ? "Eşleşen değişken yok." : "Bu türde değişken yok."}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A mark at a field's end, shown while the field is hovered (Figma's variable and detach marks) — and while its picker is open. */
+function HoverMark({ label, open = false, onClick, children }: { label: string; open?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      data-open={open ? "" : undefined}
+      onClick={onClick}
+      className="flex shrink-0 items-center justify-center w-5 h-5 -mr-1 rounded-[4px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-5)] opacity-0 group-hover/field:opacity-100 focus-visible:opacity-100 data-[open]:opacity-100 transition-opacity cursor-pointer"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * A value that can be bound to a variable, as in Figma. Unbound: the field
+ * itself (`children`, given the variable mark for its end — shown on hover,
+ * it opens the picker). Bound: its prefix (a colour's swatch), then the
+ * variable's name — a number's in a pill — which opens the picker to swap
+ * it, and on hover the detach mark: unbound, it keeps the value it had.
+ * The whole name and the value show on hover (its title).
+ */
+function Bindable({ kind, value, targets, byId, mode, prefix, onChange, children }: {
   kind: VariableKind;
   value: VariableValue;
   /** The variables it can be bound to */
@@ -2027,64 +2229,167 @@ function BoundField({ label, kind, value, targets, byId, mode, onChange }: {
   byId: Map<string, DesignVariable>;
   /** The theme whose value a bound colour shows */
   mode: ThemeMode;
+  /** Before a bound number's pill, as before its own value */
+  prefix?: ReactNode;
   onChange: (value: VariableValue) => void;
+  children: (mark: ReactNode) => ReactNode;
 }) {
+  const { at, box, toggle, close } = usePopover(PICKER_WIDTH);
   const bound = "alias" in value ? byId.get(value.alias) : undefined;
   const resolved = boundValue(value, mode, byId);
-  const menu = (
-    <FieldMenu
-      label="Değişkene bağla"
-      items={[
-        ...targets.map((t) => ({ label: t.name, checked: bound?.id === t.id, onSelect: () => onChange({ alias: t.id }) })),
-        ...(bound ? [{ label: "Bağlantıyı kaldır", hint: "değerini kendisi tutsun", divided: true, onSelect: () => onChange({ value: resolved ?? "" }) }] : []),
-      ]}
-    >
-      {Glyphs.link}
-    </FieldMenu>
+  const open = () => { if (box.current) toggle(box.current); };
+  const picker = at && (
+    <VariablePicker
+      at={at}
+      variables={targets}
+      byId={byId}
+      mode={mode}
+      selectedId={bound?.id}
+      onPick={(id) => {
+        onChange({ alias: id });
+        close();
+      }}
+    />
   );
-  // Bound: the variable's name — and its value, but a colour's swatch says it.
-  if ("alias" in value) {
+  if (!("alias" in value)) {
     return (
-      <div className={cn("flex w-full min-w-0 items-center gap-1.5 px-2", FIELD)}>
-        {kind === "color" && <Swatch color={resolved} />}
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{bound?.name ?? "Bulunamadı"}</span>
-        {kind !== "color" && resolved !== null && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{resolved}</span>}
-        {menu}
+      <div ref={box} className="relative flex w-full min-w-0 items-center">
+        {children(<HoverMark label="Değişken uygula" open={Boolean(at)} onClick={open}>{Glyphs.variable}</HoverMark>)}
+        {picker}
       </div>
     );
   }
-  if (kind === "number") {
-    return <NumberField label={label} prefix="px" value={Number(value.value) || 0} min={0} max={2000} onChange={(n) => onChange({ value: n })} suffix={menu} />;
-  }
-  if (kind === "weight") {
-    return (
-      <div className="flex w-full min-w-0 items-center gap-1">
-        <SelectField label={label} value={String(value.value)} options={WEIGHTS} onChange={(w) => onChange({ value: Number(w) })} />
-        {menu}
-      </div>
-    );
-  }
-  const text = String(value.value);
   return (
-    <div className="flex w-full min-w-0 items-center gap-1">
-      <TextField
-        label={label}
-        value={text}
-        onChange={(v) => onChange({ value: v })}
-        prefix={
-          <label className="relative block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)] overflow-hidden cursor-pointer" style={{ backgroundColor: text || "transparent" }}>
-            <input
-              type="color"
-              value={/^#[0-9a-f]{6}$/i.test(text) ? text : "#000000"}
-              onChange={(e) => onChange({ value: e.target.value })}
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              aria-label="Renk seç"
-            />
-          </label>
-        }
-      />
-      {menu}
+    <div ref={box} title={bound ? `${bound.name} · ${resolved ?? "—"}` : undefined} className={cn("relative flex w-full min-w-0 items-center gap-1.5 px-2", FIELD)}>
+      {kind === "color" ? <Swatch color={resolved} /> : prefix && <span className="flex shrink-0 items-center text-[11px] leading-none text-[var(--text-subtitle)]">{prefix}</span>}
+      <button
+        type="button"
+        onClick={open}
+        aria-label={`${bound?.name ?? "Bulunamayan değişken"} — değiştir`}
+        className={cn(
+          "min-w-0 truncate text-left text-[12px] text-[var(--text-title)] cursor-pointer",
+          kind === "color" ? "flex-1" : "h-5 px-1.5 rounded-[4px] bg-[var(--bg-5)] hover:brightness-95 transition-[filter]"
+        )}
+      >
+        {/* A colour's field has room for its whole name ("Arka plan/4"); a number's pill its own part, as Figma's. */}
+        {bound ? (kind === "color" ? bound.name : splitName(bound.name)[1] || bound.name) : "Bulunamadı"}
+      </button>
+      {kind !== "color" && <span className="flex-1" />}
+      <HoverMark label="Bağlantıyı kopar" onClick={() => onChange({ value: resolved ?? "" })}>{Glyphs.detach}</HoverMark>
+      {picker}
     </div>
+  );
+}
+
+/** A colour of its own: its swatch (the system's colour picker) and its value, typed. */
+function ColorField({ label, value, suffix, onChange }: { label: string; value: string; suffix?: ReactNode; onChange: (value: string) => void }) {
+  return (
+    <TextField
+      label={label}
+      value={value}
+      onChange={onChange}
+      suffix={suffix}
+      prefix={
+        <label className="relative block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)] overflow-hidden cursor-pointer" style={{ backgroundColor: value || "transparent" }}>
+          <input
+            type="color"
+            value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#000000"}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            aria-label="Renk seç"
+          />
+        </label>
+      }
+    />
+  );
+}
+
+/** A value of that kind that can be bound to a variable (see Bindable): a size, a weight or a colour. */
+function BoundField({ label, kind, value, targets, byId, mode, prefix, onChange }: {
+  label: string;
+  kind: VariableKind;
+  value: VariableValue;
+  targets: DesignVariable[];
+  byId: Map<string, DesignVariable>;
+  mode: ThemeMode;
+  /** A size's prefix ("px" unless set) */
+  prefix?: ReactNode;
+  onChange: (value: VariableValue) => void;
+}) {
+  const own = "alias" in value ? null : value.value;
+  const sizePrefix = prefix ?? "px";
+  return (
+    <Bindable kind={kind} value={value} targets={targets} byId={byId} mode={mode} prefix={kind === "number" ? sizePrefix : prefix} onChange={onChange}>
+      {(mark) =>
+        kind === "number" ? (
+          <NumberField label={label} prefix={sizePrefix} value={Number(own) || 0} min={0} max={2000} onChange={(n) => onChange({ value: n })} suffix={mark} />
+        ) : kind === "weight" ? (
+          <SelectField label={label} value={String(own)} options={WEIGHTS} suffix={mark} onChange={(w) => onChange({ value: Number(w) })} />
+        ) : (
+          <ColorField label={label} value={String(own ?? "")} suffix={mark} onChange={(v) => onChange({ value: v })} />
+        )
+      }
+    </Bindable>
+  );
+}
+
+/**
+ * Figma's Fill / Stroke section: one paint — its colour a variable's (bound
+ * from the header's styles mark, or the field's) or its own — shown or
+ * hidden (the eye), removed (minus); "+" adds one when there is none. Under
+ * it, `children` (a stroke's own settings).
+ */
+function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode, onChange, children }: {
+  title: string;
+  paint?: T;
+  /** A new one, for "+" */
+  create: () => T;
+  /** The colour variables it can be bound to */
+  colors: DesignVariable[];
+  byId: Map<string, DesignVariable>;
+  mode: ThemeMode;
+  onChange: (paint: T | undefined) => void;
+  children?: ReactNode;
+}) {
+  const { at, box, toggle, close } = usePopover(PICKER_WIDTH);
+  return (
+    <Group
+      title={title}
+      actions={
+        <div ref={box} className="flex items-center gap-0.5">
+          <SquareButton label="Değişken uygula" onClick={() => { if (box.current) toggle(box.current); }}>{Glyphs.styles}</SquareButton>
+          {!paint && <SquareButton label={`${title} ekle`} onClick={() => onChange(create())}>{Glyphs.plus}</SquareButton>}
+          {at && (
+            <VariablePicker
+              at={at}
+              variables={colors}
+              byId={byId}
+              mode={mode}
+              selectedId={paint && "alias" in paint.color ? paint.color.alias : undefined}
+              onPick={(id) => {
+                onChange({ ...(paint ?? create()), color: { alias: id } });
+                close();
+              }}
+            />
+          )}
+        </div>
+      }
+    >
+      {paint && (
+        <>
+          <div className="flex items-center gap-0.5">
+            <div className={cn("flex-1 min-w-0 transition-opacity", paint.hidden && "opacity-50")}>
+              <BoundField label={title} kind="color" value={paint.color} targets={colors} byId={byId} mode={mode} onChange={(color) => onChange({ ...paint, color })} />
+            </div>
+            <SquareButton label={paint.hidden ? "Göster" : "Gizle"} onClick={() => onChange({ ...paint, hidden: paint.hidden ? undefined : true })}>
+              {paint.hidden ? Glyphs.eyeOff : Glyphs.eye}
+            </SquareButton>
+            <SquareButton label={`${title} kaldır`} onClick={() => onChange(undefined)}>{Glyphs.minus}</SquareButton>
+          </div>
+          {children}
+        </>
+      )}
+    </Group>
   );
 }
 

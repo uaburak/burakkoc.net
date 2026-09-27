@@ -64,7 +64,7 @@ export interface DesignAtom extends Typography {
 //
 // As Atomic Design's molecules: a few atoms working together — a card's label
 // and value. A molecule is a frame — how it lays out its atoms (Figma's auto
-// layout), its spacing, corners and background — holding its atoms, each in
+// layout), its spacing, corners, fill and stroke — holding its atoms, each in
 // a slot: which atom, and how big and where in the frame. A component's items
 // are its instances: change the Kart, and every component made of Kart's
 // changes, on every page. How big an item is in its component stays with the
@@ -76,6 +76,21 @@ export interface MoleculeSlot extends TextLayerDesign {
   field: ItemTextField;
   /** Its name in the layers: "Etiket" */
   name: string;
+}
+
+/** A fill, or a stroke's colour: a colour variable, or a colour of its own — `hidden` keeps it without drawing it (Figma's eye). */
+export interface Paint {
+  color: VariableValue;
+  hidden?: boolean;
+}
+
+/** Where a stroke is drawn: inside the frame's edge, across it or outside it — it never changes the frame's size, as in Figma. */
+export type StrokeAlign = "inside" | "center" | "outside";
+
+export interface MoleculeStroke extends Paint {
+  /** px — or a size variable */
+  weight: VariableValue;
+  align: StrokeAlign;
 }
 
 /** The spacing of a frame that can be bound to a size variable. */
@@ -91,8 +106,10 @@ export interface DesignMolecule {
   spacing?: Partial<Record<SpacingKey, string>>;
   /** Corner radius (px) — or a size variable */
   radius: VariableValue;
-  /** Background — a colour variable, or a colour of its own */
-  background: VariableValue;
+  /** Its fill — none when unset */
+  fill?: Paint;
+  /** Its stroke — none when unset */
+  stroke?: MoleculeStroke;
   /** Its atoms, in their order in the frame */
   slots: MoleculeSlot[];
 }

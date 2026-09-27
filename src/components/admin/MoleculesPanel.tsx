@@ -3,26 +3,28 @@
 import type { DesignMolecule, DesignVariable } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { cssValue } from "@/components/project/designVariables";
+import { fillCss } from "@/components/project/designMolecules";
 import { splitName } from "@/components/admin/VariablesPanel";
 
 /**
  * The live editor's "Moleküller" tab — the site's molecules (see
  * DesignMolecule), as Figma's local components: grouped by their names'
- * paths, each with a sample of its frame (its background and corners), its
+ * paths, each with a sample of its frame (its fill, stroke and corners), its
  * name and its atoms; a click opens it in the inspector. A new one is a copy
  * of another (the inspector's "Çoğalt").
  */
 
-/** A molecule's frame in small: its background, its corners at a quarter. */
+/** A molecule's frame in small: its fill and stroke colour, its corners at a quarter. */
 function MoleculeSample({ molecule, byId }: { molecule: DesignMolecule; byId: Map<string, DesignVariable> }) {
-  const background = molecule.background ? cssValue(molecule.background, "color", byId) : null;
+  const background = fillCss(molecule, byId);
+  const stroke = molecule.stroke && !molecule.stroke.hidden ? cssValue(molecule.stroke.color, "color", byId) : null;
   const radius = molecule.radius ? cssValue(molecule.radius, "number", byId) : null;
   return (
     // A design scope of its own: the site's variables reach it outside the canvas too.
     <span data-design-scope="" className="flex items-center justify-center shrink-0 w-5">
       <span
         className="block w-5 h-3.5 border border-[var(--border-hover)]"
-        style={{ backgroundColor: background ?? "transparent", borderRadius: radius ? `calc(${radius} / 4)` : undefined }}
+        style={{ backgroundColor: background ?? "transparent", borderColor: stroke ?? undefined, borderRadius: radius ? `calc(${radius} / 4)` : undefined }}
       />
     </span>
   );
