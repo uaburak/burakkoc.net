@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import type { Block, CellAlign, CellFit, GridGap, GridSettings, Group, PageSection } from "@/types/project";
 import { cn } from "@/lib/utils";
-import { cellSizing, cellWidth, gridColumns, gridPadding, layoutCells, type Cell } from "@/lib/projectLayout";
+import { cellSizing, cellWidth, gridColumns, gridPadding, gridRows, layoutCells, type Cell } from "@/lib/projectLayout";
 import { ProjectBlock } from "@/components/project/CoreBlocks";
 
 /**
@@ -50,7 +50,7 @@ export function cellProps(cell: Cell, fit?: CellFit & (Pick<Block, "type"> | Pic
 
 /** Children with their cells, in reading order — the order on small screens. */
 function inCells<T extends { span?: number; row?: number; col?: number }>(children: T[], grid?: GridSettings) {
-  const cells = layoutCells(children, gridColumns(grid).length);
+  const cells = layoutCells(children, gridColumns(grid).length, gridRows(grid));
   return children.map((child, i) => ({ child, cell: cells[i] })).sort((a, b) => a.cell.row - b.cell.row || a.cell.col - b.cell.col);
 }
 

@@ -23,6 +23,7 @@ import {
   findGroup,
   findSection,
   gridColumns,
+  gridRows,
   hasPlacedCells,
   mapGroup,
   mapSection,
@@ -97,7 +98,7 @@ function moveGroupInTree(list: PageItem[], groupId: string, sectionId: string, t
   if (!from) return list;
   const same = from.section.id === sectionId;
   if (same && targetId && hasPlacedCells(from.section.groups)) {
-    return mapSection(list, sectionId, (s) => ({ ...s, groups: swapCells(s.groups, groupId, targetId, gridColumns(s.grid).length) }));
+    return mapSection(list, sectionId, (s) => ({ ...s, groups: swapCells(s.groups, groupId, targetId, gridColumns(s.grid).length, gridRows(s.grid)) }));
   }
   const group = same ? from.group : { ...from.group, row: undefined, col: undefined };
   const removed = same ? list : mapSection(list, from.section.id, (s) => ({ ...s, groups: s.groups.filter((g) => g.id !== groupId) }));
@@ -110,7 +111,7 @@ function moveBlockInTree(list: PageItem[], blockId: string, groupId: string, tar
   if (!from) return list;
   const same = from.group.id === groupId;
   if (same && targetId && hasPlacedCells(from.group.blocks)) {
-    return mapGroup(list, groupId, (g) => ({ ...g, blocks: swapCells(g.blocks, blockId, targetId, gridColumns(g.grid).length) }));
+    return mapGroup(list, groupId, (g) => ({ ...g, blocks: swapCells(g.blocks, blockId, targetId, gridColumns(g.grid).length, gridRows(g.grid)) }));
   }
   const block = same ? from.block : { ...from.block, row: undefined, col: undefined };
   const removed = same ? list : mapGroup(list, from.group.id, (g) => ({ ...g, blocks: g.blocks.filter((b) => b.id !== blockId) }));
@@ -565,7 +566,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
             return mapSection(list, from.section.id, (s) => ({
               ...s,
               // Laid out by hand: the two swap cells; otherwise the order changes.
-              groups: hasPlacedCells(s.groups) ? swapCells(s.groups, d.groupId, o.groupId, gridColumns(s.grid).length) : arrayMove(s.groups, from.index, to.index),
+              groups: hasPlacedCells(s.groups) ? swapCells(s.groups, d.groupId, o.groupId, gridColumns(s.grid).length, gridRows(s.grid)) : arrayMove(s.groups, from.index, to.index),
             }));
           });
         } else if (d.type === "block" && o.type === "block") {
@@ -575,7 +576,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
             if (!from || !to || from.group.id !== to.group.id || from.index === to.index) return list;
             return mapGroup(list, from.group.id, (g) => ({
               ...g,
-              blocks: hasPlacedCells(g.blocks) ? swapCells(g.blocks, d.blockId, o.blockId, gridColumns(g.grid).length) : arrayMove(g.blocks, from.index, to.index),
+              blocks: hasPlacedCells(g.blocks) ? swapCells(g.blocks, d.blockId, o.blockId, gridColumns(g.grid).length, gridRows(g.grid)) : arrayMove(g.blocks, from.index, to.index),
             }));
           });
         }

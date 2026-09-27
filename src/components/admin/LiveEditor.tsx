@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
-import { findBlock, findGroup, freeCells, gridColumns, layoutCells, layoutName, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
+import { findBlock, findGroup, freeCells, gridColumns, gridRows, layoutCells, layoutName, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { IconButton, PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
@@ -20,7 +20,7 @@ import {
   BlockInspector,
   GroupInspector,
   ItemInspector,
-  PlacementGroup,
+  PlacementGroups,
   ProjectInspector,
   SectionInspector,
   canMoveItem,
@@ -572,21 +572,22 @@ function FreeCell({ level, containerId, row, col, tall, noun, onAdd }: {
 }
 
 /**
- * The free cells of a grid laid out as `cells` — those of one more row too
- * when `newRow` (a row of its own, so it only shows when asked for).
+ * The free cells of a grid laid out as `cells`, in its set `rows` (see
+ * gridRows) — those of one more row too when `newRow` (a row of its own, so
+ * it only shows when asked for).
  */
-function FreeCells({ level, containerId, cells, count, newRow, noun, onAdd }: {
+function FreeCells({ level, containerId, cells, count, rows, newRow, noun, onAdd }: {
   level: "section" | "group";
   containerId: string;
   cells: Cell[];
   count: number;
+  rows: number;
   newRow: boolean;
   noun: string;
   onAdd: (row: number, col: number) => void;
 }) {
   const lastRow = Math.max(0, ...cells.map((c) => c.row));
-  return freeCells(cells, count)
-    .filter((f) => newRow || f.row <= lastRow)
+  return freeCells(cells, count, rowCount(cells, rows, newRow))
     .map((f) => (
       <FreeCell
         key={`${f.row}:${f.col}`}
@@ -857,12 +858,13 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
   const grid = gridProps(group.grid);
   const columns = gridColumns(group.grid);
   const count = columns.length;
-  const blockCells = layoutCells(group.blocks, count);
+  const rows = gridRows(group.grid);
+  const blockCells = layoutCells(group.blocks, count, rows);
   // Free cells: drop targets while a component is dragged, "+" while selected — or the empty Blok's placeholder.
   const drag = useActiveDrag();
   const dragged = drag?.kind === "block" || drag?.kind === "new";
   const empty = group.blocks.length === 0;
-  const showCells = count > 1 && (selected || dragged || empty);
+  const showCells = (count > 1 || rows > 1) && (selected || dragged || empty);
 
   return (
     <div
@@ -914,14 +916,15 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
           containerId={group.id}
           cells={blockCells}
           count={count}
-          // A new row only on demand: while selected, empty, or while a component is dragged over it.
-          newRow={selected || empty || (dragged && drag?.overGroupId === group.id)}
+          rows={rows}
+          // A new row only on demand (and when it has no set rows): while selected, empty, or while a component is dragged over it.
+          newRow={!rows && (selected || empty || (dragged && drag?.overGroupId === group.id))}
           noun="bileşen"
           onAdd={(row, col) => onInsert({ cell: { row, col } })}
         />
       )}
 
-      {empty && count === 1 && (
+      {empty && !showCells && (
         // An empty one-column Blok: add its first component — or drop one here (the Blok itself is the drop target).
         <button
           type="button"
@@ -986,11 +989,12 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
 
   const grid = gridProps(section.grid);
   const count = gridColumns(section.grid).length;
-  const groupCells = layoutCells(section.groups, count);
+  const rows = gridRows(section.grid);
+  const groupCells = layoutCells(section.groups, count, rows);
   // Free cells: drop targets while a Blok or component is dragged, "+" while selected — or the empty section's placeholder.
   const dragged = drag?.kind === "block" || drag?.kind === "group" || drag?.kind === "new";
   const empty = section.groups.length === 0;
-  const showCells = count > 1 && (selected || dragged || empty);
+  const showCells = (count > 1 || rows > 1) && (selected || dragged || empty);
 
   return (
     <section
@@ -1043,8 +1047,9 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
               containerId={section.id}
               cells={groupCells}
               count={count}
-              // A new row only on demand: while selected, empty, or while something is dragged over it.
-              newRow={selected || empty || (dragged && drag?.overSectionId === section.id)}
+              rows={rows}
+              // A new row only on demand (and when it has no set rows): while selected, empty, or while something is dragged over it.
+              newRow={!rows && (selected || empty || (dragged && drag?.overSectionId === section.id))}
               noun="blok"
               onAdd={addGroupAt}
             />
@@ -1052,7 +1057,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
         </div>
       )}
 
-      {empty && count === 1 && (
+      {empty && !showCells && (
         <PillButton
           size="md"
           onClick={(e) => { e.stopPropagation(); addGroup(); }}
@@ -2249,7 +2254,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                     lang={lang}
                     projectSlug={slug}
                     placement={
-                      <PlacementGroup
+                      <PlacementGroups
                         item={selectedBlock.block}
                         index={selectedBlock.index}
                         siblings={selectedBlock.group.blocks}
@@ -2257,6 +2262,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                         parent={selectedBlock.group.grid}
                         tone={blockTone(selectedBlock.block.type)}
                         onPlace={(row, col) => actions.placeBlock(selectedBlock.block.id, selectedBlock.group.id, row, col)}
+                        onSwap={(otherId) => actions.swapBlocks(selectedBlock.group.id, selectedBlock.block.id, otherId)}
                         onSpan={(span) => actions.updateBlock(selectedBlock.block.id, { span })}
                         onFit={(fit) => actions.updateBlock(selectedBlock.block.id, fit)}
                       />
@@ -2275,6 +2281,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                   lang={lang}
                   onChange={(patch) => actions.updateGroup(selectedGroup.group.id, patch)}
                   onPlace={(row, col) => actions.placeGroup(selectedGroup.group.id, selectedGroup.section.id, row, col)}
+                  onSwap={(otherId) => actions.swapGroups(selectedGroup.section.id, selectedGroup.group.id, otherId)}
                   onSelectBlock={(blockId) => select({ kind: "block", blockId }, { scroll: true })}
                   onAddBlock={() => setPicker({ groupId: selectedGroup.group.id })}
                 />

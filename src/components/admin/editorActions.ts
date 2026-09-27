@@ -1,7 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { Block, BlockType, Group, PageItem, PageSection, ProjectData } from "@/types/project";
 import { makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
-import { findBlock, findGroup, gridColumns, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapCells } from "@/lib/projectLayout";
+import { findBlock, findGroup, gridColumns, gridRows, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
 
 /**
  * Every project mutation the form and the live editor perform. All updates are
@@ -43,10 +43,10 @@ function moveBy<T>(list: T[], index: number, delta: number): T[] {
  * One step earlier / later: in a grid laid out by hand (the list is in
  * reading order) it swaps cells with that neighbour, otherwise it moves in the list.
  */
-function stepBy<T extends { id: string; span?: number; row?: number; col?: number }>(list: T[], index: number, delta: number, columnCount: number): T[] {
+function stepBy<T extends { id: string; span?: number; row?: number; col?: number }>(list: T[], index: number, delta: number, columnCount: number, rows: number): T[] {
   if (!hasPlacedCells(list)) return moveBy(list, index, delta);
   const other = list[index + delta];
-  return other ? swapCells(list, list[index].id, other.id, columnCount) : list;
+  return other ? swapCells(list, list[index].id, other.id, columnCount, rows) : list;
 }
 
 function insertAfter<T extends { id: string }>(list: T[], item: T, afterId?: string): T[] {
@@ -133,10 +133,15 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         setItems((items) => placeGroup(items, groupId, sectionId, row, col));
       },
 
+      /** Swaps the cells of two Bloks of a section. */
+      swapGroups(sectionId: string, aId: string, bId: string) {
+        setItems((items) => swapGroups(items, sectionId, aId, bId));
+      },
+
       moveGroupBy(groupId: string, delta: number) {
         setItems((items) => {
           const at = findGroup(items, groupId);
-          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: stepBy(s.groups, at.index, delta, gridColumns(s.grid).length) })) : items;
+          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: stepBy(s.groups, at.index, delta, gridColumns(s.grid).length, gridRows(s.grid)) })) : items;
         });
       },
 
@@ -213,10 +218,15 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         setItems((items) => placeBlock(items, blockId, groupId, row, col));
       },
 
+      /** Swaps the cells of two components of a Blok. */
+      swapBlocks(groupId: string, aId: string, bId: string) {
+        setItems((items) => swapBlocks(items, groupId, aId, bId));
+      },
+
       moveBlockBy(blockId: string, delta: number) {
         setItems((items) => {
           const at = findBlock(items, blockId);
-          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: stepBy(g.blocks, at.index, delta, gridColumns(g.grid).length) })) : items;
+          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: stepBy(g.blocks, at.index, delta, gridColumns(g.grid).length, gridRows(g.grid)) })) : items;
         });
       },
     };
