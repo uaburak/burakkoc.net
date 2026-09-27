@@ -111,8 +111,9 @@ export type GridAlign = "start" | "center" | "end";
 /** How a section lays out its groups, or a group its components. */
 export interface GridSettings {
   /**
-   * Column widths in twelfths, e.g. [4, 8] — children fill the columns in
-   * order and wrap to a new line. One full-width column when unset.
+   * Column widths in twelfths, e.g. [4, 8] — children sit in the cell they
+   * were put in (`row` / `col`), the others fill the free cells in order and
+   * wrap to a new line. One full-width column when unset.
    */
   columns?: number[];
   /** Space between the children (default "md", 16px) */
@@ -126,6 +127,8 @@ export interface GridSettings {
 export interface Block {
   id: string;
   type: BlockType;
+  /** Its name in the editor's layer tree (Katmanlar) — its type's name when unset */
+  name?: string;
   // TR (default)
   content?: string;
   subheading?: string;
@@ -168,6 +171,9 @@ export interface Block {
   videoLoop?: boolean;
   /** How many columns of its group's grid it covers (default 1) */
   span?: number;
+  /** The cell of its group's grid it was put in (1-based row and column); unset → the next free cell */
+  row?: number;
+  col?: number;
   // EN
   contentEn?: string;
   subheadingEn?: string;
@@ -180,8 +186,13 @@ export interface Block {
 /** "Blok" in the editor: a box on its section's grid, laying out components on its own grid. */
 export interface Group {
   id: string;
+  /** Its name in the editor's layer tree — "Blok 1", "Blok 2"… when unset */
+  name?: string;
   /** How many columns of its section's grid it covers (default 1) */
   span?: number;
+  /** The cell of its section's grid it was put in (1-based row and column); unset → the next free cell */
+  row?: number;
+  col?: number;
   grid?: GridSettings;
   /** Its components */
   blocks: Block[];
@@ -190,6 +201,8 @@ export interface Group {
 export interface Section {
   id: string;
   title?: string;
+  /** Its name in the editor's layer tree — "01 Bölüm", "02 Bölüm"… when unset */
+  name?: string;
   grid?: GridSettings;
   groups: Group[];
 }

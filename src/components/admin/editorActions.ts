@@ -1,7 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { Block, BlockType, Group, PageItem, PageSection, ProjectData } from "@/types/project";
 import { makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
-import { findBlock, findGroup, mapBlock, mapGroup, mapSection } from "@/lib/projectLayout";
+import { findBlock, findGroup, gridColumns, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapCells } from "@/lib/projectLayout";
 
 /**
  * Every project mutation the form and the live editor perform. All updates are
@@ -37,6 +37,16 @@ function moveBy<T>(list: T[], index: number, delta: number): T[] {
   const [item] = next.splice(index, 1);
   next.splice(to, 0, item);
   return next;
+}
+
+/**
+ * One step earlier / later: in a grid laid out by hand (the list is in
+ * reading order) it swaps cells with that neighbour, otherwise it moves in the list.
+ */
+function stepBy<T extends { id: string; span?: number; row?: number; col?: number }>(list: T[], index: number, delta: number, columnCount: number): T[] {
+  if (!hasPlacedCells(list)) return moveBy(list, index, delta);
+  const other = list[index + delta];
+  return other ? swapCells(list, list[index].id, other.id, columnCount) : list;
 }
 
 function insertAfter<T extends { id: string }>(list: T[], item: T, afterId?: string): T[] {
@@ -118,10 +128,15 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         return id;
       },
 
+      /** Puts a Blok in a free cell of a section's grid; the others keep their cells. */
+      placeGroup(groupId: string, sectionId: string, row: number, col: number) {
+        setItems((items) => placeGroup(items, groupId, sectionId, row, col));
+      },
+
       moveGroupBy(groupId: string, delta: number) {
         setItems((items) => {
           const at = findGroup(items, groupId);
-          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: moveBy(s.groups, at.index, delta) })) : items;
+          return at ? mapSection(items, at.section.id, (s) => ({ ...s, groups: stepBy(s.groups, at.index, delta, gridColumns(s.grid).length) })) : items;
         });
       },
 
@@ -193,10 +208,15 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         return copy.id;
       },
 
+      /** Puts a component in a free cell of a Blok's grid; the others keep their cells. */
+      placeBlock(blockId: string, groupId: string, row: number, col: number) {
+        setItems((items) => placeBlock(items, blockId, groupId, row, col));
+      },
+
       moveBlockBy(blockId: string, delta: number) {
         setItems((items) => {
           const at = findBlock(items, blockId);
-          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: moveBy(g.blocks, at.index, delta) })) : items;
+          return at ? mapGroup(items, at.group.id, (g) => ({ ...g, blocks: stepBy(g.blocks, at.index, delta, gridColumns(g.grid).length) })) : items;
         });
       },
     };

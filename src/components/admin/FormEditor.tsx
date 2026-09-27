@@ -26,7 +26,7 @@ import {
   useSortablePageItem,
 } from "@/components/admin/ProjectDnd";
 import { localizeBlock } from "@/components/project/editing";
-import { GRID_PRESETS, MAX_COLUMNS, clampSpan, gridColumns, layoutName, sectionBlocks, withColumnCount } from "@/lib/projectLayout";
+import { GRID_PRESETS, MAX_COLUMNS, freeCells, gridColumns, hasPlacedCells, layoutCells, layoutName, roomAt, sectionBlocks, withColumnCount } from "@/lib/projectLayout";
 import type { EditorActions, ProjectMeta } from "@/components/admin/editorActions";
 import { DRAG_LIFT, DragHandle } from "@/components/project/Sortable";
 
@@ -369,20 +369,48 @@ function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: Gri
   );
 }
 
-/** How many of its parent's columns a Blok / component covers (only with 2+ columns). */
-function SpanSelect({ span, parent, onChange }: { span?: number; parent?: GridSettings; onChange: (span: number) => void }) {
+/**
+ * Where a Blok / component sits on its parent's grid (only with 2+ columns):
+ * its cell — any free one can be picked, the others keep theirs — and how
+ * many columns it covers.
+ */
+function PlaceSelect({ index, siblings, parent, onPlace, onSpan }: {
+  index: number;
+  siblings: { span?: number; row?: number; col?: number }[];
+  parent?: GridSettings;
+  onPlace: (row: number, col: number) => void;
+  onSpan: (span: number) => void;
+}) {
   const count = gridColumns(parent).length;
-  if (count < 2) return null;
-  const options = Array.from({ length: count }, (_, i) => (i + 1 === count ? "Tam genişlik" : `${i + 1} sütun`));
+  if (count < 2 || index < 0) return null;
+  const cells = layoutCells(siblings, count);
+  const cell = cells[index];
+  const name = (c: { row: number; col: number }) => `${c.row}. satır · ${c.col}. sütun`;
+  const places = [cell, ...freeCells(cells, count)];
+  const maxSpan = hasPlacedCells(siblings) ? roomAt(cells, index, cell.row, cell.col, count) : count;
+  const widths = Array.from({ length: maxSpan }, (_, i) => (i + 1 === count ? "Tam genişlik" : `${i + 1} sütun`));
   return (
-    <Select
-      size="sm"
-      bgContext="block"
-      options={options}
-      value={options[clampSpan(span, count) - 1]}
-      onChange={(label) => onChange(options.indexOf(label) + 1)}
-      className="w-[128px]"
-    />
+    <div className="flex items-center gap-1.5">
+      <Select
+        size="sm"
+        bgContext="block"
+        options={places.map(name)}
+        value={name(cell)}
+        onChange={(label) => {
+          const place = places.find((p) => name(p) === label);
+          if (place && place !== cell) onPlace(place.row, place.col);
+        }}
+        className="w-[160px]"
+      />
+      <Select
+        size="sm"
+        bgContext="block"
+        options={widths}
+        value={widths[Math.min(cell.span, maxSpan) - 1]}
+        onChange={(label) => onSpan(widths.indexOf(label) + 1)}
+        className="w-[128px]"
+      />
+    </div>
   );
 }
 
@@ -416,10 +444,16 @@ function BlockRow({ block, group, lang, slug, actions }: {
         <div className="flex items-center gap-0.5">
           <DragHandle activatorRef={setActivatorNodeRef} label="Bileşeni sürükle" className="text-[var(--text-subtitle)] hover:text-[var(--text-title)]" />
           <ToneDot tone={blockTone(block.type)} />
-          <PillLabel>{BLOCK_LABELS[block.type]}</PillLabel>
+          <PillLabel>{block.name?.trim() || BLOCK_LABELS[block.type]}</PillLabel>
         </div>
         <div className="flex items-center gap-3">
-          <SpanSelect span={block.span} parent={group.grid} onChange={(span) => actions.updateBlock(block.id, { span })} />
+          <PlaceSelect
+            index={group.blocks.findIndex((b) => b.id === block.id)}
+            siblings={group.blocks}
+            parent={group.grid}
+            onPlace={(row, col) => actions.placeBlock(block.id, group.id, row, col)}
+            onSpan={(span) => actions.updateBlock(block.id, { span })}
+          />
           <TrafficDots
             onUp={() => actions.moveBlockBy(block.id, -1)}
             onDown={() => actions.moveBlockBy(block.id, 1)}
@@ -476,10 +510,16 @@ function GroupCard({ group, index, section, lang, slug, actions }: {
         <div className="flex items-center gap-0.5">
           <DragHandle activatorRef={setActivatorNodeRef} label="Bloğu sürükle" className="text-[var(--text-subtitle)] hover:text-[var(--text-title)]" />
           <ToneDot tone={GROUP_TONE} />
-          <PillLabel>Blok {index + 1}</PillLabel>
+          <PillLabel>{group.name?.trim() || `Blok ${index + 1}`}</PillLabel>
         </div>
         <div className="flex items-center gap-3">
-          <SpanSelect span={group.span} parent={section.grid} onChange={(span) => actions.updateGroup(group.id, { span })} />
+          <PlaceSelect
+            index={section.groups.findIndex((g) => g.id === group.id)}
+            siblings={section.groups}
+            parent={section.grid}
+            onPlace={(row, col) => actions.placeGroup(group.id, section.id, row, col)}
+            onSpan={(span) => actions.updateGroup(group.id, { span })}
+          />
           <TrafficDots
             onUp={() => actions.moveGroupBy(group.id, -1)}
             onDown={() => actions.moveGroupBy(group.id, 1)}
