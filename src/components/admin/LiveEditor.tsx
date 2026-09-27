@@ -9,7 +9,7 @@ import { IconButton, PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
 import { FillHeightContext, ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
-import { cellProps, gridProps, sizeProps } from "@/components/project/LayoutGrid";
+import { cellProps, gridProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
 import { EditableText } from "@/components/project/Editable";
 import { DRAG_LIFT, DragActivationContext, DragHandle } from "@/components/project/Sortable";
 import { createBlockEditApi, editorUid, localizeBlock, type BlockEditApi } from "@/components/project/editing";
@@ -998,7 +998,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
     );
   }
 
-  const grid = gridProps(section.grid);
+  const grid = sectionFrameProps(section);
   const count = gridColumns(section.grid).length;
   const rows = gridRows(section.grid);
   const groupCells = layoutCells(section.groups, count, rows);
@@ -1031,7 +1031,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
       </ChromeBar>
 
       {(!empty || showCells) && (
-        <div className={grid.className} style={grid.style}>
+        <div data-section-frame className={grid.className} style={grid.style}>
           <SectionGroups section={section}>
             {section.groups.map((group, i) => (
               <LiveGroup

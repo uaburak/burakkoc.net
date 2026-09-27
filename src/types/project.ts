@@ -152,6 +152,8 @@ export interface GridSettings {
   flow?: LayoutFlow;
   /** Stacked / side by side: the free space shared out between the children (Figma's "Auto" gap) */
   spread?: boolean;
+  /** Side by side: children that don't fit go on to the next line (Figma's wrap), `rowGap` between the lines */
+  wrap?: boolean;
   /**
    * Column widths in twelfths, e.g. [4, 8] — children sit in the cell they
    * were put in (`row` / `col`), the others fill the free cells in order and
@@ -172,6 +174,13 @@ export interface GridSettings {
   /** Space inside the box in px: left and right / top and bottom */
   paddingX?: number;
   paddingY?: number;
+  /** …or side by side (px) — each overrides paddingX / paddingY */
+  paddingTop?: number;
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  /** Content beyond the box is cut off (Figma's Clip content) */
+  clip?: boolean;
   /**
    * Where its content sits in it, as Figma's auto layout alignment box:
    * across (`justify` — children narrower than their cells: Hug / Fixed
@@ -271,6 +280,8 @@ export interface Section {
   title?: string;
   /** Its name in the editor's layer tree — "01 Bölüm", "02 Bölüm"… when unset */
   name?: string;
+  /** The size of its frame (Fill width — the page's column — and Hug height when unset) */
+  size?: Sizing;
   grid?: GridSettings;
   groups: Group[];
 }

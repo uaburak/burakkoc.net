@@ -255,6 +255,38 @@ function SquareButton({ label, onClick, children }: { label: string; onClick: ()
   );
 }
 
+/** An icon button that stays pressed (Figma's wrap, per-side padding…); off when `disabled`. */
+function ToggleButton({ label, pressed, disabled = false, onClick, children }: { label: string; pressed: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "flex shrink-0 items-center justify-center w-7 h-7 rounded-[6px] transition-colors cursor-pointer disabled:opacity-35 disabled:cursor-default",
+        pressed
+          ? "bg-[color-mix(in_srgb,var(--edit-accent)_14%,transparent)] text-[var(--edit-accent)]"
+          : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)]"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** A checkbox with its label (Figma's Clip content). */
+function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 h-7 cursor-pointer select-none">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4 accent-[var(--edit-accent)] cursor-pointer" />
+      <span className="text-[12px] text-[var(--text-title)]">{label}</span>
+    </label>
+  );
+}
+
 /** A quiet note at the top of a panel. */
 function Hint({ children }: { children: ReactNode }) {
   return <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)] border-b border-[var(--border)]">{children}</p>;
@@ -339,6 +371,19 @@ const Glyphs = {
       <rect x="2" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
       <rect x="8" y="2" width="4" height="4" rx="1" stroke="currentColor" strokeWidth="1.2" />
       <path d="M2.5 10h8.5M9 8l2 2-2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Wrap: side by side, on to the next line (Figma's ↩) */
+  wrap: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M2.5 3.5h7a2.5 2.5 0 010 5H4.5M6 6.5l-2 2 2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Padding for each side on its own */
+  padSides: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="2" y="2" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5 5h4v4H5z" stroke="currentColor" strokeWidth="1.1" opacity="0.6" />
     </svg>
   ),
   /** On a grid */
@@ -824,10 +869,28 @@ function GridFields({ grid, cells, onAlign, onChange }: {
   // Stacked / side by side: one gap, along the flow — the column gap side by side, the row gap stacked.
   const gap = across ? gaps.column : gaps.row;
   const setGap = (n: number) => onChange({ ...grid, spread: undefined, ...(across ? { columnGap: n } : { rowGap: n }) });
+  const wrapping = across && Boolean(grid?.wrap);
+  // Padding per side: on once any side has its own value.
+  const sides = [grid?.paddingTop, grid?.paddingRight, grid?.paddingBottom, grid?.paddingLeft];
+  const perSide = sides.some((v) => v !== undefined);
+  const toggleSides = () =>
+    onChange(
+      perSide
+        ? { ...grid, paddingX: grid?.paddingLeft ?? grid?.paddingX, paddingY: grid?.paddingTop ?? grid?.paddingY, paddingTop: undefined, paddingRight: undefined, paddingBottom: undefined, paddingLeft: undefined }
+        : { ...grid, paddingTop: grid?.paddingY ?? 0, paddingBottom: grid?.paddingY ?? 0, paddingLeft: grid?.paddingX ?? 0, paddingRight: grid?.paddingX ?? 0 }
+    );
+  const side = (key: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft", pair: "paddingX" | "paddingY") => grid?.[key] ?? grid?.[pair] ?? 0;
 
   return (
     <Group title="Yerleşim">
-      <Choice value={flow} options={FLOWS} onChange={(next) => onChange({ ...grid, flow: next === "grid" ? undefined : next })} />
+      <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-0">
+          <Choice value={flow} options={FLOWS} onChange={(next) => onChange({ ...grid, flow: next === "grid" ? undefined : next })} />
+        </div>
+        <ToggleButton label="Wrap: sığmayan alt satıra geçsin (yan yana)" pressed={wrapping} disabled={!across} onClick={() => onChange({ ...grid, wrap: !grid?.wrap || undefined })}>
+          {Glyphs.wrap}
+        </ToggleButton>
+      </div>
       {flow === "grid" && (
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} suffix="sütun" onChange={setCount} />
@@ -919,11 +982,32 @@ function GridFields({ grid, cells, onAlign, onChange }: {
             }
           />
         )}
+        {/* Wrapping: the gap between the lines. */}
+        {wrapping && (
+          <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
+        )}
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <NumberField label="Yatay iç boşluk" prefix={Glyphs.padX} value={grid?.paddingX ?? 0} min={0} max={400} onChange={(paddingX) => onChange({ ...grid, paddingX })} />
-        <NumberField label="Dikey iç boşluk" prefix={Glyphs.padY} value={grid?.paddingY ?? 0} min={0} max={400} onChange={(paddingY) => onChange({ ...grid, paddingY })} />
+      <div className="flex items-start gap-2">
+        <div className="grid grid-cols-2 gap-2 flex-1 min-w-0">
+          {perSide ? (
+            <>
+              <NumberField label="Soldaki iç boşluk" prefix="S" value={side("paddingLeft", "paddingX")} min={0} max={400} onChange={(paddingLeft) => onChange({ ...grid, paddingLeft })} />
+              <NumberField label="Üstteki iç boşluk" prefix="Ü" value={side("paddingTop", "paddingY")} min={0} max={400} onChange={(paddingTop) => onChange({ ...grid, paddingTop })} />
+              <NumberField label="Sağdaki iç boşluk" prefix="Sğ" value={side("paddingRight", "paddingX")} min={0} max={400} onChange={(paddingRight) => onChange({ ...grid, paddingRight })} />
+              <NumberField label="Alttaki iç boşluk" prefix="A" value={side("paddingBottom", "paddingY")} min={0} max={400} onChange={(paddingBottom) => onChange({ ...grid, paddingBottom })} />
+            </>
+          ) : (
+            <>
+              <NumberField label="Yatay iç boşluk" prefix={Glyphs.padX} value={grid?.paddingX ?? 0} min={0} max={400} onChange={(paddingX) => onChange({ ...grid, paddingX })} />
+              <NumberField label="Dikey iç boşluk" prefix={Glyphs.padY} value={grid?.paddingY ?? 0} min={0} max={400} onChange={(paddingY) => onChange({ ...grid, paddingY })} />
+            </>
+          )}
+        </div>
+        <ToggleButton label="İç boşluğu her kenar için ayrı ver" pressed={perSide} onClick={toggleSides}>
+          {Glyphs.padSides}
+        </ToggleButton>
       </div>
+      <CheckRow label="İçeriği kırp (Clip content)" checked={Boolean(grid?.clip)} onChange={(clip) => onChange({ ...grid, clip: clip || undefined })} />
     </Group>
   );
 }
@@ -1180,9 +1264,11 @@ function FieldMenu({ label, items, children }: {
  * word, the number says it all. Under the modes, as in Figma: add (or
  * remove) its min / max — only then do those fields show.
  */
-function SizeModeMenu({ axis, mode, min, max, onChange, onAddLimit, onRemoveLimit }: {
+function SizeModeMenu({ axis, mode, modes, min, max, onChange, onAddLimit, onRemoveLimit }: {
   axis: "width" | "height";
   mode: SizeMode;
+  /** The modes it offers (all three unless set) */
+  modes?: SizeMode[];
   min?: number;
   max?: number;
   onChange: (mode: SizeMode) => void;
@@ -1195,7 +1281,7 @@ function SizeModeMenu({ axis, mode, min, max, onChange, onAddLimit, onRemoveLimi
     <FieldMenu
       label={`${axis === "width" ? "Genişlik" : "Yükseklik"}: ${current?.label}`}
       items={[
-        ...SIZE_MODES[axis].map((m) => ({ label: m.label, checked: m.value === mode, onSelect: () => onChange(m.value) })),
+        ...SIZE_MODES[axis].filter((m) => !modes || modes.includes(m.value)).map((m) => ({ label: m.label, checked: m.value === mode, onSelect: () => onChange(m.value) })),
         min === undefined
           ? { label: `Add min ${noun}`, divided: true, onSelect: () => onAddLimit("min") }
           : { label: `Remove min ${noun}`, divided: true, onSelect: () => onRemoveLimit("min") },
@@ -1251,9 +1337,11 @@ function LimitField({ label, placeholder, name, icon, value, current, onChange }
  * Fill (the cell / the row's height) or Hug (its content). `measure` finds
  * its element on the canvas.
  */
-export function SizeGroup({ size, measure, onChange }: {
+export function SizeGroup({ size, measure, heightModes, onChange }: {
   size?: Sizing;
   measure: string;
+  /** The height modes it offers — a section has no frame around it to fill */
+  heightModes?: SizeMode[];
   onChange: (size: Sizing) => void;
 }) {
   const rendered = useRenderedSize(measure, JSON.stringify(size ?? {}));
@@ -1295,6 +1383,7 @@ export function SizeGroup({ size, measure, onChange }: {
             <SizeModeMenu
               axis="height"
               mode={height}
+              modes={heightModes}
               min={size?.minHeightPx}
               max={size?.maxHeightPx}
               onChange={(mode) => onChange({ ...size, height: mode, ...(mode === "fixed" ? { heightPx: size?.heightPx ?? rendered.height } : {}) })}
@@ -1355,7 +1444,7 @@ const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid
 /** A section: the grid its Bloks sit on, and its Bloks. */
 export function SectionInspector({ section, onChange, onAlign, onSelectGroup, onAddGroup }: {
   section: PageSection;
-  onChange: (patch: { grid?: GridSettings }) => void;
+  onChange: (patch: { grid?: GridSettings; size?: Sizing }) => void;
   /** Where its content sits in it (the alignment box) */
   onAlign: (justify: GridAlign, align: GridAlign) => void;
   onSelectGroup: (groupId: string) => void;
@@ -1364,6 +1453,7 @@ export function SectionInspector({ section, onChange, onAlign, onSelectGroup, on
   return (
     <div className="flex flex-col">
       <Hint>Yerleşim, Figma’daki auto layout gibi: bloklar alt alta, yan yana ya da ızgarada dizilir. Hizalama kutusu blokların bölümün neresinde duracağını seçer.</Hint>
+      <SizeGroup size={section.size} measure={`[data-section-id="${section.id}"] > [data-section-frame]`} heightModes={["fixed", "hug"]} onChange={(size) => onChange({ size })} />
       <GridFields
         grid={section.grid}
         cells={cellsOf(section.groups, section.grid)}

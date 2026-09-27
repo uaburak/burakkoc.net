@@ -37,6 +37,8 @@ const ALIGN_SELF: Record<GridAlign, string> = { start: "md:self-start", center: 
 const JUSTIFY_CONTENT: Record<GridAlign, string> = { start: "md:justify-start", center: "md:justify-center", end: "md:justify-end" };
 /** …and across it. */
 const ITEMS: Record<GridAlign, string> = { start: "md:items-start", center: "md:items-center", end: "md:items-end" };
+/** Side by side, wrapping: where the lines sit. */
+const LINES: Record<GridAlign, string> = { start: "md:content-start", center: "md:content-center", end: "md:content-end" };
 
 /**
  * Class and style of a layout container: its flow, gaps (px ones win over the
@@ -47,12 +49,14 @@ const ITEMS: Record<GridAlign, string> = { start: "md:items-start", center: "md:
  */
 export function gridProps(grid?: GridSettings): { className: string; style: CSSProperties } {
   const px = (n?: number) => (n == null ? undefined : `${n}px`);
+  // A side set on its own wins over its pair.
   const padding = {
-    paddingLeft: px(grid?.paddingX),
-    paddingRight: px(grid?.paddingX),
-    paddingTop: px(grid?.paddingY),
-    paddingBottom: px(grid?.paddingY),
+    paddingLeft: px(grid?.paddingLeft ?? grid?.paddingX),
+    paddingRight: px(grid?.paddingRight ?? grid?.paddingX),
+    paddingTop: px(grid?.paddingTop ?? grid?.paddingY),
+    paddingBottom: px(grid?.paddingBottom ?? grid?.paddingY),
   };
+  const clip = grid?.clip && "overflow-hidden";
   const flow = gridFlow(grid);
   if (flow !== "grid") {
     const across = flow === "horizontal";
@@ -60,9 +64,18 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
     // Along the flow: `justify` side by side, `align` stacked; across it, the other one.
     const along = (across ? grid?.justify : grid?.align) ?? "start";
     const cross = (across ? grid?.align : grid?.justify) ?? "start";
+    // Side by side, wrapping: the lines too sit where the box says, the row gap between them.
+    const wrap = across && grid?.wrap;
     return {
-      className: cn("flex w-full flex-col", across && "md:flex-row", grid?.spread ? "md:justify-between" : JUSTIFY_CONTENT[along], ITEMS[cross]),
-      style: { gap: px(across ? gaps.column : gaps.row), ...padding } as CSSProperties,
+      className: cn(
+        "flex w-full flex-col",
+        across && "md:flex-row",
+        wrap && cn("md:flex-wrap", LINES[cross]),
+        grid?.spread ? "md:justify-between" : JUSTIFY_CONTENT[along],
+        ITEMS[cross],
+        clip
+      ),
+      style: { ...(wrap ? { columnGap: px(gaps.column), rowGap: px(gaps.row) } : { gap: px(across ? gaps.column : gaps.row) }), ...padding } as CSSProperties,
     };
   }
   return {
@@ -71,7 +84,8 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
       GAP_CLASS[grid?.gap ?? "md"],
       ALIGN_CLASS[grid?.align ?? "start"],
       ALIGN_CONTENT[grid?.align ?? "start"],
-      grid?.justify && JUSTIFY_ITEMS[grid.justify]
+      grid?.justify && JUSTIFY_ITEMS[grid.justify],
+      clip
     ),
     style: {
       "--grid-cols": gridColumns(grid).map((c) => `minmax(0,${c}fr)`).join(" "),
@@ -173,9 +187,19 @@ function inCells<T extends { span?: number; row?: number; col?: number }>(childr
   return gridFlow(grid) === "grid" ? list.sort((a, b) => a.cell.row - b.cell.row || a.cell.col - b.cell.col) : list;
 }
 
+/**
+ * Class and style of a section's frame — its layout container — in the page's
+ * column: sized as its W / H say (a child of a stack: see sizeProps).
+ */
+export function sectionFrameProps(section: Pick<PageSection, "grid" | "size">): { className: string; style: CSSProperties } {
+  const layout = gridProps(section.grid);
+  const size = sizeProps(section.size, false, undefined, "vertical");
+  return { className: cn(layout.className, size.className), style: { ...layout.style, ...size.style } };
+}
+
 /** A section's content on the public page: its groups, each a grid of its components. */
 export function SectionContent({ section, animate = false }: { section: PageSection; animate?: boolean }) {
-  const outer = gridProps(section.grid);
+  const outer = sectionFrameProps(section);
   return (
     <div className={outer.className} style={outer.style}>
       {inCells(section.groups, section.grid).map(({ child: group, cell: groupCell }) => {
