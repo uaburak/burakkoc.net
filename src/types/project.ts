@@ -108,6 +108,36 @@ export interface BadgeItem {
 export type GridGap = "sm" | "md" | "lg";
 export type GridAlign = "start" | "center" | "end";
 
+/**
+ * How a Blok or component is sized in its cell, as Figma's resizing: Fixed
+ * (a size in px), Fill (the cell / the row's height) or Hug (its content).
+ */
+export type SizeMode = "fixed" | "fill" | "hug";
+
+export interface Sizing {
+  /** Fill its cell (default), hug its content, or `widthPx` */
+  width?: SizeMode;
+  /** Hug its content (default), fill its row's height, or `heightPx` */
+  height?: SizeMode;
+  widthPx?: number;
+  heightPx?: number;
+  /** Limits (px), whatever the mode */
+  minWidthPx?: number;
+  maxWidthPx?: number;
+  minHeightPx?: number;
+  maxHeightPx?: number;
+}
+
+/**
+ * Where a Blok or component sits inside its cell: across (`x` — when it is
+ * narrower than the cell: Hug / Fixed width) and down (`y` — when its row is
+ * taller). Unset: left, and the grid's `align`.
+ */
+export interface CellAlign {
+  x?: GridAlign;
+  y?: GridAlign;
+}
+
 /** How a section lays out its groups, or a group its components. */
 export interface GridSettings {
   /**
@@ -118,6 +148,12 @@ export interface GridSettings {
   columns?: number[];
   /** Space between the children (default "md", 16px) */
   gap?: GridGap;
+  /** Space between the columns / the rows in px — each overrides `gap` */
+  columnGap?: number;
+  rowGap?: number;
+  /** Space inside the box in px: left and right / top and bottom */
+  paddingX?: number;
+  paddingY?: number;
   /** Vertical alignment of children sharing a line (default "start") */
   align?: GridAlign;
 }
@@ -174,6 +210,10 @@ export interface Block {
   /** The cell of its group's grid it was put in (1-based row and column); unset → the next free cell */
   row?: number;
   col?: number;
+  /** Its size in that cell (Fill width, Hug height when unset) */
+  size?: Sizing;
+  /** Where it sits inside that cell */
+  cellAlign?: CellAlign;
   // EN
   contentEn?: string;
   subheadingEn?: string;
@@ -193,6 +233,10 @@ export interface Group {
   /** The cell of its section's grid it was put in (1-based row and column); unset → the next free cell */
   row?: number;
   col?: number;
+  /** Its size in that cell (Fill width, Hug height when unset) */
+  size?: Sizing;
+  /** Where it sits inside that cell */
+  cellAlign?: CellAlign;
   grid?: GridSettings;
   /** Its components */
   blocks: Block[];

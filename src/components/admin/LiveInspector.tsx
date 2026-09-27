@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, type ReactNode } from "react";
-import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, GridAlign, GridGap, GridSettings, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData } from "@/types/project";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
@@ -9,6 +9,7 @@ import { UploadZone } from "@/components/admin/ImageBlockEditor";
 import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
+import { gridGaps } from "@/components/project/LayoutGrid";
 import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, freeCells, gridColumns, hasPlacedCells, layoutCells, layoutName, roomAt, withColumnCount, withColumnWidth } from "@/lib/projectLayout";
 
 /**
@@ -100,17 +101,23 @@ function Choice<T>({ value, options, onChange }: {
 /**
  * Figma's number field: a grey box with a prefix — drag it sideways to scrub
  * the value — then the number: type it (Enter / leaving the field keeps it,
- * Esc drops it), ↑ / ↓ step it (with Shift by 10).
+ * Esc drops it), ↑ / ↓ step it (with Shift by 10). An optional value (Min W…)
+ * may be empty: its placeholder shows, emptying the field clears it
+ * (`onClear`), stepping or scrubbing starts from `fallback`.
  */
-function NumberField({ label, prefix, value, min, max, suffix, onChange }: {
+function NumberField({ label, prefix, value, min, max, suffix, placeholder, fallback, onChange, onClear }: {
   label: string;
   prefix: ReactNode;
-  value: number;
+  value: number | null;
   min: number;
   max: number;
   suffix?: ReactNode;
+  placeholder?: string;
+  fallback?: number;
   onChange: (value: number) => void;
+  onClear?: () => void;
 }) {
+  const base = value ?? fallback ?? min;
   const [draft, setDraft] = useState<string | null>(null);
   // Enter, Esc and leaving the field all end the typing — only the first one counts.
   const typing = useRef(false);
@@ -120,7 +127,8 @@ function NumberField({ label, prefix, value, min, max, suffix, onChange }: {
     if (!typing.current) return;
     typing.current = false;
     const n = Number(raw?.replace(",", "."));
-    if (raw?.trim() && Number.isFinite(n) && clamp(n) !== value) onChange(clamp(n));
+    if (raw !== undefined && !raw.trim() && value !== null) onClear?.();
+    else if (raw?.trim() && Number.isFinite(n) && clamp(n) !== value) onChange(clamp(n));
     setDraft(null);
   };
   const scrub = (e: React.PointerEvent) => {
@@ -128,7 +136,7 @@ function NumberField({ label, prefix, value, min, max, suffix, onChange }: {
     const startX = e.clientX;
     let last = value;
     const move = (ev: PointerEvent) => {
-      const next = clamp(value + Math.round((ev.clientX - startX) / 6));
+      const next = clamp(base + Math.round((ev.clientX - startX) / 6));
       if (next !== last) {
         last = next;
         onChange(next);
@@ -153,7 +161,8 @@ function NumberField({ label, prefix, value, min, max, suffix, onChange }: {
       <input
         aria-label={label}
         inputMode="numeric"
-        value={draft ?? String(value)}
+        value={draft ?? (value === null ? "" : String(value))}
+        placeholder={placeholder}
         onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => {
           typing.current = true;
@@ -166,13 +175,13 @@ function NumberField({ label, prefix, value, min, max, suffix, onChange }: {
           if (e.key === "ArrowUp" || e.key === "ArrowDown") {
             e.preventDefault();
             // Steps from the value shown (the field then shows the value again).
-            const next = clamp(value + (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : 1));
+            const next = clamp(base + (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : 1));
             if (next !== value) onChange(next);
             typing.current = false;
             setDraft(null);
           }
         }}
-        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-title)] outline-none tabular-nums"
+        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none tabular-nums"
       />
       {suffix && <span className="shrink-0 text-[11px] text-[var(--text-subtitle)] tabular-nums select-none">{suffix}</span>}
     </div>
@@ -290,25 +299,50 @@ const Glyphs = {
       <path d="M1.5 2.5v7M10.5 2.5v7M3 6h6M4.5 4.5L3 6l1.5 1.5M7.5 4.5L9 6 7.5 7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
-  alignTop: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2 2.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="4" y="4.5" width="2.5" height="7" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="7.5" y="4.5" width="2.5" height="4" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
+  minWidth: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M6 2v8M1.5 6h2.5M10.5 6H8M3 4.5L4.5 6 3 7.5M9 4.5L7.5 6 9 7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
-  alignMiddle: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2 7h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="4" y="3" width="2.5" height="8" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="7.5" y="4.75" width="2.5" height="4.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
+  maxWidth: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M1.5 2.5v7M10.5 2.5v7M3.5 6h5M5 4.5L3.5 6 5 7.5M7 4.5L8.5 6 7 7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
-  alignBottom: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="4" y="2.5" width="2.5" height="7" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="7.5" y="5.5" width="2.5" height="4" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
+  minHeight: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M2 6h8M6 1.5V4M6 10.5V8M4.5 3L6 4.5 7.5 3M4.5 9L6 7.5 7.5 9" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  maxHeight: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M2.5 1.5h7M2.5 10.5h7M6 3.5v5M4.5 5L6 3.5 7.5 5M4.5 7L6 8.5 7.5 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Gap between columns: ]·[ */
+  gapX: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M2 2h1.5v8H2M10 2H8.5v8H10M6 5v2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Gap between rows */
+  gapY: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M2 2v1.5h8V2M2 10V8.5h8V10M5 6h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Padding left and right */
+  padX: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M4 4v4M8 4v4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  ),
+  /** Padding top and bottom */
+  padY: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M4 4h4M4 8h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
     </svg>
   ),
   /** A Blok, as in the layer tree */
@@ -403,18 +437,6 @@ const LINK_ICONS: { value: LinkIconType; label: string }[] = [
   { value: "figma", label: "Figma" },
   { value: "behance", label: "Behance" },
   { value: "external", label: "Diğer" },
-];
-
-const GRID_GAPS: { value: GridGap; label: string }[] = [
-  { value: "sm", label: "Az" },
-  { value: "md", label: "Orta" },
-  { value: "lg", label: "Geniş" },
-];
-
-const GRID_ALIGNS: { value: GridAlign; label: string; icon: ReactNode }[] = [
-  { value: "start", label: "Üste hizala", icon: Glyphs.alignTop },
-  { value: "center", label: "Ortaya hizala", icon: Glyphs.alignMiddle },
-  { value: "end", label: "Alta hizala", icon: Glyphs.alignBottom },
 ];
 
 /** Blocks whose own editor is the whole story (no inline text on the page). */
@@ -625,11 +647,79 @@ export function groupSummary(group: PageGroup) {
   return group.blocks.map((b) => b.name?.trim() || BLOCK_LABELS[b.type]).join(", ") || undefined;
 }
 
+const ALIGNS: GridAlign[] = ["start", "center", "end"];
+const V_NAMES: Record<GridAlign, string> = { start: "Üst", center: "Orta", end: "Alt" };
+const H_NAMES: Record<GridAlign, string> = { start: "sol", center: "orta", end: "sağ" };
+
+/** Figma's alignment glyph: three bars, lined up at the top / middle / bottom. */
+function AlignBars({ vertical, faint = false }: { vertical: GridAlign; faint?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex gap-[2px] h-3",
+        vertical === "start" ? "items-start" : vertical === "center" ? "items-center" : "items-end",
+        faint ? "text-[var(--text-subtitle)] opacity-60" : "text-[var(--edit-accent)]"
+      )}
+    >
+      {[8, 12, 6].map((h, i) => (
+        <span key={i} className="w-[2px] rounded-full bg-current" style={{ height: h }} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Figma's alignment box: a 3 × 3 grid — rows top / middle / bottom, columns
+ * left / center / right. The chosen cell shows the bars, the others a dot —
+ * the bars on hover.
+ */
+function AlignGrid({ x, y, onChange, className }: {
+  x: GridAlign;
+  y: GridAlign;
+  onChange: (value: { x: GridAlign; y: GridAlign }) => void;
+  className?: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label="Hizalama" className={cn("grid grid-cols-3 grid-rows-3 p-1 rounded-[6px] bg-[var(--bg-4)]", className)}>
+      {ALIGNS.map((v) =>
+        ALIGNS.map((h) => {
+          const active = v === y && h === x;
+          return (
+            <button
+              key={`${v}-${h}`}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={`${V_NAMES[v]} ${H_NAMES[h]}`}
+              title={`${V_NAMES[v]} ${H_NAMES[h]}`}
+              onClick={() => onChange({ x: h, y: v })}
+              className="group/align flex items-center justify-center rounded-[4px] cursor-pointer"
+            >
+              {active ? (
+                <AlignBars vertical={v} />
+              ) : (
+                <>
+                  <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60 group-hover/align:hidden" />
+                  <span className="hidden group-hover/align:flex">
+                    <AlignBars vertical={v} faint />
+                  </span>
+                </>
+              )}
+            </button>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 /**
  * The grid a section lays its Bloks on — or a Blok its components, Figma's
- * "Auto layout": the column count and the gap side by side, a preset layout,
- * each column's width (twelfths — its neighbour gives or takes) and the
- * vertical alignment.
+ * "Auto layout": the column count, a preset layout, each column's width
+ * (twelfths — its neighbour gives or takes), the gaps between the children
+ * and the padding inside the box (px). Where each child sits in its cell is
+ * the child's own (PlacementGroup).
  */
 function GridFields({ grid, onChange }: {
   grid?: GridSettings;
@@ -639,13 +729,13 @@ function GridFields({ grid, onChange }: {
   const count = columns.length;
   const presets = GRID_PRESETS[count];
   const current = layoutName(columns);
+  const gaps = gridGaps(grid);
   const setCount = (n: number) => onChange(n <= 1 ? { ...grid, columns: undefined, align: undefined } : withColumnCount(grid, n));
 
   return (
     <Group title="Izgara">
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} onChange={setCount} />
-        <Choice value={grid?.gap ?? "md"} options={GRID_GAPS} onChange={(gap) => onChange({ ...grid, gap })} />
       </div>
       {count > 1 && presets && (
         <div className="flex flex-wrap gap-1.5">
@@ -691,23 +781,27 @@ function GridFields({ grid, onChange }: {
               />
             ))}
           </div>
-          <Row label="Hizalama">
-            <Choice value={grid?.align ?? "start"} options={GRID_ALIGNS} onChange={(align) => onChange({ ...grid, align })} />
-          </Row>
         </>
       )}
+      {/* Gaps between the children, padding inside the box (px). */}
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField label="Sütunlar arası boşluk" prefix={Glyphs.gapX} value={gaps.column} min={0} max={400} onChange={(columnGap) => onChange({ ...grid, columnGap })} />
+        <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
+        <NumberField label="Yatay iç boşluk" prefix={Glyphs.padX} value={grid?.paddingX ?? 0} min={0} max={400} onChange={(paddingX) => onChange({ ...grid, paddingX })} />
+        <NumberField label="Dikey iç boşluk" prefix={Glyphs.padY} value={grid?.paddingY ?? 0} min={0} max={400} onChange={(paddingY) => onChange({ ...grid, paddingY })} />
+      </div>
     </Group>
   );
 }
 
 /**
- * Where a Blok or component sits on its parent's grid, Figma's "Position" —
- * only when the parent has more than one column. The map is the parent's grid
- * to scale: the others in grey, this one in its colour (`tone`); click a free
- * cell to put it there (the others keep their cells). Below: its row, column
- * and width as numbers.
+ * Where a Blok or component sits, Figma's "Position": on its parent's grid
+ * (with more than one column) — the map is the grid to scale, the others in
+ * grey, this one in its colour (`tone`); click a free cell to put it there
+ * (the others keep their cells); its row, column and width as numbers — and
+ * inside its cell: the alignment box.
  */
-export function PlacementGroup({ title = "Konum", index, siblings, labels, parent, tone, onPlace, onSpan }: {
+export function PlacementGroup({ title = "Konum", index, siblings, labels, parent, tone, align, onPlace, onSpan, onAlign }: {
   title?: string;
   /** Its place among `siblings` */
   index: number;
@@ -716,12 +810,25 @@ export function PlacementGroup({ title = "Konum", index, siblings, labels, paren
   labels: string[];
   parent?: GridSettings;
   tone: string;
+  /** Where it sits inside its cell */
+  align?: CellAlign;
   onPlace: (row: number, col: number) => void;
   onSpan: (span: number) => void;
+  onAlign: (align: CellAlign) => void;
 }) {
   const columns = gridColumns(parent);
   const count = columns.length;
-  if (count < 2 || index < 0) return null;
+  if (index < 0) return null;
+  const alignment = (
+    <div className="grid grid-cols-2 gap-2">
+      <AlignGrid className="h-16" x={align?.x ?? "start"} y={align?.y ?? parent?.align ?? "start"} onChange={onAlign} />
+      <p className="self-center text-[11px] leading-4 text-[var(--text-subtitle)]">
+        Hücrenin içinde nerede durduğu: yatayda Hug ya da sabit genişlikteyse, dikeyde satırı daha uzunsa.
+      </p>
+    </div>
+  );
+  // One column: no cells to choose — only where it sits in its own.
+  if (count < 2) return <Group title={title}>{alignment}</Group>;
   const cells = layoutCells(siblings, count);
   const cell = cells[index];
   const free = freeCells(cells, count);
@@ -764,6 +871,285 @@ export function PlacementGroup({ title = "Konum", index, siblings, labels, paren
         <NumberField label="Satır" prefix={Glyphs.row} value={cell.row} min={1} max={Math.max(...cells.map((c) => c.row)) + 1} onChange={(row) => moveTo(row, cell.col)} />
         <NumberField label="Sütun" prefix={Glyphs.column} value={cell.col} min={1} max={count} onChange={(col) => moveTo(cell.row, col)} />
         <NumberField label="Genişlik (sütun)" prefix={Glyphs.width} value={cell.span} min={1} max={Math.max(1, maxSpan)} onChange={onSpan} />
+      </div>
+      {alignment}
+    </Group>
+  );
+}
+
+// ── Size (Figma's W / H with Fixed · Fill · Hug) ──────────────────────────────
+
+/** Figma's resizing modes: `label` in the menu, `name` at the end of the field (none for Fixed). */
+const SIZE_MODES: Record<"width" | "height", { value: SizeMode; label: string; name: string }[]> = {
+  width: [
+    { value: "fixed", label: "Fixed width", name: "Fixed" },
+    { value: "hug", label: "Hug Content", name: "Hug" },
+    { value: "fill", label: "Fill Container", name: "Fill" },
+  ],
+  height: [
+    { value: "fixed", label: "Fixed height", name: "Fixed" },
+    { value: "hug", label: "Hug Content", name: "Hug" },
+    { value: "fill", label: "Fill Container", name: "Fill" },
+  ],
+};
+
+/**
+ * An element's rendered size on the canvas (px), kept up to date — measured
+ * again whenever `revision` changes (e.g. its size settings).
+ */
+function useRenderedSize(selector: string, revision: string) {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = document.querySelector(`main ${selector}`);
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setSize((prev) => (prev.width === Math.round(r.width) && prev.height === Math.round(r.height) ? prev : { width: Math.round(r.width), height: Math.round(r.height) }));
+    };
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    // Once right away too (a page in the background gets no resize callbacks).
+    const first = window.setTimeout(measure, 0);
+    return () => {
+      resize.disconnect();
+      window.clearTimeout(first);
+    };
+  }, [selector, revision]);
+  return size;
+}
+
+const MENU_WIDTH = 188;
+
+/**
+ * A small menu at the end of a field: its trigger (`children` and a chevron)
+ * opens a list of choices. The list is fixed to the screen under the trigger,
+ * so the panel's edges never clip it; it closes on a choice, a click
+ * elsewhere or a scroll.
+ */
+function FieldMenu({ label, items, children }: {
+  label: string;
+  items: { label: string; hint?: string; checked?: boolean; disabled?: boolean; divided?: boolean; onSelect: () => void }[];
+  children?: ReactNode;
+}) {
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!at) return;
+    const close = (e: Event) => {
+      if (!box.current?.contains(e.target as Node)) setAt(null);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [at]);
+  return (
+    <div ref={box} className="relative flex shrink-0 items-center">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={Boolean(at)}
+        aria-label={label}
+        title={label}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setAt(at ? null : { top: r.bottom + 6, left: Math.min(Math.max(8, r.right - MENU_WIDTH), window.innerWidth - MENU_WIDTH - 8) });
+        }}
+        className="flex items-center gap-1 h-6 pl-1.5 pr-1 -mr-1 rounded-[4px] text-[12px] text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
+      >
+        {children}
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden className="text-[var(--text-subtitle)]">
+          <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {at && (
+        <div
+          role="menu"
+          style={{ top: at.top, left: at.left, width: MENU_WIDTH }}
+          className="fixed z-50 p-1 rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+        >
+          {items.map((item) => (
+            <div key={item.label} className={cn(item.divided && "mt-1 pt-1 border-t border-[var(--border)]")}>
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={Boolean(item.checked)}
+              disabled={item.disabled}
+              onClick={() => {
+                item.onSelect();
+                setAt(null);
+              }}
+              className="flex items-center gap-2 w-full h-8 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+            >
+              <span className="w-3 shrink-0 text-[var(--text-title)]">
+                {item.checked && (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                    <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                )}
+              </span>
+              <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{item.label}</span>
+              {item.hint && <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)]">{item.hint}</span>}
+            </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The mode of one axis, at the end of its field ("Fill ⌄") — Fixed shows no
+ * word, the number says it all. Under the modes, as in Figma: add (or
+ * remove) its min / max — only then do those fields show.
+ */
+function SizeModeMenu({ axis, mode, min, max, onChange, onAddLimit, onRemoveLimit }: {
+  axis: "width" | "height";
+  mode: SizeMode;
+  min?: number;
+  max?: number;
+  onChange: (mode: SizeMode) => void;
+  onAddLimit: (limit: "min" | "max") => void;
+  onRemoveLimit: (limit: "min" | "max") => void;
+}) {
+  const current = SIZE_MODES[axis].find((m) => m.value === mode);
+  const noun = axis === "width" ? "width" : "height";
+  return (
+    <FieldMenu
+      label={`${axis === "width" ? "Genişlik" : "Yükseklik"}: ${current?.label}`}
+      items={[
+        ...SIZE_MODES[axis].map((m) => ({ label: m.label, checked: m.value === mode, onSelect: () => onChange(m.value) })),
+        min === undefined
+          ? { label: `Add min ${noun}`, divided: true, onSelect: () => onAddLimit("min") }
+          : { label: `Remove min ${noun}`, divided: true, onSelect: () => onRemoveLimit("min") },
+        max === undefined
+          ? { label: `Add max ${noun}`, onSelect: () => onAddLimit("max") }
+          : { label: `Remove max ${noun}`, onSelect: () => onRemoveLimit("max") },
+      ]}
+    >
+      {mode !== "fixed" && current?.name}
+    </FieldMenu>
+  );
+}
+
+/** A limit (Min W, Max H…), shown once added; its menu takes the current size or removes it. */
+function LimitField({ label, placeholder, name, icon, value, current, onChange }: {
+  label: string;
+  placeholder: string;
+  /** "min width"… */
+  name: string;
+  icon: ReactNode;
+  value?: number;
+  /** The size it has on the page now */
+  current: number;
+  onChange: (value: number | undefined) => void;
+}) {
+  return (
+    <NumberField
+      label={label}
+      prefix={icon}
+      value={value ?? null}
+      placeholder={placeholder}
+      fallback={current}
+      min={1}
+      max={4000}
+      onChange={onChange}
+      onClear={() => onChange(undefined)}
+      suffix={
+        <FieldMenu
+          label={`${label} seçenekleri`}
+          items={[
+            { label: "Set to current", hint: `${current}`, onSelect: () => onChange(current) },
+            { label: `Remove ${name}`, onSelect: () => onChange(undefined) },
+          ]}
+        />
+      }
+    />
+  );
+}
+
+/**
+ * Figma's W / H: each axis a number field — the size it has on the page now
+ * (typing or scrubbing a number makes it Fixed) — ending in its mode: Fixed,
+ * Fill (the cell / the row's height) or Hug (its content). `measure` finds
+ * its element on the canvas.
+ */
+export function SizeGroup({ size, measure, onChange }: {
+  size?: Sizing;
+  measure: string;
+  onChange: (size: Sizing) => void;
+}) {
+  const rendered = useRenderedSize(measure, JSON.stringify(size ?? {}));
+  const width = size?.width ?? "fill";
+  const height = size?.height ?? "hug";
+  const shownWidth = width === "fixed" && size?.widthPx ? size.widthPx : rendered.width;
+  const shownHeight = height === "fixed" && size?.heightPx ? size.heightPx : rendered.height;
+
+  return (
+    <Group title="Boyut">
+      <div className="grid grid-cols-2 gap-2">
+        <NumberField
+          label="Genişlik"
+          prefix="W"
+          value={shownWidth}
+          min={16}
+          max={4000}
+          onChange={(widthPx) => onChange({ ...size, width: "fixed", widthPx })}
+          suffix={
+            <SizeModeMenu
+              axis="width"
+              mode={width}
+              min={size?.minWidthPx}
+              max={size?.maxWidthPx}
+              onChange={(mode) => onChange({ ...size, width: mode, ...(mode === "fixed" ? { widthPx: size?.widthPx ?? rendered.width } : {}) })}
+              onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: rendered.width })}
+              onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: undefined })}
+            />
+          }
+        />
+        <NumberField
+          label="Yükseklik"
+          prefix="H"
+          value={shownHeight}
+          min={16}
+          max={4000}
+          onChange={(heightPx) => onChange({ ...size, height: "fixed", heightPx })}
+          suffix={
+            <SizeModeMenu
+              axis="height"
+              mode={height}
+              min={size?.minHeightPx}
+              max={size?.maxHeightPx}
+              onChange={(mode) => onChange({ ...size, height: mode, ...(mode === "fixed" ? { heightPx: size?.heightPx ?? rendered.height } : {}) })}
+              onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: rendered.height })}
+              onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: undefined })}
+            />
+          }
+        />
+        {/* Limits show once added (from the W / H menus): mins on one line, maxes on the next — width left, height right. */}
+        {(size?.minWidthPx !== undefined || size?.minHeightPx !== undefined) && (
+          <>
+            {size?.minWidthPx !== undefined ? (
+              <LimitField label="En az genişlik" placeholder="Min W" name="min width" icon={Glyphs.minWidth} value={size.minWidthPx} current={rendered.width} onChange={(minWidthPx) => onChange({ ...size, minWidthPx })} />
+            ) : <span />}
+            {size?.minHeightPx !== undefined ? (
+              <LimitField label="En az yükseklik" placeholder="Min H" name="min height" icon={Glyphs.minHeight} value={size.minHeightPx} current={rendered.height} onChange={(minHeightPx) => onChange({ ...size, minHeightPx })} />
+            ) : <span />}
+          </>
+        )}
+        {(size?.maxWidthPx !== undefined || size?.maxHeightPx !== undefined) && (
+          <>
+            {size?.maxWidthPx !== undefined ? (
+              <LimitField label="En çok genişlik" placeholder="Max W" name="max width" icon={Glyphs.maxWidth} value={size.maxWidthPx} current={rendered.width} onChange={(maxWidthPx) => onChange({ ...size, maxWidthPx })} />
+            ) : <span />}
+            {size?.maxHeightPx !== undefined ? (
+              <LimitField label="En çok yükseklik" placeholder="Max H" name="max height" icon={Glyphs.maxHeight} value={size.maxHeightPx} current={rendered.height} onChange={(maxHeightPx) => onChange({ ...size, maxHeightPx })} />
+            ) : <span />}
+          </>
+        )}
       </div>
     </Group>
   );
@@ -821,7 +1207,7 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSele
   group: PageGroup;
   section: PageSection;
   lang: Lang;
-  onChange: (patch: { grid?: GridSettings; span?: number }) => void;
+  onChange: (patch: { grid?: GridSettings; span?: number; size?: Sizing; cellAlign?: CellAlign }) => void;
   /** Put it in a free cell of the section's grid */
   onPlace: (row: number, col: number) => void;
   onSelectBlock: (blockId: string) => void;
@@ -836,9 +1222,12 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSele
         labels={section.groups.map((g, i) => g.name?.trim() || `Blok ${i + 1}`)}
         parent={section.grid}
         tone={GROUP_TONE}
+        align={group.cellAlign}
         onPlace={onPlace}
         onSpan={(span) => onChange({ span })}
+        onAlign={(cellAlign) => onChange({ cellAlign })}
       />
+      <SizeGroup size={group.size} measure={`[data-group-id="${group.id}"]`} onChange={(size) => onChange({ size })} />
       <GridFields grid={group.grid} onChange={(grid) => onChange({ grid })} />
       <Group title="Bileşenler" actions={<SquareButton label="Bileşen ekle" onClick={onAddBlock}>{Glyphs.plus}</SquareButton>}>
         {group.blocks.map((b) => (

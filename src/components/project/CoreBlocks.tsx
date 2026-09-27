@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type CSSProperties, type ReactNode } from "react";
 import { BadgeItem, BadgePosition, Block, ListStyle } from "@/types/project";
 import { Segmented } from "@/components/Segmented";
 import { IconButton } from "@/components/Button";
@@ -34,6 +34,12 @@ interface CoreProps {
 function TextReveal({ animate, children }: { animate: boolean; children: ReactNode }) {
   return animate ? <TextScrollingEffect>{children}</TextScrollingEffect> : <>{children}</>;
 }
+
+/**
+ * Set by a grid cell whose height is Fill / Fixed (see sizeProps): images and
+ * videos stretch to that height (from md up) instead of keeping their aspect ratio.
+ */
+export const FillHeightContext = createContext(false);
 
 function Reveal({ animate, className, children }: { animate: boolean; className?: string; children: ReactNode }) {
   return animate ? <ScrollReveal className={className}>{children}</ScrollReveal> : <>{children}</>;
@@ -297,13 +303,18 @@ function ImageBlock({ block, animate, edit }: CoreProps) {
   const segBadge = block.badges?.find((b) => b.icon === "segmented");
   const tab2 = segBadge?.tab2;
   const isTab2 = segBadge && activeTab === (segBadge.tab2Label ?? "Code");
+  const fill = useContext(FillHeightContext);
 
   return (
-    <Reveal animate={animate}>
-      <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
+    <Reveal animate={animate} className={fill ? "md:flex md:flex-col" : undefined}>
+      <div className={cn("flex flex-col gap-6 items-center pt-12 pb-9 w-full", fill && "md:flex-1 md:min-h-0")}>
         <div
-          className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
-          style={{ aspectRatio: aspectValue }}
+          className={cn(
+            "relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden aspect-(--aspect)",
+            // In a Fill / Fixed height cell: as tall as the cell allows.
+            fill && "md:aspect-auto md:flex-1 md:min-h-0"
+          )}
+          style={{ "--aspect": aspectValue } as CSSProperties}
         >
           {!isTab2 ? (
             block.src ? (
@@ -346,11 +357,17 @@ function VideoBlock({ block, animate, edit }: CoreProps) {
   const isTab2 = segBadge && activeTab === (segBadge.tab2Label ?? "Code");
   const embedUrl = block.src ? getEmbedUrl(block.src) : null;
   const isRaw = block.src?.endsWith(".mp4") || block.src?.endsWith(".webm");
+  const fill = useContext(FillHeightContext);
 
   return (
-    <Reveal animate={animate}>
-      <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-        <div className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden aspect-video">
+    <Reveal animate={animate} className={fill ? "md:flex md:flex-col" : undefined}>
+      <div className={cn("flex flex-col gap-6 items-center pt-12 pb-9 w-full", fill && "md:flex-1 md:min-h-0")}>
+        <div
+          className={cn(
+            "relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden aspect-video",
+            fill && "md:aspect-auto md:flex-1 md:min-h-0"
+          )}
+        >
           {!isTab2 ? (
             embedUrl ? (
               isRaw ? (
