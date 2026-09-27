@@ -11,6 +11,8 @@ import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
 import { DESIGNED_TYPES, type ResolvedDesign } from "@/components/project/componentDesign";
+import { canAlias, modeValue, resolvedValue, type ThemeMode } from "@/components/project/designVariables";
+import type { DesignVariable, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, sectionsOf, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
@@ -284,6 +286,12 @@ function Hint({ children }: { children: ReactNode }) {
 }
 
 const Glyphs = {
+  /** Bound to a variable (Figma's variable link) */
+  link: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M5 7l2-2M4.2 5.3L3 6.5a1.8 1.8 0 002.5 2.5l1.2-1.2M7.8 6.7L9 5.5A1.8 1.8 0 006.5 3L5.3 4.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  ),
   /** Figma's component mark: four diamonds */
   mainComponent: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
@@ -1803,6 +1811,117 @@ export function TextLayerInspector({ block, itemId, field, design, lang, onDesig
           </Field>
         </Group>
       )}
+    </div>
+  );
+}
+
+// ── Design variables (see DesignVariable) ─────────────────────────────────────
+
+const KIND_LABEL: Record<VariableKind, string> = { color: "Renk", number: "Sayı (px)", weight: "Yazı kalınlığı" };
+const WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: String(w) }));
+
+/**
+ * A variable: its name, and its value in each theme (a colour) or its one
+ * value — its own, or another variable's (an alias, chosen from the menu at
+ * the field's end).
+ */
+export function VariableInspector({ variable, variables, onChange }: {
+  variable: DesignVariable;
+  /** All of the site's variables (the ones it can point at) */
+  variables: DesignVariable[];
+  onChange: (variable: DesignVariable) => void;
+}) {
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  const targets = variables.filter((t) => canAlias(variable, t, byId));
+
+  function valueField(mode: ThemeMode) {
+    const own = modeValue(variable, mode);
+    const resolved = resolvedValue(variable, mode, byId);
+    const set = (value: VariableValue) => onChange(mode === "dark" ? { ...variable, dark: value } : { ...variable, light: value });
+    const aliasOf = "alias" in own ? byId.get(own.alias) : undefined;
+    const menu = (
+      <FieldMenu
+        label="Değişkene bağla"
+        items={[
+          ...targets.map((t) => ({ label: t.name, checked: aliasOf?.id === t.id, onSelect: () => set({ alias: t.id }) })),
+          ...(aliasOf ? [{ label: "Bağlantıyı kaldır", hint: "değerini kendisi tutsun", divided: true, onSelect: () => set({ value: resolved ?? "" }) }] : []),
+        ]}
+      >
+        {Glyphs.link}
+      </FieldMenu>
+    );
+    const swatch = variable.kind === "color" && (
+      <span className="block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)]" style={{ backgroundColor: typeof resolved === "string" ? resolved : "transparent" }} />
+    );
+    // Pointing at another variable: its name, in the field.
+    if ("alias" in own) {
+      return (
+        <div className={cn("flex w-full min-w-0 items-center gap-1.5 px-2", FIELD)}>
+          {swatch}
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{aliasOf?.name ?? "Bulunamadı"}</span>
+          {menu}
+        </div>
+      );
+    }
+    if (variable.kind === "number") {
+      return <NumberField label="Değer" prefix="px" value={Number(own.value) || 0} min={0} max={2000} onChange={(n) => set({ value: n })} suffix={menu} />;
+    }
+    if (variable.kind === "weight") {
+      return (
+        <div className="flex items-center gap-1">
+          <SelectField label="Kalınlık" value={String(own.value)} options={WEIGHTS} onChange={(w) => set({ value: Number(w) })} />
+          {menu}
+        </div>
+      );
+    }
+    const text = String(own.value);
+    return (
+      <div className="flex items-center gap-1">
+        <TextField
+          label={mode === "dark" ? "Koyu değer" : "Açık değer"}
+          value={text}
+          onChange={(v) => set({ value: v })}
+          prefix={
+            <label className="relative block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)] overflow-hidden cursor-pointer" style={{ backgroundColor: text || "transparent" }}>
+              <input
+                type="color"
+                value={/^#[0-9a-f]{6}$/i.test(text) ? text : "#000000"}
+                onChange={(e) => set({ value: e.target.value })}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                aria-label="Renk seç"
+              />
+            </label>
+          }
+        />
+        {menu}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col">
+      <Hint>
+        Değişken, Figma’daki gibi: ona bağlı her şey birlikte değişir.
+        {variable.token && ` Sitenin ${variable.token} token’ını yönetir.`}
+      </Hint>
+      <Group title="Değişken">
+        <Field label="Ad">
+          <TextField label="Ad" value={variable.name} onChange={(name) => onChange({ ...variable, name })} placeholder="grup/ad" />
+        </Field>
+        <Row label="Tür">
+          <span className="text-[12px] text-[var(--text-title)]">{KIND_LABEL[variable.kind]}</span>
+        </Row>
+      </Group>
+      <Group title="Değer">
+        {variable.kind === "color" ? (
+          <>
+            <Field label="Açık tema">{valueField("light")}</Field>
+            <Field label="Koyu tema">{valueField("dark")}</Field>
+          </>
+        ) : (
+          <Field label="Değer">{valueField("light")}</Field>
+        )}
+      </Group>
     </div>
   );
 }

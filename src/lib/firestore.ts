@@ -10,6 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ComponentDesigns, ProjectData } from "@/types/project";
+import type { DesignVariable } from "@/types/design";
 import { normalizeItems } from "@/lib/projectLayout";
 
 import { CVData } from "@/types/cv";
@@ -198,6 +199,26 @@ export async function loadComponentDesigns(): Promise<ComponentDesigns> {
 
 export async function saveComponentDesigns(designs: ComponentDesigns): Promise<void> {
   await setDoc(doc(db, DESIGN_COLLECTION, DESIGN_DOC_ID), { ...stripUndefined(designs), updatedAt: serverTimestamp() });
+}
+
+// ── Design variables (site-wide, see DesignVariable) ──────────────────────────
+
+const VARIABLES_DOC_ID = "variables";
+
+/** The variables stored for the site (the starting ones are added by withStartingVariables) — none when they can't be read. */
+export async function loadDesignVariables(): Promise<DesignVariable[]> {
+  try {
+    const snap = await getDoc(doc(db, DESIGN_COLLECTION, VARIABLES_DOC_ID));
+    const list = snap.exists() ? snap.data().variables : undefined;
+    return Array.isArray(list) ? (list as DesignVariable[]) : [];
+  } catch (err) {
+    console.warn("Design variables could not be loaded — using the site's tokens:", err);
+    return [];
+  }
+}
+
+export async function saveDesignVariables(variables: DesignVariable[]): Promise<void> {
+  await setDoc(doc(db, DESIGN_COLLECTION, VARIABLES_DOC_ID), { variables: stripUndefined({ list: variables }).list, updatedAt: serverTimestamp() });
 }
 
 // ── Delete project ────────────────────────────────────────────────────────────

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { BlockType, ComponentDesign, ComponentDesigns, ProjectData } from "@/types/project";
 import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
-import { saveProject, loadProject, getCVData, loadComponentDesigns, saveComponentDesigns } from "@/lib/firestore";
+import { saveProject, loadProject, getCVData, loadComponentDesigns, saveComponentDesigns, loadDesignVariables, saveDesignVariables } from "@/lib/firestore";
+import type { DesignVariable, VariableKind } from "@/types/design";
 import { createProjectTemplate } from "@/lib/projectTemplate";
 import { PillButton } from "@/components/Button";
 import { Segmented } from "@/components/Segmented";
@@ -18,6 +19,8 @@ import { ProjectDndProvider } from "@/components/admin/ProjectDnd";
 import { useEditorActions } from "@/components/admin/editorActions";
 import { normalizeItems } from "@/lib/projectLayout";
 import { ComponentDesignContext } from "@/components/project/componentDesign";
+import { DesignVariablesContext, STARTING_VARIABLES, withStartingVariables } from "@/components/project/designVariables";
+import { uid } from "@/components/admin/blockCatalog";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -98,6 +101,29 @@ export function AdminEditorClient({ slug }: { slug: string }) {
     setDesigns((all) => ({ ...all, [type]: design }));
     setDesignsChanged(true);
   };
+  // The site's design variables (DesignVariable): the stored ones — the starting ones are added on top of them.
+  const [storedVariables, setStoredVariables] = useState<DesignVariable[]>([]);
+  const [variablesChanged, setVariablesChanged] = useState(false);
+  const variables = withStartingVariables(storedVariables);
+  const changeVariables = (update: (list: DesignVariable[]) => DesignVariable[]) => {
+    setStoredVariables(update);
+    setVariablesChanged(true);
+  };
+  const setVariable = (variable: DesignVariable) =>
+    changeVariables((list) => (list.some((v) => v.id === variable.id) ? list.map((v) => (v.id === variable.id ? variable : v)) : [...list, variable]));
+  /** A new variable, named so no other has its name; returns its id. */
+  const addVariable = (kind: VariableKind) => {
+    const base = kind === "color" ? "Yeni renk" : kind === "number" ? "Yeni sayı" : "Yeni kalınlık";
+    const names = new Set(variables.map((v) => v.name));
+    let name = base;
+    for (let n = 2; names.has(name); n++) name = `${base} ${n}`;
+    const id = uid();
+    const value = kind === "color" ? "#000000" : kind === "number" ? 16 : 400;
+    setVariable({ id, name, kind, light: { value } });
+    return id;
+  };
+  /** Deletes an added variable — a starting one goes back to the site's own value. */
+  const removeVariable = (id: string) => changeVariables((list) => list.filter((v) => v.id !== id));
 
   function changeMode(next: EditorMode) {
     setMode(next);
@@ -106,6 +132,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
 
   useEffect(() => {
     loadComponentDesigns().then(setDesigns);
+    loadDesignVariables().then(setStoredVariables);
   }, []);
 
   useEffect(() => {
@@ -169,6 +196,10 @@ export function AdminEditorClient({ slug }: { slug: string }) {
         await saveComponentDesigns(designs);
         setDesignsChanged(false);
       }
+      if (variablesChanged) {
+        await saveDesignVariables(storedVariables);
+        setVariablesChanged(false);
+      }
       setProject(dataToSave);
       setIsPublished(true);
       localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(dataToSave));
@@ -185,7 +216,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   useEffect(() => {
     registerSave(handleSave);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, slug, designs, designsChanged]);
+  }, [project, slug, designs, designsChanged, storedVariables, variablesChanged]);
 
   if (loadingFromDB) {
     return (
@@ -280,6 +311,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       {/* ── Editor ── */}
       <div className="flex-1 min-h-0">
         {/* Live editor: drags start right away; block editor: press and hold. */}
+        <DesignVariablesContext.Provider value={variables}>
         <ComponentDesignContext.Provider value={designs}>
         <ProjectDndProvider items={project.items} onItemsChange={actions.setItems} activation={mode === "live" ? "press" : "hold"}>
           {mode === "form" ? (
@@ -301,11 +333,17 @@ export function AdminEditorClient({ slug }: { slug: string }) {
               actions={actions}
               designs={designs}
               onDesign={setDesign}
+              variables={variables}
+              isStartingVariable={(id) => STARTING_VARIABLES.some((v) => v.id === id)}
+              onVariable={setVariable}
+              onAddVariable={addVariable}
+              onRemoveVariable={removeVariable}
               onLoadTemplate={loadTemplate}
             />
           )}
         </ProjectDndProvider>
         </ComponentDesignContext.Provider>
+        </DesignVariablesContext.Provider>
       </div>
 
       {showAddMenu && (

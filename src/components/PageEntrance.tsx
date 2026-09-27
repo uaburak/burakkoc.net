@@ -7,6 +7,8 @@ interface PageEntranceProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "
   children: React.ReactNode;
   /** e.g. `data-project-radius` from projectThemeAttrs */
   "data-project-radius"?: "";
+  /** The site's design variables apply inside it (see DesignVariablesStyle) */
+  "data-design-scope"?: "";
 }
 
 /**

@@ -15,6 +15,8 @@ import { ProjectDivider } from "@/components/project/CoreBlocks";
 import { SectionContent, pageFrameProps, sectionWidthClass } from "@/components/project/LayoutGrid";
 import { sectionBlocks } from "@/lib/projectLayout";
 import { ComponentDesignContext } from "@/components/project/componentDesign";
+import { DesignVariablesContext, DesignVariablesStyle, withStartingVariables } from "@/components/project/designVariables";
+import type { DesignVariable } from "@/types/design";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 
@@ -251,6 +253,8 @@ interface ProjectDetailClientProps {
   initialProjects?: ProjectData[];
   /** The site's main components (see ComponentDesign) */
   designs?: ComponentDesigns;
+  /** The site's stored design variables (see DesignVariable) */
+  variables?: DesignVariable[];
 }
 
 export function ProjectDetailClient({
@@ -258,6 +262,7 @@ export function ProjectDetailClient({
   initialProject,
   initialProjects,
   designs = {},
+  variables = [],
 }: ProjectDetailClientProps) {
   const [project, setProject] = useState<ProjectData | null>(initialProject || null);
   const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);
@@ -329,11 +334,14 @@ export function ProjectDetailClient({
   const themeAttrs = projectThemeAttrs(project.theme);
 
   return (
+    <DesignVariablesContext.Provider value={withStartingVariables(variables)}>
     <ComponentDesignContext.Provider value={designs}>
     <PageEntrance
       className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative"
       {...themeAttrs}
+      data-design-scope=""
     >
+      <DesignVariablesStyle />
       {/* ── Left sidebar ── */}
       <div
         className="fixed top-[160px] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex"
@@ -422,5 +430,6 @@ export function ProjectDetailClient({
       </main>
     </PageEntrance>
     </ComponentDesignContext.Provider>
+    </DesignVariablesContext.Provider>
   );
 }

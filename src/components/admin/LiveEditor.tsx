@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, ComponentDesign, ComponentDesigns, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
+import type { DesignVariable, VariableKind } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { PillButton } from "@/components/Button";
@@ -28,6 +29,7 @@ import {
   SectionInspector,
   SizeGroup,
   TextLayerInspector,
+  VariableInspector,
   canMoveItem,
   duplicateItem,
   freeSize,
@@ -41,6 +43,8 @@ import {
   itemNoun,
 } from "@/components/admin/LiveInspector";
 import { DESIGNED_TYPES, resolveDesign } from "@/components/project/componentDesign";
+import { DesignVariablesStyle } from "@/components/project/designVariables";
+import { VariablesPanel } from "@/components/admin/VariablesPanel";
 import { BLOCK_DEFS, BLOCK_GROUPS, BLOCK_LABELS, BlockPickerDialog, GROUP_TONE, SECTION_TONE, blockTone, uid } from "@/components/admin/blockCatalog";
 import {
   GroupBlocks,
@@ -101,9 +105,11 @@ type Selection =
       /** A text layer of that item (a component laid out by its main component — see ComponentDesign) */
       text?: ItemTextField;
     }
-  | { kind: "divider"; dividerId: string };
+  | { kind: "divider"; dividerId: string }
+  /** A design variable (see DesignVariable), picked in the Değişkenler tab */
+  | { kind: "variable"; variableId: string };
 /** The left panel's tabs; the inspector (Düzenle) has a panel of its own, on the right. */
-type Tab = "layers" | "components" | "theme" | "publish";
+type Tab = "layers" | "components" | "variables" | "theme" | "publish";
 /** Pieces of the project overview that behave like blocks. */
 type OverviewPart = "title" | "description" | "cover";
 
@@ -145,6 +151,13 @@ const RailIcons = {
       <circle cx="12.75" cy="7" r="1" fill="currentColor" />
     </svg>
   ),
+  // Figma's variables: a hexagon.
+  variables: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <path d="M10 2.75l6.25 3.6v7.3L10 17.25l-6.25-3.6v-7.3L10 2.75z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <circle cx="10" cy="10" r="2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  ),
   publish: (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
       <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
@@ -154,6 +167,13 @@ const RailIcons = {
 };
 
 const Icons = {
+  // Back to the value it had: an arrow turning back.
+  reset: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M3 5.5A4.5 4.5 0 117 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M2.5 2.5v3h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
   plus: (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -1971,11 +1991,12 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
 const TAB_TITLES: Record<Tab, string> = {
   layers: "Katmanlar",
   components: "Bileşenler",
+  variables: "Değişkenler",
   theme: "Tema",
   publish: "Yayın",
 };
 
-export function LiveEditor({ project, lang, slug, companies, actions, designs, onDesign, onLoadTemplate }: {
+export function LiveEditor({ project, lang, slug, companies, actions, designs, onDesign, variables, isStartingVariable, onVariable, onAddVariable, onRemoveVariable, onLoadTemplate }: {
   project: ProjectData;
   lang: Lang;
   slug: string;
@@ -1985,6 +2006,14 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
   designs: ComponentDesigns;
   /** Changes a type's main component — every instance, on every page */
   onDesign: (type: BlockType, design: ComponentDesign) => void;
+  /** The site's design variables (see DesignVariable) */
+  variables: DesignVariable[];
+  /** One of the site's own tokens (it can only go back to its value, not be deleted) */
+  isStartingVariable: (id: string) => boolean;
+  onVariable: (variable: DesignVariable) => void;
+  /** Adds a variable of that kind; returns its id */
+  onAddVariable: (kind: VariableKind) => string;
+  onRemoveVariable: (id: string) => void;
   onLoadTemplate: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("layers");
@@ -2036,6 +2065,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
     selection.kind === "block" && selection.itemId && selectedBlock && hasItem(selectedBlock.block, selection.itemId)
       ? selection.itemId
       : null;
+  const selectedVariable = rawSelection.kind === "variable" ? variables.find((v) => v.id === rawSelection.variableId) ?? null : null;
   // A text layer of that item — of a component laid out by its main component.
   const selectedText =
     selection.kind === "block" && selectedItemId && selection.text && selectedBlock && textLayersOf(selectedBlock.block.type).some((t) => t.field === selection.text)
@@ -2274,6 +2304,12 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
     const dividerId = selection.dividerId;
     inspectorTitle = "Ayırıcı";
     inspectorActions = <LayerButton label="Ayırıcıyı sil" onClick={() => actions.deleteItem(dividerId)}>{Icons.trash}</LayerButton>;
+  } else if (selectedVariable) {
+    const { id } = selectedVariable;
+    inspectorTitle = selectedVariable.name;
+    inspectorActions = isStartingVariable(id)
+      ? <LayerButton label="Sitenin değerine dön" onClick={() => onRemoveVariable(id)}>{Icons.reset}</LayerButton>
+      : <LayerButton label="Değişkeni sil" onClick={() => { onRemoveVariable(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
   }
 
   // The selected component's main component (see ComponentDesign), if its type has one; changes go to it — every instance.
@@ -2313,6 +2349,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
           <RailButton icon={RailIcons.layers} label="Katmanlar" active={tab === "layers"} onClick={() => setTab("layers")} />
           <RailButton icon={RailIcons.components} label="Bileşenler" active={tab === "components"} onClick={() => setTab("components")} />
           <RailButton icon={RailIcons.theme} label="Tema" active={tab === "theme"} onClick={() => setTab("theme")} />
+          <RailButton icon={RailIcons.variables} label="Değişkenler" active={tab === "variables"} onClick={() => setTab("variables")} />
           <RailButton icon={RailIcons.publish} label="Yayın" active={tab === "publish"} onClick={() => setTab("publish")} />
         </nav>
 
@@ -2357,6 +2394,15 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
               <ProjectThemeFields header={false} theme={project.theme} onChange={(theme) => actions.updateMeta({ theme })} />
             )}
 
+            {tab === "variables" && (
+              <VariablesPanel
+                variables={variables}
+                selectedId={selection.kind === "variable" ? selection.variableId : null}
+                onSelect={(variableId) => select({ kind: "variable", variableId })}
+                onAdd={(kind) => select({ kind: "variable", variableId: onAddVariable(kind) })}
+              />
+            )}
+
             {tab === "publish" && <PublishPanel project={project} slug={slug} onLoadTemplate={onLoadTemplate} />}
 
           </ScrollArea>
@@ -2365,6 +2411,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
         {/* ── Canvas ── */}
         <div
           {...projectThemeAttrs(project.theme)}
+          // The site's design variables apply inside it (DesignVariablesStyle), as on the project page.
+          data-design-scope=""
           // No press-and-drag text selection on the canvas (it fights with hold-to-drag);
           // the field being edited opts back in. The settings panel stays selectable.
           className="flex-1 min-w-0 h-full overflow-y-auto bg-[var(--bg-1)] transition-colors duration-200 select-none"
@@ -2374,6 +2422,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
           // No native image / link dragging — reordering is done with dnd-kit.
           onDragStart={(e) => e.preventDefault()}
         >
+          <DesignVariablesStyle />
           {/* `relative`: the size badge (SizeBadge) is placed in it; `isolate`: the canvas's layers stay above its background. */}
           <main
             className={cn("relative isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40", reordering && REORDER_ROOM)}
@@ -2587,6 +2636,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, designs, o
               <PageFrameInspector project={project} onChange={(frame) => actions.updateMeta({ frame })} />
             ) : selection.kind === "divider" ? (
               <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Seçip sürükleyerek taşıyabilirsin.</p>
+            ) : selectedVariable ? (
+              <VariableInspector variable={selectedVariable} variables={variables} onChange={onVariable} />
             ) : (
               // Nothing selected: the inspector is never empty — it shows the project settings.
               <ProjectInspector project={project} lang={lang} slug={slug} companies={companies} onChange={actions.updateMeta} />
