@@ -9,7 +9,7 @@ import { IconButton, PillButton } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
 import { FillHeightContext, ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
-import { absoluteProps, cellProps, gridProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
+import { absoluteProps, cellProps, gridProps, pageFrameProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
 import { EditableText } from "@/components/project/Editable";
 import { DRAG_LIFT, DragActivationContext, DragHandle } from "@/components/project/Sortable";
 import { createBlockEditApi, editorUid, localizeBlock, type BlockEditApi } from "@/components/project/editing";
@@ -1022,6 +1022,8 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
         // scroll-mt: room for the label when the sections panel scrolls here.
         "group/section flex flex-col gap-4 items-start scroll-mt-[64px]",
         SECTION_BOX,
+        // The outline wraps its frame: narrower than the page (Hug / Fixed W), so is the outline.
+        (section.size?.width ?? "fill") !== "fill" && "md:w-fit md:max-w-[calc(100%+20px)]",
         SECTION_GAP,
         sectionOutline(selected || isDragging, active),
         isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]")
@@ -2094,6 +2096,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
 
   let sectionIndex = 0;
 
+  const pageFrame = pageFrameProps(project.frame);
   return (
     // Drags start as soon as the pointer moves (no press-and-hold wait) — for the
     // cards inside blocks and the sections panel too.
@@ -2197,7 +2200,12 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
               While reordering, the rows are as wide as the section outlines (10px into
               the gutter, like SECTION_BOX) and the list box sits another 14px outside them.
             */}
-            <div className={reordering ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]") : "contents"}>
+            {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set — the plain list while reordering. */}
+            <div
+              data-page-frame={reordering ? undefined : ""}
+              className={reordering ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]") : pageFrame.className}
+              style={reordering ? undefined : pageFrame.style}
+            >
               {project.items.map((item) =>
                 item.kind === "divider" ? (
                   <LiveDivider

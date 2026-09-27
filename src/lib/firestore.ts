@@ -78,6 +78,8 @@ function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
   if (cleaned.descriptionEn) res.descriptionEn = String(cleaned.descriptionEn);
   // Project theme (radius / colours) — was dropped here, so saved themes never came back.
   if (cleaned.theme && typeof cleaned.theme === "object") res.theme = cleaned.theme as ProjectData["theme"];
+  // The page's frame (size, alignment) — kept like the theme.
+  if (cleaned.frame && typeof cleaned.frame === "object") res.frame = cleaned.frame as ProjectData["frame"];
 
   return res;
 }

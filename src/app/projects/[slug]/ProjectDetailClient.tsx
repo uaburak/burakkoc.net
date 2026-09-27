@@ -12,7 +12,7 @@ import { ZoomableImage } from "@/components/ZoomableImage";
 import PageEntrance from "@/components/PageEntrance";
 import { projectThemeAttrs } from "@/components/project/projectTheme";
 import { ProjectDivider } from "@/components/project/CoreBlocks";
-import { SectionContent } from "@/components/project/LayoutGrid";
+import { SectionContent, pageFrameProps, sectionWidthClass } from "@/components/project/LayoutGrid";
 import { sectionBlocks } from "@/lib/projectLayout";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
@@ -300,6 +300,7 @@ export function ProjectDetailClient({
     );
   }
 
+  const pageFrame = pageFrameProps(project.frame);
   const tocItems: TocItem[] = [{ id: "overview", label: "Overview" }];
   project.items.forEach((item) => {
     if (item.kind === "section") {
@@ -392,17 +393,20 @@ export function ProjectDetailClient({
           )}
         </section>
 
-        {project.items.map((item: PageItem) =>
-          item.kind === "divider" ? (
-            <div key={item.id} className="w-full">
-              <ProjectDivider />
-            </div>
-          ) : (
-            <div key={item.id} className="w-full">
-              <DetailSection section={item} />
-            </div>
-          )
-        )}
+        {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set in the editor. */}
+        <div className={pageFrame.className} style={pageFrame.style}>
+          {project.items.map((item: PageItem) =>
+            item.kind === "divider" ? (
+              <div key={item.id} className="w-full">
+                <ProjectDivider />
+              </div>
+            ) : (
+              <div key={item.id} className={sectionWidthClass(item)}>
+                <DetailSection section={item} />
+              </div>
+            )
+          )}
+        </div>
 
         {showNavigation && (
           <ProjectDetailFooterNav

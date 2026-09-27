@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, LayoutFlow, Group as PageGroup, LinkIconType, ListItem, ListStyle, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
+import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, Group as PageGroup, LayoutFlow, LinkIconType, ListItem, ListStyle, PageFrame, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
@@ -274,16 +274,6 @@ function ToggleButton({ label, pressed, disabled = false, onClick, children }: {
     >
       {children}
     </button>
-  );
-}
-
-/** A checkbox with its label (Figma's Clip content). */
-function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <label className="flex items-center gap-2 h-7 cursor-pointer select-none">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4 accent-[var(--edit-accent)] cursor-pointer" />
-      <span className="text-[12px] text-[var(--text-title)]">{label}</span>
-    </label>
   );
 }
 
@@ -776,17 +766,24 @@ function StackBars({ across, faint = false }: { across: GridAlign; faint?: boole
 const JUSTIFY: Record<GridAlign, string> = { start: "justify-start", center: "justify-center", end: "justify-end" };
 const ITEMS: Record<GridAlign, string> = { start: "items-start", center: "items-center", end: "items-end" };
 
-function SpreadBar({ flow, at }: { flow: "vertical" | "horizontal"; at: GridAlign }) {
+function SpreadBar({ flow, at, faint = false }: { flow: "vertical" | "horizontal"; at: GridAlign; faint?: boolean }) {
+  const tone = faint ? "bg-[var(--text-subtitle)] opacity-60" : "bg-[var(--edit-accent)]";
   return flow === "vertical" ? (
     <span aria-hidden className={cn("flex w-3", JUSTIFY[at])}>
-      <span className="w-2 h-[2px] rounded-full bg-[var(--edit-accent)]" />
+      <span className={cn("w-2 h-[2px] rounded-full", tone)} />
     </span>
   ) : (
     <span aria-hidden className={cn("flex h-3", ITEMS[at])}>
-      <span className="w-[2px] h-2 rounded-full bg-[var(--edit-accent)]" />
+      <span className={cn("w-[2px] h-2 rounded-full", tone)} />
     </span>
   );
 }
+
+/** With the free space shared out, only the position across the flow counts: its name ("Sola hizala"…). */
+const LINE_NAMES: Record<"vertical" | "horizontal", Record<GridAlign, string>> = {
+  vertical: { start: "Sola hizala", center: "Yatayda ortala", end: "Sağa hizala" },
+  horizontal: { start: "Üste hizala", center: "Dikeyde ortala", end: "Alta hizala" },
+};
 
 /**
  * Figma's alignment box: a 3 × 3 grid — rows top / middle / bottom, columns
@@ -805,28 +802,45 @@ function AlignGrid({ x, y, flow = "grid", spread = false, onChange, className }:
   className?: string;
 }) {
   const shared = spread && flow !== "grid";
+  const line = flow === "vertical" ? "vertical" : "horizontal";
+  // Shared out, hovering a cell previews its whole line (as Figma): the one under the pointer.
+  const [hover, setHover] = useState<{ h: GridAlign; v: GridAlign } | null>(null);
   const glyph = (h: GridAlign, v: GridAlign, faint?: boolean) =>
     flow === "vertical" ? <StackBars across={h} faint={faint} /> : <AlignBars vertical={v} faint={faint} />;
+  const inLine = (h: GridAlign, v: GridAlign, at: { h: GridAlign; v: GridAlign }) => (line === "vertical" ? h === at.h : v === at.v);
   return (
-    <div role="radiogroup" aria-label="Hizalama" className={cn("grid grid-cols-3 grid-rows-3 p-1 rounded-[6px] bg-[var(--bg-4)]", className)}>
+    <div
+      role="radiogroup"
+      aria-label="Hizalama"
+      onPointerLeave={() => setHover(null)}
+      className={cn("grid grid-cols-3 grid-rows-3 p-1 rounded-[6px] bg-[var(--bg-4)]", className)}
+    >
       {ALIGNS.map((v) =>
         ALIGNS.map((h) => {
           // Shared out: the whole column (stacked) / row (side by side) at the chosen position across the flow.
-          const active = shared ? (flow === "vertical" ? h === x : v === y) : v === y && h === x;
+          const active = shared ? inLine(h, v, { h: x, v: y }) : v === y && h === x;
+          const name = shared ? LINE_NAMES[line][line === "vertical" ? h : v] : `${V_NAMES[v]} ${H_NAMES[h]}`;
           return (
             <button
               key={`${v}-${h}`}
               type="button"
               role="radio"
               aria-checked={active}
-              aria-label={`${V_NAMES[v]} ${H_NAMES[h]}`}
-              title={`${V_NAMES[v]} ${H_NAMES[h]}`}
+              aria-label={name}
+              title={name}
               onClick={() => onChange({ x: h, y: v })}
+              onPointerEnter={() => setHover({ h, v })}
               // The marks inside swap on hover — never let them take the press, or the click is lost.
               className="group/align flex items-center justify-center rounded-[4px] cursor-pointer [&_*]:pointer-events-none"
             >
               {active ? (
-                shared ? <SpreadBar flow={flow as "vertical" | "horizontal"} at={flow === "vertical" ? h : v} /> : glyph(h, v)
+                shared ? <SpreadBar flow={line} at={line === "vertical" ? h : v} /> : glyph(h, v)
+              ) : shared ? (
+                hover && inLine(h, v, hover) ? (
+                  <SpreadBar flow={line} at={line === "vertical" ? h : v} faint />
+                ) : (
+                  <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60" />
+                )
               ) : (
                 <>
                   <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60 group-hover/align:hidden" />
@@ -929,16 +943,20 @@ function useRenderedTracks(selector: string, revision: string) {
 
 /**
  * How a section lays out its Bloks — or a Blok its components, Figma's
- * "Auto layout": stacked, side by side or on a grid. On a grid: the column
+ * "Auto layout": stacked, side by side or on a grid, and its W / H. On a grid: the column
  * and row counts, and each column's and row's size (Fixed · Fill · Hug, as
  * Figma's grid). Then the alignment box — where its content sits
  * in it — with the gap(s) beside it (stacked / side by side: one, or Auto —
  * the free space shared out), and the padding inside (px).
  */
-function GridFields({ grid, measure, cells, onAlign, onChange }: {
+function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange }: {
   grid?: GridSettings;
-  /** Finds its frame on the canvas, for the sizes its columns and rows have now */
+  /** Finds its frame on the canvas, for its W / H and the sizes its columns and rows have now */
   measure: string;
+  /** Its own size (W / H), right under the direction — as in Figma's Auto layout */
+  size?: Sizing;
+  heightModes?: SizeMode[];
+  onSize: (size: Sizing) => void;
   /** Its children's cells (layoutCells) */
   cells: Cell[];
   /** Where its content sits in it (the alignment box) */
@@ -980,6 +998,7 @@ function GridFields({ grid, measure, cells, onAlign, onChange }: {
           {Glyphs.wrap}
         </ToggleButton>
       </div>
+      <SizeFields size={size} measure={measure} heightModes={heightModes} onChange={onSize} />
       {flow === "grid" && (
         <div className="grid grid-cols-2 gap-2">
           <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} suffix="sütun" onChange={setCount} />
@@ -1060,7 +1079,6 @@ function GridFields({ grid, measure, cells, onAlign, onChange }: {
           {Glyphs.padSides}
         </ToggleButton>
       </div>
-      <CheckRow label="İçeriği kırp (Clip content)" checked={Boolean(grid?.clip)} onChange={(clip) => onChange({ ...grid, clip: clip || undefined })} />
     </Group>
   );
 }
@@ -1443,13 +1461,25 @@ function LimitField({ label, placeholder, name, icon, value, current, onChange }
  * Fill (the cell / the row's height) or Hug (its content). `measure` finds
  * its element on the canvas.
  */
-export function SizeGroup({ size, measure, heightModes, onChange }: {
+export function SizeGroup(props: SizeFieldsProps) {
+  return (
+    <Group title="Boyut">
+      <SizeFields {...props} />
+    </Group>
+  );
+}
+
+type SizeFieldsProps = {
   size?: Sizing;
   measure: string;
-  /** The height modes it offers — a section has no frame around it to fill */
+  /** The width / height modes it offers (all three unless set) — a section or the page has no frame around it to fill down */
+  widthModes?: SizeMode[];
   heightModes?: SizeMode[];
   onChange: (size: Sizing) => void;
-}) {
+};
+
+/** The W / H fields (see SizeGroup) — in a frame's Yerleşim, as in Figma's Auto layout. */
+function SizeFields({ size, measure, widthModes, heightModes, onChange }: SizeFieldsProps) {
   const rendered = useRenderedSize(measure, JSON.stringify(size ?? {}));
   const width = size?.width ?? "fill";
   const height = size?.height ?? "hug";
@@ -1457,70 +1487,69 @@ export function SizeGroup({ size, measure, heightModes, onChange }: {
   const shownHeight = height === "fixed" && size?.heightPx ? size.heightPx : rendered.height;
 
   return (
-    <Group title="Boyut">
-      <div className="grid grid-cols-2 gap-2">
-        <NumberField
-          label="Genişlik"
-          prefix="W"
-          value={shownWidth}
-          min={16}
-          max={4000}
-          onChange={(widthPx) => onChange({ ...size, width: "fixed", widthPx })}
-          suffix={
-            <SizeModeMenu
-              axis="width"
-              mode={width}
-              min={size?.minWidthPx}
-              max={size?.maxWidthPx}
-              onChange={(mode) => onChange({ ...size, width: mode, ...(mode === "fixed" ? { widthPx: size?.widthPx ?? rendered.width } : {}) })}
-              onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: rendered.width })}
-              onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: undefined })}
-            />
-          }
-        />
-        <NumberField
-          label="Yükseklik"
-          prefix="H"
-          value={shownHeight}
-          min={16}
-          max={4000}
-          onChange={(heightPx) => onChange({ ...size, height: "fixed", heightPx })}
-          suffix={
-            <SizeModeMenu
-              axis="height"
-              mode={height}
-              modes={heightModes}
-              min={size?.minHeightPx}
-              max={size?.maxHeightPx}
-              onChange={(mode) => onChange({ ...size, height: mode, ...(mode === "fixed" ? { heightPx: size?.heightPx ?? rendered.height } : {}) })}
-              onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: rendered.height })}
-              onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: undefined })}
-            />
-          }
-        />
-        {/* Limits show once added (from the W / H menus): mins on one line, maxes on the next — width left, height right. */}
-        {(size?.minWidthPx !== undefined || size?.minHeightPx !== undefined) && (
-          <>
-            {size?.minWidthPx !== undefined ? (
-              <LimitField label="En az genişlik" placeholder="Min W" name="min width" icon={Glyphs.minWidth} value={size.minWidthPx} current={rendered.width} onChange={(minWidthPx) => onChange({ ...size, minWidthPx })} />
-            ) : <span />}
-            {size?.minHeightPx !== undefined ? (
-              <LimitField label="En az yükseklik" placeholder="Min H" name="min height" icon={Glyphs.minHeight} value={size.minHeightPx} current={rendered.height} onChange={(minHeightPx) => onChange({ ...size, minHeightPx })} />
-            ) : <span />}
-          </>
-        )}
-        {(size?.maxWidthPx !== undefined || size?.maxHeightPx !== undefined) && (
-          <>
-            {size?.maxWidthPx !== undefined ? (
-              <LimitField label="En çok genişlik" placeholder="Max W" name="max width" icon={Glyphs.maxWidth} value={size.maxWidthPx} current={rendered.width} onChange={(maxWidthPx) => onChange({ ...size, maxWidthPx })} />
-            ) : <span />}
-            {size?.maxHeightPx !== undefined ? (
-              <LimitField label="En çok yükseklik" placeholder="Max H" name="max height" icon={Glyphs.maxHeight} value={size.maxHeightPx} current={rendered.height} onChange={(maxHeightPx) => onChange({ ...size, maxHeightPx })} />
-            ) : <span />}
-          </>
-        )}
-      </div>
-    </Group>
+    <div className="grid grid-cols-2 gap-2">
+      <NumberField
+        label="Genişlik"
+        prefix="W"
+        value={shownWidth}
+        min={16}
+        max={4000}
+        onChange={(widthPx) => onChange({ ...size, width: "fixed", widthPx })}
+        suffix={
+          <SizeModeMenu
+            axis="width"
+            mode={width}
+            modes={widthModes}
+            min={size?.minWidthPx}
+            max={size?.maxWidthPx}
+            onChange={(mode) => onChange({ ...size, width: mode, ...(mode === "fixed" ? { widthPx: size?.widthPx ?? rendered.width } : {}) })}
+            onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: rendered.width })}
+            onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: undefined })}
+          />
+        }
+      />
+      <NumberField
+        label="Yükseklik"
+        prefix="H"
+        value={shownHeight}
+        min={16}
+        max={4000}
+        onChange={(heightPx) => onChange({ ...size, height: "fixed", heightPx })}
+        suffix={
+          <SizeModeMenu
+            axis="height"
+            mode={height}
+            modes={heightModes}
+            min={size?.minHeightPx}
+            max={size?.maxHeightPx}
+            onChange={(mode) => onChange({ ...size, height: mode, ...(mode === "fixed" ? { heightPx: size?.heightPx ?? rendered.height } : {}) })}
+            onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: rendered.height })}
+            onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: undefined })}
+          />
+        }
+      />
+      {/* Limits show once added (from the W / H menus): mins on one line, maxes on the next — width left, height right. */}
+      {(size?.minWidthPx !== undefined || size?.minHeightPx !== undefined) && (
+        <>
+          {size?.minWidthPx !== undefined ? (
+            <LimitField label="En az genişlik" placeholder="Min W" name="min width" icon={Glyphs.minWidth} value={size.minWidthPx} current={rendered.width} onChange={(minWidthPx) => onChange({ ...size, minWidthPx })} />
+          ) : <span />}
+          {size?.minHeightPx !== undefined ? (
+            <LimitField label="En az yükseklik" placeholder="Min H" name="min height" icon={Glyphs.minHeight} value={size.minHeightPx} current={rendered.height} onChange={(minHeightPx) => onChange({ ...size, minHeightPx })} />
+          ) : <span />}
+        </>
+      )}
+      {(size?.maxWidthPx !== undefined || size?.maxHeightPx !== undefined) && (
+        <>
+          {size?.maxWidthPx !== undefined ? (
+            <LimitField label="En çok genişlik" placeholder="Max W" name="max width" icon={Glyphs.maxWidth} value={size.maxWidthPx} current={rendered.width} onChange={(maxWidthPx) => onChange({ ...size, maxWidthPx })} />
+          ) : <span />}
+          {size?.maxHeightPx !== undefined ? (
+            <LimitField label="En çok yükseklik" placeholder="Max H" name="max height" icon={Glyphs.maxHeight} value={size.maxHeightPx} current={rendered.height} onChange={(maxHeightPx) => onChange({ ...size, maxHeightPx })} />
+          ) : <span />}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -1571,10 +1600,12 @@ export function SectionInspector({ section, onChange, onAlign, onSelectGroup, on
   return (
     <div className="flex flex-col">
       <Hint>Yerleşim, Figma’daki auto layout gibi: bloklar alt alta, yan yana ya da ızgarada dizilir. Hizalama kutusu blokların bölümün neresinde duracağını seçer.</Hint>
-      <SizeGroup size={section.size} measure={`[data-section-id="${section.id}"] > [data-section-frame]`} heightModes={["fixed", "hug"]} onChange={(size) => onChange({ size })} />
       <GridFields
         grid={section.grid}
         measure={`[data-section-id="${section.id}"] > [data-section-frame]`}
+        size={section.size}
+        heightModes={["fixed", "hug"]}
+        onSize={(size) => onChange({ size })}
         cells={cellsOf(section.groups, section.grid)}
         onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
@@ -1626,10 +1657,11 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
         onSwap={onSwap}
         onSpan={(span) => onChange({ span })}
       />
-      <SizeGroup size={group.size} measure={`[data-group-id="${group.id}"]`} onChange={(size) => onChange({ size })} />
       <GridFields
         grid={group.grid}
         measure={`[data-group-id="${group.id}"]`}
+        size={group.size}
+        onSize={(size) => onChange({ size })}
         cells={cellsOf(group.blocks, group.grid)}
         onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
@@ -1653,6 +1685,28 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
 
 // ── Project inspector (nothing selected) ──────────────────────────────────────
 
+/**
+ * The page's frame (PageFrame) — its sections and dividers, stacked: its
+ * W / H and the alignment box, as a Figma frame's Auto layout.
+ */
+function PageFrameGroup({ frame, onChange }: { frame?: PageFrame; onChange: (frame: PageFrame) => void }) {
+  return (
+    <Group title="Sayfa yerleşimi">
+      <SizeFields size={frame?.size} measure="[data-page-frame]" heightModes={["fixed", "hug"]} onChange={(size) => onChange({ ...frame, size })} />
+      <div className="grid grid-cols-2 gap-2">
+        <AlignGrid
+          className="h-16"
+          x={frame?.justify ?? "start"}
+          y={frame?.align ?? "start"}
+          flow="vertical"
+          onChange={({ x, y }) => onChange({ ...frame, justify: x, align: y })}
+        />
+        <p className="self-center text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler ve ayırıcılar alt alta; kutu sayfanın neresinde duracaklarını seçer.</p>
+      </div>
+    </Group>
+  );
+}
+
 export function ProjectInspector({ project, slug, companies, onChange }: {
   project: ProjectData;
   lang: Lang;
@@ -1663,6 +1717,7 @@ export function ProjectInspector({ project, slug, companies, onChange }: {
   return (
     <div className="flex flex-col">
       <Hint>Başlık, kategori, yıl ve açıklama sayfanın en üstünde — çift tıklayıp düzenle. Bir bölüm ya da blok seçince ayarları burada görünür.</Hint>
+      <PageFrameGroup frame={project.frame} onChange={(frame) => onChange({ frame })} />
       <Group title="Kapak görseli">
         <CoverImageUpload slug={slug} currentSrc={project.coverImage} onChange={(coverImage) => onChange({ coverImage })} />
       </Group>

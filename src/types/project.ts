@@ -204,8 +204,6 @@ export interface GridSettings {
   paddingRight?: number;
   paddingBottom?: number;
   paddingLeft?: number;
-  /** Content beyond the box is cut off (Figma's Clip content) */
-  clip?: boolean;
   /**
    * Where its content sits in it, as Figma's auto layout alignment box:
    * across (`justify` — children narrower than their cells: Hug / Fixed
@@ -345,6 +343,19 @@ export interface ProjectTheme {
   textColor?: string;
 }
 
+/**
+ * The page's own frame — the box holding its sections and dividers, as a
+ * Figma frame with a vertical auto layout: its size (W Fill — the page's
+ * column — and H Hug unless set) and where its content sits in it.
+ */
+export interface PageFrame {
+  size?: Sizing;
+  /** Across: sections narrower than the frame (Hug / Fixed width) — default "start" */
+  justify?: GridAlign;
+  /** Down: when the frame is taller than its content (Fixed height) — default "start" */
+  align?: GridAlign;
+}
+
 export interface ProjectData {
   slug: string;
   title: string;
@@ -362,4 +373,6 @@ export interface ProjectData {
   items: PageItem[];
   /** Optional project-level theme customizations (radius, colors) */
   theme?: ProjectTheme;
+  /** The frame holding its sections and dividers (see PageFrame) */
+  frame?: PageFrame;
 }

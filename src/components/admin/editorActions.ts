@@ -13,7 +13,7 @@ import { findBlock, findGroup, gridColumns, gridRows, placedByHand, mapBlock, ma
  */
 
 export type ProjectMeta = Pick<ProjectData,
-  "title" | "titleEn" | "category" | "year" | "company" | "slug" | "coverImage" | "description" | "descriptionEn" | "theme">;
+  "title" | "titleEn" | "category" | "year" | "company" | "slug" | "coverImage" | "description" | "descriptionEn" | "theme" | "frame">;
 
 /** Copy of a component with fresh ids for it and all its rows. */
 function cloneBlock(block: Block): Block {

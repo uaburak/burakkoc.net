@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { Absolute, CellAlign, GridAlign, GridGap, GridSettings, GridTrack, LayoutFlow, PageSection, Sizing } from "@/types/project";
+import type { Absolute, CellAlign, GridAlign, GridGap, GridSettings, GridTrack, LayoutFlow, PageFrame, PageSection, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, type Cell } from "@/lib/projectLayout";
 import { FillHeightContext, ProjectBlock } from "@/components/project/CoreBlocks";
@@ -67,7 +67,6 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
     paddingTop: px(grid?.paddingTop ?? grid?.paddingY),
     paddingBottom: px(grid?.paddingBottom ?? grid?.paddingY),
   };
-  const clip = grid?.clip && "overflow-hidden";
   const flow = gridFlow(grid);
   if (flow !== "grid") {
     const across = flow === "horizontal";
@@ -83,8 +82,7 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
         across && "md:flex-row",
         wrap && cn("md:flex-wrap", LINES[cross]),
         grid?.spread ? "md:justify-between" : JUSTIFY_CONTENT[along],
-        ITEMS[cross],
-        clip
+        ITEMS[cross]
       ),
       style: { ...(wrap ? { columnGap: px(gaps.column), rowGap: px(gaps.row) } : { gap: px(across ? gaps.column : gaps.row) }), ...padding } as CSSProperties,
     };
@@ -97,8 +95,7 @@ export function gridProps(grid?: GridSettings): { className: string; style: CSSP
       GAP_CLASS[grid?.gap ?? "md"],
       ALIGN_CLASS[grid?.align ?? "start"],
       ALIGN_CONTENT[grid?.align ?? "start"],
-      grid?.justify && JUSTIFY_ITEMS[grid.justify],
-      clip
+      grid?.justify && JUSTIFY_ITEMS[grid.justify]
     ),
     style: {
       "--grid-cols": columnTracks(grid).map((t) => trackCss(t, "column")).join(" "),
@@ -212,6 +209,33 @@ function inCells<T extends { span?: number; row?: number; col?: number }>(childr
   const cells = layoutCells(children, gridColumns(grid).length, gridRows(grid));
   const list = children.map((child, i) => ({ child, cell: cells[i] }));
   return gridFlow(grid) === "grid" ? list.sort((a, b) => a.cell.row - b.cell.row || a.cell.col - b.cell.col) : list;
+}
+
+/**
+ * Class and style of the page's frame (PageFrame): the box of its sections
+ * and dividers, stacked, in the page's column — Fill (the column) unless its
+ * W says otherwise, a narrower one in the column's middle. Its alignment box
+ * places sections narrower than it (across) and its content when it is
+ * taller (down).
+ */
+export function pageFrameProps(frame?: PageFrame): { className: string; style: CSSProperties } {
+  const size = sizeProps(frame?.size, false, undefined, "vertical");
+  const narrower = (frame?.size?.width ?? "fill") !== "fill";
+  return {
+    className: cn(
+      "flex flex-col w-full",
+      ITEMS[frame?.justify ?? "start"],
+      JUSTIFY_CONTENT[frame?.align ?? "start"],
+      size.className,
+      narrower && "md:self-center"
+    ),
+    style: size.style,
+  };
+}
+
+/** A section in the page's frame: as wide as its frame — the whole column when its W is Fill. */
+export function sectionWidthClass(section: Pick<PageSection, "size">) {
+  return (section.size?.width ?? "fill") === "fill" ? "w-full" : "w-full md:w-fit md:max-w-full";
 }
 
 /**
