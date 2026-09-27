@@ -357,44 +357,44 @@ export function ProjectDetailClient({
 
       {/* ── Main content ── */}
       <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
-        <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
-          <div className="flex flex-col items-start w-full pt-[10px]">
-            <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-              {project.title || project.slug}
-            </h1>
-            <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
-              {[project.category, project.year].filter(Boolean).join(" · ")}
-            </p>
-          </div>
-
-          {/* Description (Açıklama) */}
-          {project.description && (
-            <div className="w-full mt-6">
-              <TextScrollingEffect>
-                <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-                  {project.description}
-                </p>
-              </TextScrollingEffect>
-            </div>
-          )}
-
-          {/* Cover Image (Resim) */}
-          {project.coverImage && (
-            <div
-              className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden mt-12 mb-6"
-              style={{ aspectRatio: "940/518" }}
-            >
-              <ZoomableImage
-                src={project.coverImage}
-                alt={project.title || project.slug}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
-        </section>
-
-        {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set in the editor. */}
+        {/* The page's frame (PageFrame): its header, sections and dividers, sized and aligned as set in the editor. */}
         <div className={pageFrame.className} style={pageFrame.style}>
+          <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
+            <div className="flex flex-col items-start w-full pt-[10px]">
+              <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
+                {project.title || project.slug}
+              </h1>
+              <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
+                {[project.category, project.year].filter(Boolean).join(" · ")}
+              </p>
+            </div>
+
+            {/* Description (Açıklama) */}
+            {project.description && (
+              <div className="w-full mt-6">
+                <TextScrollingEffect>
+                  <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
+                    {project.description}
+                  </p>
+                </TextScrollingEffect>
+              </div>
+            )}
+
+            {/* Cover Image (Resim) */}
+            {project.coverImage && (
+              <div
+                className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden mt-12 mb-6"
+                style={{ aspectRatio: "940/518" }}
+              >
+                <ZoomableImage
+                  src={project.coverImage}
+                  alt={project.title || project.slug}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+          </section>
+
           {project.items.map((item: PageItem) =>
             item.kind === "divider" ? (
               <div key={item.id} className="w-full">

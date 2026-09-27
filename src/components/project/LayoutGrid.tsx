@@ -227,6 +227,8 @@ export function pageFrameProps(frame?: PageFrame): { className: string; style: C
       ITEMS[frame?.justify ?? "start"],
       JUSTIFY_CONTENT[frame?.align ?? "start"],
       size.className,
+      // A fixed height never crops the page: what reaches beyond it shows (Figma's frame without Clip content).
+      "md:overflow-visible",
       narrower && "md:self-center"
     ),
     style: size.style,

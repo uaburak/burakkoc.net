@@ -10,7 +10,7 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import { MAX_COLUMNS, MAX_ROWS, columnTracks, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
+import { MAX_COLUMNS, MAX_ROWS, columnTracks, sectionsOf, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
  * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
@@ -1686,24 +1686,40 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
 // ── Project inspector (nothing selected) ──────────────────────────────────────
 
 /**
- * The page's frame (PageFrame) — its sections and dividers, stacked: its
- * W / H and the alignment box, as a Figma frame's Auto layout.
+ * The page's frame (PageFrame) — the root layer, named after the project:
+ * its header, sections and dividers, stacked. Its W / H and the alignment
+ * box, as a Figma frame's Auto layout — with a word on why the box moves
+ * nothing when it can't (as in Figma, Fill sections fill it across, and a
+ * Hug height leaves no room down).
  */
-function PageFrameGroup({ frame, onChange }: { frame?: PageFrame; onChange: (frame: PageFrame) => void }) {
+export function PageFrameInspector({ project, onChange }: { project: ProjectData; onChange: (frame: PageFrame) => void }) {
+  const frame = project.frame;
+  const sections = sectionsOf(project.items);
+  const allFill = sections.length > 0 && sections.every((s) => (s.size?.width ?? "fill") === "fill");
+  const hugHeight = (frame?.size?.height ?? "hug") === "hug";
+  const notes = [
+    allFill && "Bölümlerin genişliği Fill: sayfayı yatayda dolduruyorlar, bu yüzden sola / ortaya / sağa kaymazlar. Kaydırmak için bölümün W'sini Hug ya da Fixed yap.",
+    hugHeight && "Sayfanın yüksekliği Hug: içeriği kadar uzun, dikey hizalamaya yer yok. Dikey hizalama için H'yi Fixed yap.",
+  ].filter(Boolean) as string[];
   return (
-    <Group title="Sayfa yerleşimi">
-      <SizeFields size={frame?.size} measure="[data-page-frame]" heightModes={["fixed", "hug"]} onChange={(size) => onChange({ ...frame, size })} />
-      <div className="grid grid-cols-2 gap-2">
-        <AlignGrid
-          className="h-16"
-          x={frame?.justify ?? "start"}
-          y={frame?.align ?? "start"}
-          flow="vertical"
-          onChange={({ x, y }) => onChange({ ...frame, justify: x, align: y })}
-        />
-        <p className="self-center text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler ve ayırıcılar alt alta; kutu sayfanın neresinde duracaklarını seçer.</p>
-      </div>
-    </Group>
+    <div className="flex flex-col">
+      <Hint>Sayfanın kendi frame’i: başlığı, bölümleri ve ayırıcıları alt alta tutar. Hizalama kutusu Figma’daki gibi içeriğin sayfanın neresinde duracağını seçer.</Hint>
+      <Group title="Yerleşim">
+        <SizeFields size={frame?.size} measure="[data-page-frame]" heightModes={["fixed", "hug"]} onChange={(size) => onChange({ ...frame, size })} />
+        <div className="grid grid-cols-2 gap-2">
+          <AlignGrid
+            className="h-16"
+            x={frame?.justify ?? "start"}
+            y={frame?.align ?? "start"}
+            flow="vertical"
+            onChange={({ x, y }) => onChange({ ...frame, justify: x, align: y })}
+          />
+        </div>
+        {notes.map((note) => (
+          <p key={note} className="text-[11px] leading-4 text-[var(--text-subtitle)]">{note}</p>
+        ))}
+      </Group>
+    </div>
   );
 }
 
@@ -1717,7 +1733,6 @@ export function ProjectInspector({ project, slug, companies, onChange }: {
   return (
     <div className="flex flex-col">
       <Hint>Başlık, kategori, yıl ve açıklama sayfanın en üstünde — çift tıklayıp düzenle. Bir bölüm ya da blok seçince ayarları burada görünür.</Hint>
-      <PageFrameGroup frame={project.frame} onChange={(frame) => onChange({ frame })} />
       <Group title="Kapak görseli">
         <CoverImageUpload slug={slug} currentSrc={project.coverImage} onChange={(coverImage) => onChange({ coverImage })} />
       </Group>

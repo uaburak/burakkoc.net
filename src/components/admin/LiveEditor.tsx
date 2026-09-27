@@ -20,6 +20,7 @@ import {
   BlockInspector,
   GroupInspector,
   ItemInspector,
+  PageFrameInspector,
   PlacementGroup,
   ProjectInspector,
   SectionInspector,
@@ -76,6 +77,8 @@ import type { EditorActions } from "@/components/admin/editorActions";
 type Lang = "tr" | "en";
 type Selection =
   | { kind: "none" }
+  /** The page's frame (PageFrame): the root layer, named after the project */
+  | { kind: "page" }
   | { kind: "meta"; part?: OverviewPart }
   | { kind: "section"; sectionId: string }
   | { kind: "group"; groupId: string }
@@ -1210,6 +1213,13 @@ const isPrimaryPress = (e: React.PointerEvent) => e.button === 0 && e.isPrimary;
 // ── Layers panel (Katmanlar) ──────────────────────────────────────────────────
 
 const LayerIcons = {
+  // Figma's frame, for the page's own (the root layer).
+  frame: (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <rect x="3" y="3" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M1.5 3h1M11.5 3h1M1.5 11h1M11.5 11h1M3 1.5v1M11 1.5v1M3 11.5v1M11 11.5v1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
   page: (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path d="M3.5 1.75h4.75L10.5 4v8.25h-7V1.75z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
@@ -1584,6 +1594,9 @@ function LayerDivider({ divider, selected, onSelect }: {
   );
 }
 
+/** The root layer's key in the folded set (see LayersList). */
+const PAGE_LAYER = "page";
+
 /** The layer tree inside its own drag & drop context (see LayersPanel). */
 function LayersList({ project, selection, collapsed, onToggle, actions, onSelect, onAddBlock }: {
   project: ProjectData;
@@ -1607,6 +1620,22 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
         if (next) onSelect(next, { scroll: false });
       }}
     >
+      {/* The page's frame, named after the project — everything on the page sits in it, as in a Figma frame. */}
+      <LayerRow
+        depth={0}
+        tone="var(--edit-accent)"
+        icon={LayerIcons.frame}
+        name={project.title?.trim() || "Sayfa"}
+        selected={selection.kind === "page"}
+        open={!collapsed.has(PAGE_LAYER)}
+        onToggle={() => onToggle(PAGE_LAYER)}
+        hover="[data-page-frame]"
+        onSelect={() => onSelect({ kind: "page" })}
+        onInspect={() => onSelect({ kind: "page" })}
+      />
+
+      {!collapsed.has(PAGE_LAYER) && (
+      <div className="flex flex-col gap-px pl-4">
       <LayerRow
           depth={0}
           tone="var(--text-subtitle)"
@@ -1643,6 +1672,8 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
 
       {project.items.length === 0 && (
         <p className="px-2 py-4 text-[13px] text-center text-[var(--text-subtitle)]">Sayfada henüz bölüm yok.</p>
+      )}
+      </div>
       )}
 
       <div className="grid grid-cols-2 gap-2 pt-3">
@@ -2088,6 +2119,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
         <LayerButton label="Bölümü sil" onClick={() => actions.deleteItem(section.id)}>{Icons.trash}</LayerButton>
       </>
     );
+  } else if (selection.kind === "page") {
+    inspectorTitle = project.title?.trim() || "Sayfa";
   } else if (selection.kind === "divider") {
     const dividerId = selection.dividerId;
     inspectorTitle = "Ayırıcı";
@@ -2175,27 +2208,6 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
               if (next) select(next);
             }}
           >
-            {/* While a section is dragged the page is just the compact list of sections. */}
-            {!reordering && (
-              <LiveOverview
-                project={project}
-                lang={lang}
-                actions={actions}
-                selection={selection}
-                onSelect={(part) => select({ kind: "meta", part })}
-              />
-            )}
-
-            {project.items.length === 0 && (
-              <div className="flex flex-col items-center gap-3 w-full mt-10 py-12 rounded-[28px] border border-dashed border-[var(--border-hover)] text-center">
-                <p className="text-sm text-[var(--text-subtitle)] select-none">Sayfa henüz boş</p>
-                <div className="flex items-center gap-2">
-                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); onLoadTemplate(); }}>Şablondan başla</PillButton>
-                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>Bölüm ekle</PillButton>
-                </div>
-              </div>
-            )}
-
             {/*
               While reordering, the rows are as wide as the section outlines (10px into
               the gutter, like SECTION_BOX) and the list box sits another 14px outside them.
@@ -2203,9 +2215,28 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
             {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set — the plain list while reordering. */}
             <div
               data-page-frame={reordering ? undefined : ""}
-              className={reordering ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]") : pageFrame.className}
+              className={
+                reordering
+                  ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]")
+                  : cn(
+                      pageFrame.className,
+                      // Selected (the root layer) or hovered in the layers: its outline, as a Figma frame's.
+                      "outline-1 -outline-offset-1 rounded-[2px]",
+                      selection.kind === "page" ? "outline outline-[var(--edit-accent)]" : "data-[layer-hover]:outline data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_60%,transparent)]"
+                    )
+              }
               style={reordering ? undefined : pageFrame.style}
             >
+              {/* While a section is dragged the page is just the compact list of sections. */}
+              {!reordering && (
+                <LiveOverview
+                  project={project}
+                  lang={lang}
+                  actions={actions}
+                  selection={selection}
+                  onSelect={(part) => select({ kind: "meta", part })}
+                />
+              )}
               {project.items.map((item) =>
                 item.kind === "divider" ? (
                   <LiveDivider
@@ -2234,6 +2265,17 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                 )
               )}
             </div>
+
+            {/* An empty page: under its header. */}
+            {project.items.length === 0 && (
+              <div className="flex flex-col items-center gap-3 w-full mt-10 py-12 rounded-[28px] border border-dashed border-[var(--border-hover)] text-center">
+                <p className="text-sm text-[var(--text-subtitle)] select-none">Sayfa henüz boş</p>
+                <div className="flex items-center gap-2">
+                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); onLoadTemplate(); }}>Şablondan başla</PillButton>
+                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>Bölüm ekle</PillButton>
+                </div>
+              </div>
+            )}
 
             {project.items.length > 0 && !reordering && (
               <div className="flex items-center justify-center gap-2 w-full mt-16">
@@ -2330,6 +2372,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                   onAddGroup={() => select({ kind: "group", groupId: actions.addGroup(selectedSection.section.id) }, { scroll: true })}
                 />
               </div>
+            ) : selection.kind === "page" ? (
+              <PageFrameInspector project={project} onChange={(frame) => actions.updateMeta({ frame })} />
             ) : selection.kind === "divider" ? (
               <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Tutamacından ya da basılı tutarak sürükleyip taşıyabilirsin.</p>
             ) : (
