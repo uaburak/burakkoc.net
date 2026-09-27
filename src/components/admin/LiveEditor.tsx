@@ -2220,8 +2220,10 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                   ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]")
                   : cn(
                       pageFrame.className,
-                      // Selected (the root layer) or hovered in the layers: its outline, as a Figma frame's.
-                      "outline-1 -outline-offset-1 rounded-[2px]",
+                      // Selected (the root layer) or hovered in the layers: its outline, as a Figma frame's. It encloses
+                      // everything in it, as a parent's does: sections' outlines reach 10px out (SECTION_BOX), Bloks' 7px,
+                      // components' 6px — the page's sits 13px out.
+                      "outline-1 outline-offset-[13px] rounded-[2px]",
                       selection.kind === "page" ? "outline outline-[var(--edit-accent)]" : "data-[layer-hover]:outline data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_60%,transparent)]"
                     )
               }
