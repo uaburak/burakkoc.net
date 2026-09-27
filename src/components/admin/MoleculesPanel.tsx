@@ -3,7 +3,7 @@
 import type { DesignMolecule, DesignVariable } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { cssValue } from "@/components/project/designVariables";
-import { fillCss } from "@/components/project/designMolecules";
+import { fillCss } from "@/components/project/frameLook";
 import { splitName } from "@/components/admin/VariablesPanel";
 
 /**

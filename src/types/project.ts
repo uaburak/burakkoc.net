@@ -1,3 +1,5 @@
+import type { FrameLook } from "@/types/design";
+
 // ── Block Types (divider removed — it's now a top-level PageItem) ─────────────
 
 export type BlockType =
@@ -272,6 +274,8 @@ export interface Block {
   cellAlign?: CellAlign;
   /** Out of its Blok's auto layout (see Absolute) */
   absolute?: Absolute;
+  /** Its look: opacity, corners, fill, stroke, clip (see FrameLook) */
+  look?: FrameLook;
   // EN
   contentEn?: string;
   subheadingEn?: string;
@@ -298,6 +302,8 @@ export interface Group {
   /** Out of its section's auto layout (see Absolute) */
   absolute?: Absolute;
   grid?: GridSettings;
+  /** Its look: opacity, corners, fill, stroke, clip (see FrameLook) */
+  look?: FrameLook;
   /** Its components */
   blocks: Block[];
 }
@@ -310,6 +316,8 @@ export interface Section {
   /** The size of its frame (Fill width — the page's column — and Hug height when unset) */
   size?: Sizing;
   grid?: GridSettings;
+  /** Its frame's look: opacity, corners, fill, stroke, clip (see FrameLook) */
+  look?: FrameLook;
   groups: Group[];
 }
 
@@ -394,6 +402,8 @@ export interface PageFrame {
   justify?: GridAlign;
   /** Down: when the frame is taller than its content (Fixed height) — default "start" */
   align?: GridAlign;
+  /** Its look: opacity, corners, fill, stroke, clip (see FrameLook) */
+  look?: FrameLook;
 }
 
 export interface ProjectData {

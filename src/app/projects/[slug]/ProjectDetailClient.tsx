@@ -15,6 +15,7 @@ import { ProjectDivider } from "@/components/project/CoreBlocks";
 import { SectionContent, pageFrameProps, sectionWidthClass } from "@/components/project/LayoutGrid";
 import { sectionBlocks } from "@/lib/projectLayout";
 import { DesignSystemProvider, DesignSystemStyle, fromStored, type SiteDesign } from "@/components/project/designSystem";
+import { frameLookStyle } from "@/components/project/frameLook";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 
@@ -305,6 +306,7 @@ export function ProjectDetailClient({
   }
 
   const pageFrame = pageFrameProps(project.frame);
+  const site = fromStored(design);
   const tocItems: TocItem[] = [{ id: "overview", label: "Overview" }];
   project.items.forEach((item) => {
     if (item.kind === "section") {
@@ -329,7 +331,7 @@ export function ProjectDetailClient({
   const themeAttrs = projectThemeAttrs(project.theme);
 
   return (
-    <DesignSystemProvider {...fromStored(design)}>
+    <DesignSystemProvider {...site}>
     <PageEntrance
       className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative"
       {...themeAttrs}
@@ -365,7 +367,7 @@ export function ProjectDetailClient({
       {/* ── Main content ── */}
       <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
         {/* The page's frame (PageFrame): its header, sections and dividers, sized and aligned as set in the editor. */}
-        <div className={pageFrame.className} style={pageFrame.style}>
+        <div className={pageFrame.className} style={{ ...pageFrame.style, ...frameLookStyle(project.frame?.look, site.variables) }}>
           <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
             <div className="flex flex-col items-start w-full pt-[10px]">
               <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">

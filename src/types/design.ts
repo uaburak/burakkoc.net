@@ -76,6 +76,8 @@ export interface MoleculeSlot extends TextLayerDesign {
   field: ItemTextField;
   /** Its name in the layers: "Etiket" */
   name: string;
+  /** 0–100 (%) — 100 when unset */
+  opacity?: number;
 }
 
 /** A fill, or a stroke's colour: a colour variable, or a colour of its own — `hidden` keeps it without drawing it (Figma's eye). */
@@ -87,16 +89,35 @@ export interface Paint {
 /** Where a stroke is drawn: inside the frame's edge, across it or outside it — it never changes the frame's size, as in Figma. */
 export type StrokeAlign = "inside" | "center" | "outside";
 
-export interface MoleculeStroke extends Paint {
+export interface Stroke extends Paint {
   /** px — or a size variable */
   weight: VariableValue;
   align: StrokeAlign;
 }
 
+/**
+ * A frame's look, as Figma's Appearance, Fill and Stroke sections — and its
+ * Clip content. Any frame has one: the page's, a Bölüm's, a Blok's, a
+ * component's, a molecule's.
+ */
+export interface FrameLook {
+  /** 0–100 (%) — 100 when unset */
+  opacity?: number;
+  /** Corner radius (px) — or a size variable */
+  radius?: VariableValue;
+  /** Its fill — none when unset */
+  fill?: Paint;
+  /** Its stroke — none when unset */
+  stroke?: Stroke;
+  /** What reaches beyond it is cut off (Figma's Clip content) */
+  clip?: boolean;
+}
+
 /** The spacing of a frame that can be bound to a size variable. */
 export type SpacingKey = "paddingX" | "paddingY" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft" | "columnGap" | "rowGap";
 
-export interface DesignMolecule {
+/** Its look (FrameLook) is every instance's: corners, fill, stroke, opacity, clip. */
+export interface DesignMolecule extends FrameLook {
   id: string;
   /** Its name: "Kart" — "/" makes groups, as a variable's */
   name: string;
@@ -106,10 +127,6 @@ export interface DesignMolecule {
   spacing?: Partial<Record<SpacingKey, string>>;
   /** Corner radius (px) — or a size variable */
   radius: VariableValue;
-  /** Its fill — none when unset */
-  fill?: Paint;
-  /** Its stroke — none when unset */
-  stroke?: MoleculeStroke;
   /** Its atoms, in their order in the frame */
   slots: MoleculeSlot[];
 }

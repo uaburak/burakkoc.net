@@ -173,7 +173,10 @@ function designFrame(design: ResolvedDesign, variables: DesignVariable[]) {
     frame: innerLayoutStyle(design.layout),
     molecule,
     item: { ...moleculeFrameStyle(molecule, variables), ...innerChildStyle(size, undefined, gridFlow(design.layout)) },
-    slot: (slot: MoleculeSlot) => innerChildStyle(slot.size, slot.align, gridFlow(molecule.layout)),
+    slot: (slot: MoleculeSlot): CSSProperties => ({
+      ...innerChildStyle(slot.size, slot.align, gridFlow(molecule.layout)),
+      ...(slot.opacity !== undefined && slot.opacity < 100 ? { opacity: Math.max(0, slot.opacity) / 100 } : {}),
+    }),
   };
 }
 

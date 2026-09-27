@@ -24,7 +24,6 @@ import {
   ItemInspector,
   ItemLayoutGroup,
   PageFrameInspector,
-  PlacementGroup,
   ProjectInspector,
   SectionInspector,
   SizeGroup,
@@ -32,16 +31,19 @@ import {
   VariableInspector,
   AtomInspector,
   MoleculeInspector,
+  MoleculeProperty,
+  InspectorHeader,
+  LookFields,
+  DesignGlyphs,
+  type MenuItem,
   moleculeUse,
   typeUse,
   type DesignUse,
   canMoveItem,
   duplicateItem,
-  freeSize,
   hasItem,
   itemName,
   moveItem,
-  plainText,
   removeItem,
   addEntry,
   itemNoun,
@@ -49,6 +51,7 @@ import {
 import { DESIGNED_TYPES, fitsType, moleculeUses, resolveDesign, useComponentDesign } from "@/components/project/componentDesign";
 import { atomUses } from "@/components/project/designMolecules";
 import { DesignSystemStyle } from "@/components/project/designSystem";
+import { frameLookStyle, useFrameLook } from "@/components/project/frameLook";
 import { VariablesPanel } from "@/components/admin/VariablesPanel";
 import { AtomsPanel } from "@/components/admin/AtomsPanel";
 import { MoleculesPanel } from "@/components/admin/MoleculesPanel";
@@ -759,6 +762,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   );
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
+  const look = useFrameLook(block.look);
   const place = cellProps(cell, gridFlow(group.grid) !== "grid" || Boolean(block.absolute));
   const size = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
   const free = absoluteProps(block.absolute);
@@ -789,7 +793,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
       data-live-block
       data-block-id={block.id}
       // --edit-tone: the colour of the component's kind — its frame, cards and hovered text.
-      style={{ ...place.style, ...size.style, ...free.style, ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
+      style={{ ...place.style, ...size.style, ...free.style, ...look, ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
       {...listeners}
       // Its texts are edited in place (a double-click) while it, or an item inside it, is selected.
       data-live-selected={selected ? "" : undefined}
@@ -843,6 +847,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
   onInsert: (at?: { cell?: { row: number; col: number } }) => void;
 }) {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
+  const look = useFrameLook(group.look);
   const place = cellProps(cell, gridFlow(section.grid) !== "grid" || Boolean(group.absolute));
   const size = sizeProps(group.size, false, group.cellAlign, gridFlow(section.grid));
   const free = absoluteProps(group.absolute);
@@ -863,7 +868,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
       ref={setNodeRef}
       data-live-group
       data-group-id={group.id}
-      style={{ ...place.style, ...grid.style, ...size.style, ...free.style, ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
+      style={{ ...place.style, ...grid.style, ...size.style, ...free.style, ...look, ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
       {...listeners}
       // Selected on press (see pressOn); the click must not reach the canvas, which clears the selection.
       onClick={(e) => e.stopPropagation()}
@@ -945,6 +950,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
   onInsert: (target: PickerTarget) => void;
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortablePageItem(section);
+  const look = useFrameLook(section.look);
   const reordering = usePageReorder();
   const dropRef = useKeepDropPosition(isDragging);
   const ref = (el: HTMLElement | null) => { setNodeRef(el); dropRef(el); };
@@ -1000,7 +1006,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
       )}
     >
       {(!empty || showCells) && (
-        <div data-section-frame className={grid.className} style={grid.style}>
+        <div data-section-frame className={grid.className} style={{ ...grid.style, ...look }}>
           <SectionGroups section={section}>
             {section.groups.map((group, i) => (
               <LiveGroup
@@ -1091,34 +1097,7 @@ function LiveDivider({ divider, selected }: {
 
 // ── Panels ────────────────────────────────────────────────────────────────────
 
-/** Where the selection lives ("02 Bölüm / Blok 1 / Kartlar"): a thin bar over the inspector; each step selects that level. */
-function Crumbs({ items }: { items: { label: string; detail?: string; onClick: () => void }[] }) {
-  return (
-    <nav aria-label="Konum" className="flex items-center gap-0.5 min-h-9 px-3 py-1 flex-wrap border-b border-[var(--border)]">
-      {items.map((item, i) => (
-        <span key={i} className="flex items-center gap-0.5 min-w-0">
-          {i > 0 && <span className="text-[11px] text-[var(--text-subtitle)] select-none">/</span>}
-          <button
-            type="button"
-            onClick={item.onClick}
-            className="flex items-center gap-1 min-w-0 h-6 px-1.5 rounded-[4px] text-[11px] leading-4 text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
-          >
-            <span className="shrink-0 font-medium text-[var(--text-title)]">{item.label}</span>
-            {item.detail && <span className="min-w-0 truncate">{item.detail}</span>}
-          </button>
-        </span>
-      ))}
-    </nav>
-  );
-}
-
 // ── Sections panel ────────────────────────────────────────────────────────────
-
-/** Name of a section in the panel: its first heading. */
-function sectionTitle(section: PageSection, lang: Lang) {
-  const heading = sectionBlocks(section).find((b) => b.type === "heading");
-  return heading ? plainText(localizeBlock(heading, lang).content) : undefined;
-}
 
 type SelectFromPanel = (next: Selection, opts?: { scroll?: boolean }) => void;
 
@@ -2232,28 +2211,25 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     },
   });
 
-  /** The first step of every trail: the section, with its title when it is the last step. */
-  function sectionCrumb(section: PageSection, last: boolean) {
-    return {
-      label: sectionName(section, findSection(project.items, section.id)?.index ?? 0),
-      detail: last ? sectionTitle(section, lang) : undefined,
-      onClick: () => select({ kind: "section", sectionId: section.id }, { scroll: true }),
-    };
-  }
-
-  /** Where the selected component / item sits: section › Blok (› component) — each step selects that level. */
-  function blockCrumbs(found: NonNullable<typeof selectedBlock>, itemId: string | null) {
-    const { section, group, block } = found;
-    const crumbs = [
-      sectionCrumb(section, false),
-      {
-        label: groupName(group, section.groups.findIndex((g) => g.id === group.id)),
-        onClick: () => select({ kind: "group", groupId: group.id }, { scroll: true }),
-      },
-    ];
-    if (itemId) crumbs.push({ label: blockName(block), onClick: () => select({ kind: "block", blockId: block.id }, { scroll: true }) });
-    if (itemId && selectedText) crumbs.push({ label: itemName(block, itemId), onClick: () => select({ kind: "block", blockId: block.id, itemId }, { scroll: true }) });
-    return crumbs;
+  /**
+   * The layers holding the selection, for the header's menu (Figma's "select
+   * a parent"): the page, its section, Blok, component, item — each selects
+   * that layer.
+   */
+  function holders(at: { section?: PageSection; group?: Group; block?: Block; itemId?: string }): MenuItem[] {
+    const items: MenuItem[] = [{ label: project.title?.trim() || "Sayfa", hint: "Sayfa", onSelect: () => select({ kind: "page" }, { scroll: true }) }];
+    const { section, group, block, itemId } = at;
+    if (section) {
+      const index = findSection(project.items, section.id)?.index ?? 0;
+      items.push({ label: sectionName(section, index), hint: "Bölüm", onSelect: () => select({ kind: "section", sectionId: section.id }, { scroll: true }) });
+    }
+    if (section && group) {
+      const index = section.groups.findIndex((g) => g.id === group.id);
+      items.push({ label: groupName(group, index), hint: "Blok", onSelect: () => select({ kind: "group", groupId: group.id }, { scroll: true }) });
+    }
+    if (block) items.push({ label: blockName(block), hint: BLOCK_LABELS[block.type], onSelect: () => select({ kind: "block", blockId: block.id }, { scroll: true }) });
+    if (block && itemId) items.push({ label: itemName(block, itemId), hint: itemNoun(block), onSelect: () => select({ kind: "block", blockId: block.id, itemId }, { scroll: true }) });
+    return items;
   }
 
   // Left panel header: the tab's name and its actions.
@@ -2270,16 +2246,38 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     panelActions = <PillButton size="sm" variant="ghost" onClick={() => actions.updateMeta({ theme: undefined })}>Varsayılana dön</PillButton>;
   }
 
-  // Inspector header (right): what is selected and what can be done with it.
-  let inspectorTitle = "Proje bilgileri";
+  // The selected component's main component (see ComponentDesign), if its type has one; changes go to it — every instance.
+  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs, molecules, atoms) : null;
+
+  // Inspector header (right), as Figma's: the selection's kind — its icon, name and menu — and what can be done with it.
+  let header: { icon?: ReactNode; tone?: string; title: string; menu?: MenuItem[] } = { icon: LayerIcons.page, title: "Proje" };
   let inspectorActions: ReactNode = null;
   if (selectedBlock && selectedItemId && selectedText) {
-    inspectorTitle = slotsOf(selectedBlock.block.type).find((slot) => slot.field === selectedText)?.name ?? "Metin";
+    const { section, group, block } = selectedBlock;
+    const slot = slotsOf(block.type).find((s) => s.field === selectedText);
+    header = {
+      icon: LayerIcons.text,
+      tone: blockTone(block.type),
+      title: "Metin",
+      menu: [
+        ...holders({ section, group, block, itemId: selectedItemId }),
+        ...(blockDesign ? [{ label: "Moleküle git", hint: blockDesign.item.molecule.name, divided: true, onSelect: () => openMolecule(blockDesign.item.molecule.id) }] : []),
+        ...(slot?.atom ? [{ label: "Atoma git", hint: atoms.find((a) => a.id === slot.atom)?.name, divided: !blockDesign, onSelect: () => openAtom(slot.atom!) }] : []),
+      ],
+    };
   } else if (selectedBlock && selectedItemId) {
-    const { block } = selectedBlock;
+    const { section, group, block } = selectedBlock;
     const itemId = selectedItemId;
     const update = (patch: Partial<Block>) => actions.updateBlock(block.id, patch);
-    inspectorTitle = itemName(block, itemId);
+    header = blockDesign
+      ? {
+          // An instance of its molecule, as Figma's: the molecule's name.
+          icon: DesignGlyphs.instance,
+          tone: "var(--edit-molecule)",
+          title: blockDesign.item.molecule.name,
+          menu: [...holders({ section, group, block }), { label: "Moleküle git", hint: blockDesign.item.molecule.name, divided: true, onSelect: () => openMolecule(blockDesign.item.molecule.id) }],
+        }
+      : { icon: LayerIcons.item, tone: blockTone(block.type), title: itemNoun(block) ?? "Öğe", menu: holders({ section, group, block }) };
     inspectorActions = (
       <>
         <LayerButton label="Yukarı taşı" disabled={!canMoveItem(block, itemId, -1)} onClick={() => update(moveItem(block, itemId, -1))}>{Icons.arrowUp}</LayerButton>
@@ -2298,8 +2296,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       </>
     );
   } else if (selectedBlock) {
-    const { block } = selectedBlock;
-    inspectorTitle = blockName(block);
+    const { section, group, block } = selectedBlock;
+    header = { icon: blockIcon(block.type), tone: blockTone(block.type), title: BLOCK_LABELS[block.type], menu: holders({ section, group }) };
     inspectorActions = (
       <>
         <LayerButton label="Çoğalt" onClick={() => select({ kind: "block", blockId: actions.duplicateBlock(block) })}>{Icons.duplicate}</LayerButton>
@@ -2307,8 +2305,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       </>
     );
   } else if (selectedGroup) {
-    const { group, index } = selectedGroup;
-    inspectorTitle = groupName(group, index);
+    const { group, section } = selectedGroup;
+    header = { icon: LayerIcons.group, tone: GROUP_TONE, title: "Blok", menu: holders({ section }) };
     inspectorActions = (
       <>
         <LayerButton label="Bileşen ekle" onClick={() => setPicker({ groupId: group.id })}>{Icons.plus}</LayerButton>
@@ -2317,8 +2315,8 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       </>
     );
   } else if (selectedSection) {
-    const { section, index } = selectedSection;
-    inspectorTitle = sectionName(section, index);
+    const { section } = selectedSection;
+    header = { icon: LayerIcons.section, tone: SECTION_TONE, title: "Bölüm", menu: holders({}) };
     inspectorActions = (
       <>
         <LayerButton label="Blok ekle" onClick={() => select({ kind: "group", groupId: actions.addGroup(section.id) })}>{Icons.plus}</LayerButton>
@@ -2326,26 +2324,29 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       </>
     );
   } else if (selection.kind === "page") {
-    inspectorTitle = project.title?.trim() || "Sayfa";
+    header = { icon: LayerIcons.frame, tone: SECTION_TONE, title: "Sayfa" };
+  } else if (selection.kind === "meta") {
+    header = { icon: LayerIcons.page, tone: SECTION_TONE, title: "Proje bilgileri", menu: holders({}) };
   } else if (selection.kind === "divider") {
     const dividerId = selection.dividerId;
-    inspectorTitle = "Ayırıcı";
+    header = { icon: LayerIcons.divider, tone: SECTION_TONE, title: "Ayırıcı", menu: holders({}) };
     inspectorActions = <LayerButton label="Ayırıcıyı sil" onClick={() => actions.deleteItem(dividerId)}>{Icons.trash}</LayerButton>;
   } else if (selectedVariable) {
     const { id } = selectedVariable;
-    inspectorTitle = selectedVariable.name;
+    header = { icon: DesignGlyphs.variable, title: selectedVariable.name };
     inspectorActions = system.isStartingVariable(id)
       ? <LayerButton label="Sitenin değerine dön" onClick={() => system.removeVariable(id)}>{Icons.reset}</LayerButton>
       : <LayerButton label="Değişkeni sil" onClick={() => { system.removeVariable(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
   } else if (selectedAtom) {
     const { id } = selectedAtom;
-    inspectorTitle = selectedAtom.name;
+    header = { icon: DesignGlyphs.atom, tone: "var(--edit-accent)", title: selectedAtom.name };
     inspectorActions = system.isStartingAtom(id)
       ? <LayerButton label="Sitenin görünüşüne dön" onClick={() => system.removeAtom(id)}>{Icons.reset}</LayerButton>
       : <LayerButton label="Atomu sil" onClick={() => { system.removeAtom(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
   } else if (selectedMolecule) {
     const { id } = selectedMolecule;
-    inspectorTitle = selectedMolecule.name;
+    // The main one, as Figma's main component.
+    header = { icon: DesignGlyphs.mainComponent, tone: "var(--edit-molecule)", title: selectedMolecule.name };
     inspectorActions = (
       <>
         <LayerButton label="Çoğalt" onClick={() => select({ kind: "molecule", moleculeId: system.copyMolecule(id) })}>{Icons.duplicate}</LayerButton>
@@ -2356,8 +2357,6 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     );
   }
 
-  // The selected component's main component (see ComponentDesign), if its type has one; changes go to it — every instance.
-  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs, molecules, atoms) : null;
   const setMain = (patch: ComponentDesign) => {
     if (selectedBlock) system.setDesign(selectedBlock.block.type, { ...designs[selectedBlock.block.type], ...patch });
   };
@@ -2589,7 +2588,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
                   ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]")
                   : cn(pageFrame.className, PAGE_LINE, selection.kind === "page" ? "before:border-[var(--edit-accent)]" : PAGE_LINE_HOVER)
               }
-              style={reordering ? undefined : pageFrame.style}
+              style={reordering ? undefined : { ...pageFrame.style, ...frameLookStyle(project.frame?.look, variables) }}
             >
               {/* While a section is dragged the page is just the compact list of sections. */}
               {!reordering && (
@@ -2656,123 +2655,99 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
 
         {/* ── Inspector (Düzenle): whatever is selected, the project when nothing is — as Figma's right panel ── */}
         <aside aria-label="Düzenle" className="w-[300px] shrink-0 h-full flex flex-col border-l border-[var(--border)] bg-[var(--bg-1)] z-10">
-          <div className="shrink-0 flex items-center justify-between gap-2 h-11 pl-4 pr-2 border-b border-[var(--border)]">
-            <h2 className="min-w-0 truncate text-[13px] font-semibold leading-4 text-[var(--text-title)] select-none">{inspectorTitle}</h2>
-            <div className="flex items-center gap-0.5 shrink-0">
-              {inspectorActions}
-              {selection.kind !== "none" && (
-                <LayerButton label="Seçimi kaldır (Esc)" onClick={() => setSelection({ kind: "none" })}>{Icons.close}</LayerButton>
-              )}
-            </div>
-          </div>
-          {/* Sections run full width, as in Figma's properties panel. */}
+          <InspectorHeader {...header} actions={inspectorActions} />
+          {/*
+            Figma's sections, in its order, full width: a component's (an instance's) properties first,
+            then its Yerleşim (auto layout, W / H), Görünüş, Dolgu, Kenar çizgisi — every frame has them.
+          */}
           <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col" inset={8} edge={2}>
             {selectedBlock ? (
-              <div className="flex flex-col">
-                <Crumbs items={blockCrumbs(selectedBlock, selectedItemId)} />
-                {selectedItemId && selectedText && blockDesign ? (
-                  <TextLayerInspector
-                    block={selectedBlock.block}
-                    itemId={selectedItemId}
-                    slot={blockDesign.item.molecule.slots.find((slot) => slot.field === selectedText)!}
-                    molecule={blockDesign.item.molecule}
-                    atoms={atoms}
-                    variables={variables}
-                    lang={lang}
-                    onSlot={setSlot}
-                    onOpenAtom={openAtom}
-                    onOpenMolecule={openMolecule}
-                    onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
-                  />
-                ) : selectedItemId ? (
-                  <ItemInspector
-                    block={selectedBlock.block}
-                    itemId={selectedItemId}
-                    lang={lang}
-                    projectSlug={slug}
-                    layout={blockDesign && (
-                      <ItemLayoutGroup
-                        block={selectedBlock.block}
-                        itemId={selectedItemId}
-                        design={blockDesign}
-                        variables={variables}
-                        onSize={(size) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, size } })}
-                        onMolecule={system.setMolecule}
-                        onOpenMolecule={openMolecule}
-                      />
-                    )}
-                    onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
-                  />
-                ) : (
+              selectedItemId && selectedText && blockDesign ? (
+                <TextLayerInspector
+                  block={selectedBlock.block}
+                  itemId={selectedItemId}
+                  slot={blockDesign.item.molecule.slots.find((slot) => slot.field === selectedText)!}
+                  atoms={atoms}
+                  variables={variables}
+                  lang={lang}
+                  onSlot={setSlot}
+                  onAtom={system.setAtom}
+                  onOpenAtom={openAtom}
+                  onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
+                />
+              ) : selectedItemId ? (
+                <ItemInspector
+                  block={selectedBlock.block}
+                  itemId={selectedItemId}
+                  lang={lang}
+                  projectSlug={slug}
+                  layout={blockDesign && (
+                    <ItemLayoutGroup
+                      block={selectedBlock.block}
+                      itemId={selectedItemId}
+                      design={blockDesign}
+                      variables={variables}
+                      onSize={(size) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, size } })}
+                      onMolecule={system.setMolecule}
+                    />
+                  )}
+                  onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
+                />
+              ) : (
+                <div className="flex flex-col">
                   <BlockInspector
                     block={selectedBlock.block}
                     lang={lang}
                     projectSlug={slug}
-                    placement={
-                      <>
-                        <PlacementGroup
-                          measure={`[data-block-id="${selectedBlock.block.id}"]`}
-                          absolute={selectedBlock.block.absolute}
-                          onAbsolute={(absolute, was) =>
-                            actions.updateBlock(selectedBlock.block.id, { absolute, ...(absolute ? { size: freeSize(selectedBlock.block.size, was) } : {}) })
-                          }
-                          index={selectedBlock.index}
-                          siblings={selectedBlock.group.blocks}
-                          labels={selectedBlock.group.blocks.map(blockName)}
-                          parent={selectedBlock.group.grid}
-                          onPlace={(row, col) => actions.placeBlock(selectedBlock.block.id, selectedBlock.group.id, row, col)}
-                          onSwap={(otherId) => actions.swapBlocks(selectedBlock.group.id, selectedBlock.block.id, otherId)}
-                          onSpan={(span) => actions.updateBlock(selectedBlock.block.id, { span })}
-                        />
-                        <SizeGroup
-                          size={selectedBlock.block.size}
-                          measure={`[data-block-id="${selectedBlock.block.id}"]`}
-                          onChange={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
-                        />
-                        {blockDesign && (
-                          <ComponentLayoutGroup
-                            block={selectedBlock.block}
-                            design={blockDesign}
-                            molecules={molecules.filter((m) => fitsType(m, selectedBlock.block.type))}
-                            onChange={(layout) => setMain({ layout })}
-                            onMolecule={(molecule) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, molecule } })}
-                            onOpenMolecule={openMolecule}
-                          />
-                        )}
-                      </>
-                    }
+                    properties={blockDesign && (
+                      <MoleculeProperty
+                        molecule={blockDesign.item.molecule}
+                        molecules={molecules.filter((m) => fitsType(m, selectedBlock.block.type))}
+                        onMolecule={(molecule) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, molecule } })}
+                        onOpenMolecule={openMolecule}
+                      />
+                    )}
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
                     onSelectEntry={(itemId) => select({ kind: "block", blockId: selectedBlock.block.id, itemId }, { scroll: true })}
                   />
-                )}
-              </div>
+                  {blockDesign ? (
+                    <ComponentLayoutGroup
+                      block={selectedBlock.block}
+                      design={blockDesign}
+                      onChange={(layout) => setMain({ layout })}
+                      onSize={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
+                      onLook={(look) => actions.updateBlock(selectedBlock.block.id, { look })}
+                    />
+                  ) : (
+                    <SizeGroup
+                      size={selectedBlock.block.size}
+                      measure={`[data-block-id="${selectedBlock.block.id}"]`}
+                      onChange={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
+                      clip={{
+                        checked: Boolean(selectedBlock.block.look?.clip),
+                        onChange: (clip) => actions.updateBlock(selectedBlock.block.id, { look: { ...selectedBlock.block.look, clip: clip || undefined } }),
+                      }}
+                    />
+                  )}
+                  <LookFields look={selectedBlock.block.look} variables={variables} onChange={(look) => actions.updateBlock(selectedBlock.block.id, { look })} />
+                </div>
+              )
             ) : selectedGroup ? (
-              <div className="flex flex-col">
-                <Crumbs items={[sectionCrumb(selectedGroup.section, true)]} />
-                <GroupInspector
-                  group={selectedGroup.group}
-                  section={selectedGroup.section}
-                  lang={lang}
-                  onChange={(patch) => actions.updateGroup(selectedGroup.group.id, patch)}
-                  onPlace={(row, col) => actions.placeGroup(selectedGroup.group.id, selectedGroup.section.id, row, col)}
-                  onSwap={(otherId) => actions.swapGroups(selectedGroup.section.id, selectedGroup.group.id, otherId)}
-                  onAlign={(justify, align) => actions.alignGroup(selectedGroup.group.id, justify, align)}
-                  onSelectBlock={(blockId) => select({ kind: "block", blockId }, { scroll: true })}
-                  onAddBlock={() => setPicker({ groupId: selectedGroup.group.id })}
-                />
-              </div>
+              <GroupInspector
+                group={selectedGroup.group}
+                variables={variables}
+                onChange={(patch) => actions.updateGroup(selectedGroup.group.id, patch)}
+                onAlign={(justify, align) => actions.alignGroup(selectedGroup.group.id, justify, align)}
+              />
             ) : selectedSection ? (
-              <div className="flex flex-col">
-                <SectionInspector
-                  section={selectedSection.section}
-                  onChange={(patch) => actions.updateSection(selectedSection.section.id, patch)}
-                  onAlign={(justify, align) => actions.alignSection(selectedSection.section.id, justify, align)}
-                  onSelectGroup={(groupId) => select({ kind: "group", groupId }, { scroll: true })}
-                  onAddGroup={() => select({ kind: "group", groupId: actions.addGroup(selectedSection.section.id) }, { scroll: true })}
-                />
-              </div>
+              <SectionInspector
+                section={selectedSection.section}
+                variables={variables}
+                onChange={(patch) => actions.updateSection(selectedSection.section.id, patch)}
+                onAlign={(justify, align) => actions.alignSection(selectedSection.section.id, justify, align)}
+              />
             ) : selection.kind === "page" ? (
-              <PageFrameInspector project={project} onChange={(frame) => actions.updateMeta({ frame })} />
+              <PageFrameInspector project={project} variables={variables} onChange={(frame) => actions.updateMeta({ frame })} />
             ) : selection.kind === "divider" ? (
               <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Seçip sürükleyerek taşıyabilirsin.</p>
             ) : selectedVariable ? (

@@ -3,6 +3,9 @@ import type { Absolute, CellAlign, GridAlign, GridGap, GridSettings, GridTrack, 
 import { cn } from "@/lib/utils";
 import { columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, type Cell } from "@/lib/projectLayout";
 import { FillHeightContext, ProjectBlock } from "@/components/project/CoreBlocks";
+import type { FrameLook } from "@/types/design";
+import { useDesignVariables } from "@/components/project/designVariables";
+import { frameLookStyle } from "@/components/project/frameLook";
 
 /**
  * The layouts of the page, as Figma's auto layout: a section lays out its
@@ -344,24 +347,26 @@ export function sectionFrameProps(section: Pick<PageSection, "grid" | "size">): 
   return { className: cn(layout.className, size.className), style: { ...layout.style, ...size.style } };
 }
 
-/** A section's content on the public page: its groups, each a grid of its components. */
+/** A section's content on the public page: its groups, each a grid of its components — each frame with its look (see FrameLook). */
 export function SectionContent({ section, animate = false }: { section: PageSection; animate?: boolean }) {
   const outer = sectionFrameProps(section);
+  const variables = useDesignVariables();
+  const look = (frame: { look?: FrameLook }) => frameLookStyle(frame.look, variables);
   return (
-    <div className={outer.className} style={outer.style}>
+    <div className={outer.className} style={{ ...outer.style, ...look(section) }}>
       {inCells(section.groups, section.grid).map(({ child: group, cell: groupCell }) => {
         const cell = cellProps(groupCell, gridFlow(section.grid) !== "grid" || Boolean(group.absolute));
         const inner = gridProps(group.grid);
         const size = sizeProps(group.size, false, group.cellAlign, gridFlow(section.grid));
         const free = absoluteProps(group.absolute);
         return (
-          <div key={group.id} className={cn(cell.className, inner.className, size.className, free.className)} style={{ ...cell.style, ...inner.style, ...size.style, ...free.style }}>
+          <div key={group.id} className={cn(cell.className, inner.className, size.className, free.className)} style={{ ...cell.style, ...inner.style, ...size.style, ...free.style, ...look(group) }}>
             {inCells(group.blocks, group.grid).map(({ child: block, cell: blockCell }) => {
               const c = cellProps(blockCell, gridFlow(group.grid) !== "grid" || Boolean(block.absolute));
               const s = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
               const f = absoluteProps(block.absolute);
               return (
-                <div key={block.id} className={cn("w-full", c.className, s.className, f.className)} style={{ ...c.style, ...s.style, ...f.style }}>
+                <div key={block.id} className={cn("w-full", c.className, s.className, f.className)} style={{ ...c.style, ...s.style, ...f.style, ...look(block) }}>
                   <FillHeightContext.Provider value={s.fillHeight}>
                     <ProjectBlock block={block} animate={animate} />
                   </FillHeightContext.Provider>

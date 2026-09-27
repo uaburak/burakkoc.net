@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, Group as PageGroup, LayoutFlow, LinkIconType, ListItem, ListStyle, PageFrame, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
+import type { AspectRatio, Block, BlockEntry, BlockType, BlockVariant, GridAlign, GridSettings, GridTrack, Group as PageGroup, LayoutFlow, LinkIconType, ListItem, ListStyle, PageFrame, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
 import { UploadZone } from "@/components/admin/ImageBlockEditor";
 import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
-import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
+import { BLOCK_DEFS, BLOCK_LABELS, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
 import type { ResolvedDesign } from "@/components/project/componentDesign";
 import { moleculeLayout } from "@/components/project/designMolecules";
@@ -17,8 +17,8 @@ import { splitName } from "@/components/admin/VariablesPanel";
 import { TYPOGRAPHY_KINDS } from "@/components/project/designAtoms";
 import { AtomSample, atomMetrics } from "@/components/admin/AtomsPanel";
 import { useTheme } from "@/context/ThemeContext";
-import type { DesignAtom, DesignMolecule, DesignVariable, MoleculeSlot, MoleculeStroke, Paint, SpacingKey, StrokeAlign, Typography, VariableKind, VariableValue } from "@/types/design";
-import { MAX_COLUMNS, MAX_ROWS, columnTracks, sectionsOf, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
+import type { DesignAtom, DesignMolecule, DesignVariable, FrameLook, MoleculeSlot, Stroke, Paint, SpacingKey, StrokeAlign, Typography, VariableKind, VariableValue } from "@/types/design";
+import { MAX_COLUMNS, MAX_ROWS, columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
  * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
@@ -44,12 +44,16 @@ type Lang = "tr" | "en";
 // divided by thin rules; small grey (bg-4) fields, 28px tall, gently rounded;
 // only icons carry a colour.
 
-/** A section of the panel: its title (actions on the right, e.g. "+") over its controls, a rule under it. */
-function Group({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
+/**
+ * A section of the panel: its title (actions on the right, e.g. "+") over its
+ * controls, a rule under it. `muted`: empty — only its title, greyed, as
+ * Figma's Fill / Stroke with nothing in them.
+ */
+function Group({ title, actions, muted = false, children }: { title: string; actions?: ReactNode; muted?: boolean; children?: ReactNode }) {
   return (
-    <section className="flex flex-col gap-2 px-4 pt-3 pb-4 border-b border-[var(--border)]">
+    <section className={cn("flex flex-col gap-2 px-4 border-b border-[var(--border)]", muted ? "py-3" : "pt-3 pb-4")}>
       <div className="flex items-center justify-between gap-2 h-6">
-        <h3 className="text-[12px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</h3>
+        <h3 className={cn("text-[12px] font-semibold leading-4 select-none", muted ? "text-[var(--text-subtitle)]" : "text-[var(--text-title)]")}>{title}</h3>
         {actions && <div className="flex items-center gap-0.5 -mr-1">{actions}</div>}
       </div>
       {children}
@@ -289,11 +293,6 @@ function ToggleButton({ label, pressed, disabled = false, onClick, children }: {
   );
 }
 
-/** A quiet note at the top of a panel. */
-function Hint({ children }: { children: ReactNode }) {
-  return <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)] border-b border-[var(--border)]">{children}</p>;
-}
-
 const Glyphs = {
   /** Apply a variable (Figma's hexagon) */
   variable: (
@@ -337,6 +336,13 @@ const Glyphs = {
       <path d="M3 7h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   ),
+  /** Opacity: a dotted square, Figma's */
+  opacity: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M4.5 10.5v-3h3v-3h3" stroke="currentColor" strokeWidth="1" opacity="0.6" />
+    </svg>
+  ),
   /** Corner radius: a rounded corner */
   radius: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
@@ -371,6 +377,12 @@ const Glyphs = {
   goTo: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
       <path d="M4 2.5h5.5V8M9.5 2.5L3 9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  /** Figma's instance mark: a diamond */
+  instance: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path d="M6 1.5L10.5 6 6 10.5 1.5 6z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
     </svg>
   ),
   /** Figma's component mark: four diamonds */
@@ -527,6 +539,14 @@ const Glyphs = {
   ),
 };
 
+/** Figma's marks for the design system's kinds — for the inspector's header. */
+export const DesignGlyphs = {
+  instance: Glyphs.instance,
+  mainComponent: Glyphs.mainComponent,
+  atom: Glyphs.atom,
+  variable: Glyphs.variable,
+};
+
 // ── Images ────────────────────────────────────────────────────────────────────
 
 /** Preview + URL / upload + alt text for one image. */
@@ -615,12 +635,17 @@ const OWN_EDITOR = new Set<Block["type"]>(["code", "figma", "iframe"]);
 
 // ── Block inspector ───────────────────────────────────────────────────────────
 
-export function BlockInspector({ block, lang, projectSlug, placement, onChange, onSelectEntry }: {
+/**
+ * A component's properties, as a Figma instance's under its header: its
+ * options (and, laid out by its main component, the molecule its items are
+ * — `properties`), its image or video, its items.
+ */
+export function BlockInspector({ block, lang, projectSlug, properties, onChange, onSelectEntry }: {
   block: Block;
   lang: Lang;
   projectSlug: string;
-  /** Its width in its Blok's grid (see PlacementGroup) */
-  placement?: ReactNode;
+  /** More property rows (the molecule its items are — see MoleculeProperty) */
+  properties?: ReactNode;
   onChange: (patch: Partial<Block>) => void;
   /** Open an item's own settings (also right after adding one) */
   onSelectEntry: (entryId: string) => void;
@@ -631,7 +656,6 @@ export function BlockInspector({ block, lang, projectSlug, placement, onChange, 
   if (OWN_EDITOR.has(type)) {
     return (
       <div className="flex flex-col">
-        {placement}
         <Group title="İçerik">
           <div className="flex flex-col gap-2.5">
             <BlockFields block={block} onChange={onChange} lang={lang} projectSlug={projectSlug} />
@@ -772,9 +796,7 @@ export function BlockInspector({ block, lang, projectSlug, placement, onChange, 
 
   return (
     <div className="flex flex-col">
-      <Hint>Metinleri sayfada çift tıklayarak düzenle. İçindeki bir öğeye tıklarsan onun ayarları açılır.</Hint>
-      {placement}
-      {options.length > 0 && <Group title="Görünüm">{options}</Group>}
+      {(options.length > 0 || properties) && <Group title="Özellikler">{options}{properties}</Group>}
       {media.length > 0 && <Group title={type === "video" ? "Video" : "Görsel"}>{media}</Group>}
       {spec && (
         <Group
@@ -800,33 +822,6 @@ export function BlockInspector({ block, lang, projectSlug, placement, onChange, 
 }
 
 // ── Layout: sections and Bloks ────────────────────────────────────────────────
-
-/** Plain text without the **bold** / [link](…) markers, on one line. */
-export function plainText(raw?: string) {
-  return raw?.replace(/\*\*|\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim() || undefined;
-}
-
-/** Short preview of a component's content, for lists. */
-export function blockSummary(block: Block, lang: Lang) {
-  const en = lang === "en";
-  const pick = (tr?: string, enValue?: string) => (en ? enValue : undefined) || tr;
-  const entry = block.entries?.[0];
-  return plainText(
-    pick(block.content, block.contentEn) ||
-      pick(block.title, block.titleEn) ||
-      pick(block.caption, block.captionEn) ||
-      pick(block.alt, block.altEn) ||
-      pick(block.listItems?.[0]?.text, block.listItems?.[0]?.textEn) ||
-      pick(entry?.title, entry?.titleEn) ||
-      pick(entry?.label, entry?.labelEn) ||
-      pick(entry?.text, entry?.textEn)
-  );
-}
-
-/** "Başlık, Metin" — what a Blok holds. */
-export function groupSummary(group: PageGroup) {
-  return group.blocks.map((b) => b.name?.trim() || BLOCK_LABELS[b.type]).join(", ") || undefined;
-}
 
 /** Figma's alignment glyph: three bars, lined up at the top / middle / bottom. */
 function AlignBars({ vertical, faint = false }: { vertical: GridAlign; faint?: boolean }) {
@@ -1066,7 +1061,7 @@ interface SpacingBinding {
   onBind: (key: SpacingKey, variableId: string | null) => void;
 }
 
-function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange, bind }: {
+function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange, bind, clip }: {
   grid?: GridSettings;
   /** Finds its frame on the canvas, for its W / H and the sizes its columns and rows have now */
   measure: string;
@@ -1081,6 +1076,8 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
   onChange: (grid: GridSettings) => void;
   /** Its gaps and padding can be bound to variables (see SpacingBinding) */
   bind?: SpacingBinding;
+  /** Figma's Clip content, under the padding: whether it cuts off what reaches beyond it */
+  clip?: { checked: boolean; onChange: (clip: boolean) => void };
 }) {
   const columns = gridColumns(grid);
   const count = columns.length;
@@ -1222,154 +1219,28 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
           {Glyphs.padSides}
         </ToggleButton>
       </div>
+      {clip && <CheckRow label="İçeriği kırp" checked={clip.checked} onChange={clip.onChange} />}
     </Group>
   );
 }
 
-/**
- * The parent's grid in small, in the alignment box's look: column for column
- * (to width — 4·8 looks like 4·8) and row for row. A dot in each free cell —
- * the bars on hover; this one shows the bars across the cells it covers, the
- * others a grey line. Click a free cell to move it there, another child's to
- * swap places with it.
- */
-function CellPicker({ columns, rows, cells, index, labels, onPlace, onSwap }: {
-  columns: number[];
-  /** How many rows it shows */
-  rows: number;
-  cells: Cell[];
-  /** Which of `cells` is this one */
-  index: number;
-  labels: string[];
-  onPlace: (row: number, col: number) => void;
-  /** Swap places with child `other` */
-  onSwap: (other: number) => void;
-}) {
-  const place = (row: number, col: number) => `${row}. satır, ${col}. sütun`;
+/** Figma's checkbox with its label (Clip content). */
+function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <div
-      role="group"
-      aria-label="Izgaradaki yeri"
-      className="grid p-1 rounded-[6px] bg-[var(--bg-4)]"
-      style={{ gridTemplateColumns: columns.map((w) => `minmax(0,${w}fr)`).join(" "), gridTemplateRows: `repeat(${rows}, 20px)` }}
-    >
-      {freeCells(cells, columns.length, rows).map((f) => (
-        <button
-          key={`free-${f.row}-${f.col}`}
-          type="button"
-          title={`${place(f.row, f.col)} — buraya taşı`}
-          aria-label={`${place(f.row, f.col)}, boş — buraya taşı`}
-          onClick={() => onPlace(f.row, f.col)}
-          className="group/align flex items-center justify-center rounded-[4px] cursor-pointer"
-          style={{ gridRow: f.row, gridColumn: f.col }}
-        >
-          <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60 group-hover/align:hidden" />
-          <span className="hidden group-hover/align:flex">
-            <AlignBars vertical="center" faint />
-          </span>
-        </button>
-      ))}
-      {cells.map((c, i) => {
-        // Out of the auto layout: no cell.
-        if (c.span === 0) return null;
-        const where = { gridRow: c.row, gridColumn: `${c.col} / span ${c.span}` };
-        return i === index ? (
-          <span
-            key={`child-${i}`}
-            aria-current="true"
-            title={`${labels[i]}: ${place(c.row, c.col)}`}
-            className={cn("flex items-center justify-center rounded-[4px]", c.span > 1 && "mx-0.5 bg-[color-mix(in_srgb,var(--edit-accent)_12%,transparent)]")}
-            style={where}
-          >
-            <AlignBars vertical="center" />
-          </span>
-        ) : (
-          <button
-            key={`child-${i}`}
-            type="button"
-            title={`${labels[i]} ile yer değiştir`}
-            aria-label={`${place(c.row, c.col)}: ${labels[i]} — onunla yer değiştir`}
-            onClick={() => onSwap(i)}
-            className="group/swap flex items-center px-1.5 rounded-[4px] cursor-pointer"
-            style={where}
-          >
-            <span className="w-full h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-40 group-hover/swap:opacity-80 transition-opacity" />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * Where a Blok or component sits, Figma's "Position": its parent's grid in
- * small (CellPicker) — as many columns and rows as the grid has; click a cell
- * to move it there — and, with more than one column, how many it covers.
- * Only when the parent's grid has more than one cell (see hasGrid).
- */
-export function PlacementGroup({ title = "Konum", measure, absolute, index, siblings, labels, parent, onPlace, onSwap, onSpan, onAbsolute }: {
-  title?: string;
-  /** Finds it on the canvas, for its X / Y */
-  measure: string;
-  /** Out of its frame's auto layout, at X / Y */
-  absolute?: Absolute;
-  /** Its place among `siblings` */
-  index: number;
-  siblings: { id: string; span?: number; row?: number; col?: number }[];
-  /** Short names of the siblings, for the box's tooltips */
-  labels: string[];
-  parent?: GridSettings;
-  onPlace: (row: number, col: number) => void;
-  /** Swap cells with sibling `otherId` */
-  onSwap: (otherId: string) => void;
-  onSpan: (span: number) => void;
-  /** Takes it out of the auto layout at X / Y — its size now (`was`) — or back in (undefined) */
-  onAbsolute: (absolute: Absolute | undefined, was?: { width: number; height: number }) => void;
-}) {
-  const shown = useRenderedOffset(measure, JSON.stringify(absolute ?? null) + JSON.stringify(siblings.map((s) => [s.row, s.col, s.span])));
-  if (index < 0) return null;
-  const at = absolute ?? shown;
-  // As in Figma: X / Y are only yours to set out of the auto layout; the button takes it out where it is now.
-  const position = (
-    <div className="flex items-center gap-2">
-      <div className={cn("grid grid-cols-2 gap-2 flex-1 min-w-0", !absolute && "opacity-50 pointer-events-none")}>
-        <NumberField label="X" prefix="X" value={Math.round(at.x)} min={-4000} max={4000} onChange={(x) => onAbsolute({ x, y: at.y })} />
-        <NumberField label="Y" prefix="Y" value={Math.round(at.y)} min={-4000} max={4000} onChange={(y) => onAbsolute({ x: at.x, y })} />
-      </div>
-      <ToggleButton label="Otomatik yerleşimi yok say (serbest konum)" pressed={Boolean(absolute)} onClick={() => onAbsolute(absolute ? undefined : { x: shown.x, y: shown.y }, { width: shown.width, height: shown.height })}>
-        {Glyphs.absolute}
-      </ToggleButton>
-    </div>
-  );
-  // Out of the auto layout, or one cell: no cells to choose.
-  if (absolute || !hasGrid(parent)) return <Group title={title}>{position}</Group>;
-  const columns = gridColumns(parent);
-  const count = columns.length;
-  const rows = gridRows(parent);
-  const cells = layoutCells(siblings, count, rows);
-  const cell = cells[index];
-  // By hand, it can grow up to the next taken cell; in order, up to a whole row.
-  const maxSpan = hasPlacedCells(siblings) ? roomAt(cells, index, cell.row, cell.col, count) : count;
-
-  return (
-    <Group title={title}>
-      {position}
-      <CellPicker
-        columns={columns}
-        // Its set rows — or, when none are set, the rows in use and one more for a new line.
-        rows={rowCount(cells, rows, !rows)}
-        cells={cells}
-        index={index}
-        labels={labels}
-        onPlace={onPlace}
-        onSwap={(other) => onSwap(siblings[other].id)}
-      />
-      {count > 1 && (
-        <div className="grid grid-cols-2 gap-2">
-          <NumberField label="Kapladığı sütun" prefix={Glyphs.width} value={cell.span} min={1} max={Math.max(1, maxSpan)} suffix="sütun" onChange={onSpan} />
-        </div>
-      )}
-    </Group>
+    <label className="flex items-center gap-2 h-7 w-fit cursor-pointer select-none">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
+      <span
+        aria-hidden
+        className="flex items-center justify-center w-4 h-4 rounded-[4px] border border-[var(--border-hover)] text-[var(--bg-1)] peer-checked:bg-[var(--text-title)] peer-checked:border-[var(--text-title)] peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--edit-accent)] transition-colors"
+      >
+        {checked && (
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </span>
+      <span className="text-[12px] text-[var(--text-title)]">{label}</span>
+    </label>
   );
 }
 
@@ -1388,35 +1259,6 @@ const SIZE_MODES: Record<"width" | "height", { value: SizeMode; label: string; n
     { value: "fill", label: "Fill Container", name: "Fill" },
   ],
 };
-
-/**
- * An element's place in its frame on the canvas (px from the frame's top
- * left — the frame is its offset parent) and its size, measured again
- * whenever `revision` changes and when the page is resized.
- */
-function useRenderedOffset(selector: string, revision: string) {
-  const [at, setAt] = useState({ x: 0, y: 0, width: 0, height: 0 });
-  useEffect(() => {
-    const el = document.querySelector<HTMLElement>(`main ${selector}`);
-    if (!el) return;
-    const measure = () =>
-      setAt((prev) =>
-        prev.x === el.offsetLeft && prev.y === el.offsetTop && prev.width === el.offsetWidth && prev.height === el.offsetHeight
-          ? prev
-          : { x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight }
-      );
-    const frame = el.parentElement;
-    const resize = new ResizeObserver(measure);
-    resize.observe(el);
-    if (frame) resize.observe(frame);
-    const first = window.setTimeout(measure, 0);
-    return () => {
-      resize.disconnect();
-      window.clearTimeout(first);
-    };
-  }, [selector, revision]);
-  return at;
-}
 
 /**
  * An element's rendered size on the canvas (px), kept up to date — measured
@@ -1465,16 +1307,17 @@ function usePopover(width: number) {
       document.removeEventListener("scroll", close, true);
     };
   }, [at]);
-  /** Opens it under `under` (right-aligned with it), or closes it. */
-  const toggle = (under: Element) => {
+  /** Opens it under `under` — its right edge with `under`'s, or its left edge with `side` "left" — or closes it. */
+  const toggle = (under: Element, side: "left" | "right" = "right") => {
     const r = under.getBoundingClientRect();
-    setAt((open) => (open ? null : { top: r.bottom + 6, left: Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8) }));
+    const left = side === "left" ? r.left : r.right - width;
+    setAt((open) => (open ? null : { top: r.bottom + 6, left: Math.min(Math.max(8, left), window.innerWidth - width - 8) }));
   };
   return { at, box, toggle, close: () => setAt(null) };
 }
 
 /** A choice in a FieldMenu: `divided` puts a line above it. */
-type MenuItem = { label: string; hint?: string; checked?: boolean; disabled?: boolean; divided?: boolean; onSelect: () => void };
+export type MenuItem = { label: string; hint?: string; checked?: boolean; disabled?: boolean; divided?: boolean; onSelect: () => void };
 
 /**
  * A small menu at the end of a field: its trigger (`children` and a chevron)
@@ -1502,39 +1345,84 @@ function FieldMenu({ label, items, children }: {
           <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {at && (
-        <div
-          role="menu"
-          style={{ top: at.top, left: at.left, width: MENU_WIDTH, maxHeight: `calc(100vh - ${at.top + 8}px)` }}
-          className="fixed z-50 p-1 overflow-y-auto overscroll-contain rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
-        >
-          {items.map((item) => (
-            <div key={item.label} className={cn(item.divided && "mt-1 pt-1 border-t border-[var(--border)]")}>
-            <button
-              type="button"
-              role="menuitemradio"
-              aria-checked={Boolean(item.checked)}
-              disabled={item.disabled}
-              onClick={() => {
-                item.onSelect();
-                close();
-              }}
-              className="flex items-center gap-2 w-full h-8 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
-            >
-              <span className="w-3 shrink-0 text-[var(--text-title)]">
-                {item.checked && (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                    <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </span>
-              <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{item.label}</span>
-              {item.hint && <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)]">{item.hint}</span>}
-            </button>
-            </div>
-          ))}
+      {at && <MenuList at={at} width={MENU_WIDTH} items={items} onClose={close} />}
+    </div>
+  );
+}
+
+/** A menu's list of choices (see usePopover): each ticked when chosen; a choice closes it. */
+function MenuList({ at, width, items, onClose }: { at: { top: number; left: number }; width: number; items: MenuItem[]; onClose: () => void }) {
+  return (
+    <div
+      role="menu"
+      style={{ top: at.top, left: at.left, width, maxHeight: `calc(100vh - ${at.top + 8}px)` }}
+      className="fixed z-50 p-1 overflow-y-auto overscroll-contain rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
+    >
+      {items.map((item) => (
+        <div key={item.label} className={cn(item.divided && "mt-1 pt-1 border-t border-[var(--border)]")}>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={Boolean(item.checked)}
+            disabled={item.disabled}
+            onClick={() => {
+              item.onSelect();
+              onClose();
+            }}
+            className="flex items-center gap-2 w-full h-8 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
+          >
+            <span className="w-3 shrink-0 text-[var(--text-title)]">
+              {item.checked && (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                  <path d="M2.5 6.5l2.3 2.2L9.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+            <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{item.label}</span>
+            {item.hint && <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)]">{item.hint}</span>}
+          </button>
         </div>
-      )}
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The inspector's header, as Figma's: the selection's kind — its icon and
+ * name, and under the chevron a menu (the layers holding it, where to go
+ * from it) — and what can be done with it, as icons on the right.
+ */
+export function InspectorHeader({ icon, tone, title, menu = [], actions }: {
+  icon?: ReactNode;
+  /** The icon's colour (its level's, a component's purple…) */
+  tone?: string;
+  title: string;
+  menu?: MenuItem[];
+  actions?: ReactNode;
+}) {
+  const { at, box, toggle, close } = usePopover(220);
+  return (
+    <div className="shrink-0 flex items-center justify-between gap-2 h-12 pl-2.5 pr-2 border-b border-[var(--border)]">
+      <div ref={box} className="relative flex min-w-0 items-center">
+        <button
+          type="button"
+          aria-haspopup={menu.length > 0 ? "menu" : undefined}
+          aria-expanded={menu.length > 0 ? Boolean(at) : undefined}
+          disabled={menu.length === 0}
+          onClick={(e) => toggle(e.currentTarget, "left")}
+          className="flex min-w-0 items-center gap-1.5 h-8 px-1.5 rounded-[6px] enabled:hover:bg-[var(--bg-4)] enabled:cursor-pointer transition-colors"
+        >
+          {icon && <span className="flex shrink-0 items-center [&_svg]:w-3.5 [&_svg]:h-3.5" style={{ color: tone }}>{icon}</span>}
+          <span className="min-w-0 truncate text-[13px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</span>
+          {menu.length > 0 && (
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden className="shrink-0 text-[var(--text-subtitle)]">
+              <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+        {at && <MenuList at={at} width={220} items={menu} onClose={close} />}
+      </div>
+      {actions && <div className="flex items-center gap-0.5 shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -1617,10 +1505,12 @@ function LimitField({ label, placeholder, name, icon, value, current, onChange }
  * Fill (the cell / the row's height) or Hug (its content). `measure` finds
  * its element on the canvas.
  */
-export function SizeGroup(props: SizeFieldsProps) {
+/** Figma's Layout section (a layer without auto layout): its W / H — and, for a frame, Clip content. */
+export function SizeGroup({ clip, ...props }: SizeFieldsProps & { clip?: { checked: boolean; onChange: (clip: boolean) => void } }) {
   return (
-    <Group title="Boyut">
+    <Group title="Yerleşim">
       <SizeFields {...props} />
+      {clip && <CheckRow label="İçeriği kırp" checked={clip.checked} onChange={clip.onChange} />}
     </Group>
   );
 }
@@ -1728,34 +1618,27 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
 /** A component's icon, from the catalog. */
 const blockIcon = (type: BlockType) => BLOCK_DEFS.find((d) => d.type === type)?.icon;
 
-/**
- * Out of the auto layout a Fill size has nothing to fill: as in Figma it
- * becomes a fixed one, at the size it has now (`was`).
- */
-export function freeSize(size: Sizing | undefined, was?: { width: number; height: number }): Sizing | undefined {
-  if (!was) return size;
-  const next = { ...size };
-  if ((size?.width ?? "fill") === "fill") Object.assign(next, { width: "fixed", widthPx: was.width });
-  if (size?.height === "fill") Object.assign(next, { height: "fixed", heightPx: was.height });
-  return next;
-}
-
 /** Where `children` sit on their grid. */
 const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid?: GridSettings) =>
   layoutCells(children, gridColumns(grid).length, gridRows(grid));
 
-/** A section: the grid its Bloks sit on, and its Bloks. */
-export function SectionInspector({ section, onChange, onAlign, onSelectGroup, onAddGroup }: {
+/** Figma's Clip content, for a frame's look. */
+const clipOf = (look: FrameLook | undefined, onChange: (look: FrameLook) => void) => ({
+  checked: Boolean(look?.clip),
+  onChange: (clip: boolean) => onChange({ ...look, clip: clip || undefined }),
+});
+
+/** A Bölüm, as Figma's frame: its Yerleşim — the auto layout its Bloks sit in, its W / H, Clip content — then its look. */
+export function SectionInspector({ section, variables, onChange, onAlign }: {
   section: PageSection;
-  onChange: (patch: { grid?: GridSettings; size?: Sizing }) => void;
+  variables: DesignVariable[];
+  onChange: (patch: { grid?: GridSettings; size?: Sizing; look?: FrameLook }) => void;
   /** Where its content sits in it (the alignment box) */
   onAlign: (justify: GridAlign, align: GridAlign) => void;
-  onSelectGroup: (groupId: string) => void;
-  onAddGroup: () => void;
 }) {
+  const setLook = (look: FrameLook) => onChange({ look });
   return (
     <div className="flex flex-col">
-      <Hint>Yerleşim, Figma’daki auto layout gibi: bloklar alt alta, yan yana ya da ızgarada dizilir. Hizalama kutusu blokların bölümün neresinde duracağını seçer.</Hint>
       <GridFields
         grid={section.grid}
         measure={`[data-section-id="${section.id}"] > [data-section-frame]`}
@@ -1765,54 +1648,24 @@ export function SectionInspector({ section, onChange, onAlign, onSelectGroup, on
         cells={cellsOf(section.groups, section.grid)}
         onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
+        clip={clipOf(section.look, setLook)}
       />
-      <Group title="Bloklar" actions={<SquareButton label="Blok ekle" onClick={onAddGroup}>{Glyphs.plus}</SquareButton>}>
-        {section.groups.map((g, i) => (
-          <ChildRow
-            key={g.id}
-            icon={Glyphs.group}
-            tone={GROUP_TONE}
-            label={g.name?.trim() || `Blok ${i + 1}`}
-            detail={groupSummary(g) ?? "Boş"}
-            onClick={() => onSelectGroup(g.id)}
-          />
-        ))}
-        {section.groups.length === 0 && <p className="text-[11px] text-[var(--text-subtitle)]">Henüz blok yok.</p>}
-      </Group>
+      <LookFields look={section.look} variables={variables} onChange={setLook} />
     </div>
   );
 }
 
-/** A Blok: its place in the section, the grid its components sit on, and its components. */
-export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap, onAlign, onSelectBlock, onAddBlock }: {
+/** A Blok, as Figma's frame: its Yerleşim — the auto layout its components sit in, its W / H, Clip content — then its look. */
+export function GroupInspector({ group, variables, onChange, onAlign }: {
   group: PageGroup;
-  section: PageSection;
-  lang: Lang;
-  onChange: (patch: { grid?: GridSettings; span?: number; size?: Sizing; cellAlign?: CellAlign; absolute?: Absolute }) => void;
-  /** Put it in a free cell of the section's grid */
-  onPlace: (row: number, col: number) => void;
-  /** Swap cells with another Blok of the section */
-  onSwap: (otherId: string) => void;
+  variables: DesignVariable[];
+  onChange: (patch: { grid?: GridSettings; size?: Sizing; look?: FrameLook }) => void;
   /** Where its content sits in it (the alignment box) */
   onAlign: (justify: GridAlign, align: GridAlign) => void;
-  onSelectBlock: (blockId: string) => void;
-  onAddBlock: () => void;
 }) {
+  const setLook = (look: FrameLook) => onChange({ look });
   return (
     <div className="flex flex-col">
-      <Hint>Yerleşim, Figma’daki auto layout gibi: bileşenler alt alta, yan yana ya da ızgarada dizilir. Hizalama kutusu bileşenlerin bloğun neresinde duracağını seçer.</Hint>
-      <PlacementGroup
-        measure={`[data-group-id="${group.id}"]`}
-        absolute={group.absolute}
-        onAbsolute={(absolute, was) => onChange({ absolute, ...(absolute ? { size: freeSize(group.size, was) } : {}) })}
-        index={section.groups.findIndex((g) => g.id === group.id)}
-        siblings={section.groups}
-        labels={section.groups.map((g, i) => g.name?.trim() || `Blok ${i + 1}`)}
-        parent={section.grid}
-        onPlace={onPlace}
-        onSwap={onSwap}
-        onSpan={(span) => onChange({ span })}
-      />
       <GridFields
         grid={group.grid}
         measure={`[data-group-id="${group.id}"]`}
@@ -1821,53 +1674,20 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
         cells={cellsOf(group.blocks, group.grid)}
         onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
+        clip={clipOf(group.look, setLook)}
       />
-      <Group title="Bileşenler" actions={<SquareButton label="Bileşen ekle" onClick={onAddBlock}>{Glyphs.plus}</SquareButton>}>
-        {group.blocks.map((b) => (
-          <ChildRow
-            key={b.id}
-            icon={blockIcon(b.type)}
-            tone={blockTone(b.type)}
-            label={b.name?.trim() || BLOCK_LABELS[b.type]}
-            detail={blockSummary(b, lang)}
-            onClick={() => onSelectBlock(b.id)}
-          />
-        ))}
-        {group.blocks.length === 0 && <p className="text-[11px] text-[var(--text-subtitle)]">Henüz bileşen yok.</p>}
-      </Group>
+      <LookFields look={group.look} variables={variables} onChange={setLook} />
     </div>
   );
 }
 
 // ── Main components and molecules (see ComponentDesign, DesignMolecule) ───────
 
-/** Figma's main component mark (purple): what changes here changes every instance. */
-function MainComponentHint({ type, what }: { type: BlockType; what: string }) {
-  return (
-    <Hint>
-      <span className="inline-flex items-center gap-1 align-top font-medium text-[#9747ff]">{Glyphs.mainComponent}Ana bileşen</span>
-      {` · ${what} tüm sitedeki ${BLOCK_LABELS[type]} bileşenlerinde birlikte değişir.`}
-    </Hint>
-  );
-}
-
-/** A molecule's mark (teal) and what changes with it — with a way to it. */
-function MoleculeHint({ molecule, children, onOpen }: { molecule: DesignMolecule; children: ReactNode; onOpen?: () => void }) {
-  return (
-    <Hint>
-      <span className="inline-flex items-center gap-1 align-top font-medium text-[var(--edit-molecule)]">{Glyphs.molecule}{molecule.name}</span>
-      {" · molekül. "}
-      {children}
-      {onOpen && (
-        <button type="button" onClick={onOpen} className="ml-1 inline-flex items-center gap-0.5 align-top font-medium text-[var(--text-title)] hover:underline cursor-pointer">
-          Moleküle git{Glyphs.goTo}
-        </button>
-      )}
-    </Hint>
-  );
-}
-
-/** The molecule's frame: its Yerleşim — spacing bindable to variables — and its look: corners, fill, stroke; with `onSize`, an instance's W / H in its component. */
+/**
+ * A molecule's frame: its Yerleşim — spacing bindable to variables, Clip
+ * content — and its look (see LookFields); with `onSize`, an instance's
+ * W / H in its component.
+ */
 function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onChange }: {
   molecule: DesignMolecule;
   variables: DesignVariable[];
@@ -1877,12 +1697,11 @@ function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onCha
   onSize?: (size: Sizing) => void;
   onChange: (molecule: DesignMolecule) => void;
 }) {
-  const { theme } = useTheme();
   const byId = new Map(variables.map((v) => [v.id, v]));
   const layout = moleculeLayout(molecule, byId);
   const sizes = variables.filter((v) => v.kind === "number");
-  const colors = variables.filter((v) => v.kind === "color");
   const setLayout = (next: GridSettings) => onChange({ ...molecule, layout: next });
+  const setLook = (look: FrameLook) => onChange({ ...molecule, ...look });
   const bind = (key: SpacingKey, variableId: string | null) => {
     const spacing = { ...molecule.spacing };
     if (variableId) spacing[key] = variableId;
@@ -1902,129 +1721,92 @@ function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onCha
         onAlign={(justify, align) => setLayout({ ...layout, justify, align })}
         onChange={setLayout}
         bind={{ bound: molecule.spacing ?? {}, variables: sizes, onBind: bind }}
+        clip={clipOf(molecule, setLook)}
       />
-      <Group title="Görünüş">
-        <Row label="Köşe">
-          <BoundField label="Köşe" kind="number" prefix={Glyphs.radius} value={molecule.radius ?? { value: 0 }} targets={sizes} byId={byId} mode={theme} onChange={(radius) => onChange({ ...molecule, radius })} />
-        </Row>
-      </Group>
-      <PaintGroup
-        title="Dolgu"
-        paint={molecule.fill}
-        create={() => ({ color: { alias: "bg-4" } })}
-        colors={colors}
-        byId={byId}
-        mode={theme}
-        onChange={(fill) => onChange({ ...molecule, fill })}
-      />
-      <PaintGroup
-        title="Kenar çizgisi"
-        paint={molecule.stroke}
-        create={(): MoleculeStroke => ({ color: { alias: "border" }, weight: { value: 1 }, align: "inside" })}
-        colors={colors}
-        byId={byId}
-        mode={theme}
-        onChange={(stroke) => onChange({ ...molecule, stroke })}
-      >
-        {molecule.stroke && (
-          <div className="grid grid-cols-2 gap-2">
-            <SelectField
-              label="Kenar çizgisinin yeri"
-              value={molecule.stroke.align}
-              options={STROKE_ALIGNS}
-              onChange={(align) => molecule.stroke && onChange({ ...molecule, stroke: { ...molecule.stroke, align: align as StrokeAlign } })}
-            />
-            <BoundField
-              label="Kenar çizgisinin kalınlığı"
-              kind="number"
-              prefix={Glyphs.strokeWeight}
-              value={molecule.stroke.weight}
-              targets={sizes}
-              byId={byId}
-              mode={theme}
-              onChange={(weight) => molecule.stroke && onChange({ ...molecule, stroke: { ...molecule.stroke, weight } })}
-            />
-          </div>
-        )}
-      </PaintGroup>
-    </>
-  );
-}
-
-/** Where a stroke is drawn, as Figma names it. */
-const STROKE_ALIGNS: { value: StrokeAlign; label: string }[] = [
-  { value: "inside", label: "İçeride" },
-  { value: "center", label: "Ortada" },
-  { value: "outside", label: "Dışarıda" },
-];
-
-/** A component laid out by its main component: how it lays out its items, and the molecule they are. */
-export function ComponentLayoutGroup({ block, design, molecules, onChange, onMolecule, onOpenMolecule }: {
-  block: Block;
-  design: ResolvedDesign;
-  /** The molecules its items can be */
-  molecules: DesignMolecule[];
-  onChange: (layout: GridSettings) => void;
-  onMolecule: (id: string) => void;
-  onOpenMolecule: (id: string) => void;
-}) {
-  const { molecule } = design.item;
-  const noun = ENTRY_SPEC[block.type]?.noun ?? "Öğe";
-  return (
-    <>
-      <MainComponentHint type={block.type} what="Yerleşimi ve molekülü" />
-      <GridFields
-        grid={design.layout}
-        measure={`[data-block-id="${block.id}"] [data-component-frame]`}
-        cells={cellsOf(itemsOf(block).map(() => ({})), design.layout)}
-        onAlign={(justify, align) => onChange({ ...design.layout, justify, align })}
-        onChange={onChange}
-      />
-      <Group title="Molekül" actions={<SquareButton label="Moleküle git" onClick={() => onOpenMolecule(molecule.id)}>{Glyphs.goTo}</SquareButton>}>
-        <Row label={plural(noun)}>
-          <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
-            <span className="shrink-0 text-[var(--edit-molecule)]">{Glyphs.molecule}</span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{molecule.name}</span>
-            <FieldMenu
-              label="Molekülü değiştir"
-              items={molecules.map((m) => ({ label: m.name, hint: m.slots.map((slot) => slot.name).join(" + "), checked: m.id === molecule.id, onSelect: () => onMolecule(m.id) }))}
-            />
-          </div>
-        </Row>
-      </Group>
+      <LookFields look={molecule} variables={variables} onChange={setLook} />
     </>
   );
 }
 
 /**
- * An item of such a component — an instance of its molecule: the molecule's
- * frame (the same in all of its instances, everywhere) and the item's size
- * in the component (the same for all of its items).
+ * A component laid out by its main component, as Figma's instance of a
+ * frame with auto layout: the main component's Yerleşim — how it lays out
+ * its items — with this one's W / H.
  */
-export function ItemLayoutGroup({ block, itemId, design, variables, onSize, onMolecule, onOpenMolecule }: {
+export function ComponentLayoutGroup({ block, design, onChange, onSize, onLook }: {
+  block: Block;
+  design: ResolvedDesign;
+  /** Changes the main component's layout — every instance */
+  onChange: (layout: GridSettings) => void;
+  /** Changes this one's size */
+  onSize: (size: Sizing) => void;
+  /** Changes this one's look (its Clip content) */
+  onLook: (look: FrameLook) => void;
+}) {
+  return (
+    <GridFields
+      grid={design.layout}
+      measure={`[data-block-id="${block.id}"] [data-component-frame]`}
+      size={block.size}
+      onSize={onSize}
+      cells={cellsOf(itemsOf(block).map(() => ({})), design.layout)}
+      onAlign={(justify, align) => onChange({ ...design.layout, justify, align })}
+      onChange={onChange}
+      clip={clipOf(block.look, onLook)}
+    />
+  );
+}
+
+/**
+ * The molecule a component's items are, as Figma's instance swap property —
+ * a row of its properties: swapped from the menu, opened with the arrow.
+ */
+export function MoleculeProperty({ molecule, molecules, onMolecule, onOpenMolecule }: {
+  molecule: DesignMolecule;
+  /** The molecules its items can be */
+  molecules: DesignMolecule[];
+  onMolecule: (id: string) => void;
+  onOpenMolecule: (id: string) => void;
+}) {
+  return (
+    <Row label="Molekül">
+      <div className="flex w-full min-w-0 items-center gap-1">
+        <div className={cn("flex flex-1 min-w-0 items-center gap-2 px-2", FIELD)}>
+          <span className="shrink-0 text-[var(--edit-molecule)]">{Glyphs.instance}</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{molecule.name}</span>
+          <FieldMenu
+            label="Molekülü değiştir"
+            items={molecules.map((m) => ({ label: m.name, hint: m.slots.map((slot) => slot.name).join(" + "), checked: m.id === molecule.id, onSelect: () => onMolecule(m.id) }))}
+          />
+        </div>
+        <SquareButton label="Moleküle git" onClick={() => onOpenMolecule(molecule.id)}>{Glyphs.goTo}</SquareButton>
+      </div>
+    </Row>
+  );
+}
+
+/**
+ * An item of such a component — an instance of its molecule: the molecule's
+ * frame and look (the same in all of its instances, everywhere) with the
+ * item's W / H in the component (the same for all of its items).
+ */
+export function ItemLayoutGroup({ block, itemId, design, variables, onSize, onMolecule }: {
   block: Block;
   itemId: string;
   design: ResolvedDesign;
   variables: DesignVariable[];
   onSize: (size: Sizing) => void;
   onMolecule: (molecule: DesignMolecule) => void;
-  onOpenMolecule: (id: string) => void;
 }) {
-  const { molecule } = design.item;
   return (
-    <>
-      <MoleculeHint molecule={molecule} onOpen={() => onOpenMolecule(molecule.id)}>
-        {`Çerçevesi onu kullanan her yerde birlikte değişir; W / H ise ${BLOCK_LABELS[block.type]} bileşeninin (tüm ${plural(ENTRY_SPEC[block.type]?.noun ?? "Öğe").toLocaleLowerCase("tr")} aynı).`}
-      </MoleculeHint>
-      <MoleculeFrameFields
-        molecule={molecule}
-        variables={variables}
-        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`}
-        size={design.item.size}
-        onSize={onSize}
-        onChange={onMolecule}
-      />
-    </>
+    <MoleculeFrameFields
+      molecule={design.item.molecule}
+      variables={variables}
+      measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`}
+      size={design.item.size}
+      onSize={onSize}
+      onChange={onMolecule}
+    />
   );
 }
 
@@ -2050,28 +1832,29 @@ function AtomPicker({ slot, atoms, byId, onChange }: {
 }
 
 /**
- * A text layer of an item — a slot of its molecule: the atom giving it its
- * look (swapped from the menu, edited with the arrow) and its size in the
- * molecule's frame — both the same in all of the molecule's instances —
- * then this item's text.
+ * A text layer of an item — a slot of its molecule — as Figma's text layer:
+ * this item's text (its property), then the slot's Yerleşim (W / H), Görünüş
+ * (opacity), Tipografi — the atom giving it its look, swapped from the menu,
+ * opened with the arrow — and Dolgu: the atom's colour. All but the text
+ * are the same in all of the molecule's instances.
  */
-export function TextLayerInspector({ block, itemId, slot, molecule, atoms, variables, lang, onSlot, onOpenAtom, onOpenMolecule, onChange }: {
+export function TextLayerInspector({ block, itemId, slot, atoms, variables, lang, onSlot, onAtom, onOpenAtom, onChange }: {
   block: Block;
   itemId: string;
   slot: MoleculeSlot;
-  /** The molecule it is a slot of */
-  molecule: DesignMolecule;
   /** The site's atoms (the ones it can use) */
   atoms: DesignAtom[];
-  /** The site's variables (for the atoms' sizes) */
+  /** The site's variables (for the atoms' sizes, the colours) */
   variables: DesignVariable[];
   lang: Lang;
   onSlot: (slot: MoleculeSlot) => void;
+  /** Changes its atom (its colour) — every text using it */
+  onAtom: (atom: DesignAtom) => void;
   /** Opens the atom in the inspector */
   onOpenAtom: (id: string) => void;
-  onOpenMolecule: (id: string) => void;
   onChange: (patch: Partial<Block>) => void;
 }) {
+  const { theme } = useTheme();
   const atom = atoms.find((a) => a.id === slot.atom);
   const byId = new Map(variables.map((v) => [v.id, v]));
   const spec = ENTRY_SPEC[block.type]?.fields.find((f) => f.key === slot.field);
@@ -2080,28 +1863,40 @@ export function TextLayerInspector({ block, itemId, slot, molecule, atoms, varia
   const key = (lang === "en" && !spec?.shared ? `${slot.field}En` : slot.field) as keyof BlockEntry;
   return (
     <div className="flex flex-col">
-      <MoleculeHint molecule={molecule} onOpen={() => onOpenMolecule(molecule.id)}>
-        {`${slot.name} katmanının atomu ve boyutu onu kullanan her yerde birlikte değişir.`}
-      </MoleculeHint>
-      <Group title="Atom" actions={atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
-        <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(id) => onSlot({ ...slot, atom: id })} />
-      </Group>
+      {spec && entry && (
+        <Group title="İçerik">
+          <AutoTextarea
+            label={spec.label}
+            value={(entry[key] as string | undefined) ?? ""}
+            placeholder={spec.placeholder}
+            onChange={(v) => onChange({ entries: entries.map((e) => (e.id === itemId ? { ...e, [key]: v } : e)) })}
+          />
+        </Group>
+      )}
       <SizeGroup
         size={slot.size}
         measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"] [data-text-layer="${slot.field}"]`}
         onChange={(size) => onSlot({ ...slot, size })}
       />
-      {spec && entry && (
-        <Group title="İçerik">
-          <Field label={spec.label}>
-            <AutoTextarea
-              label={spec.label}
-              value={(entry[key] as string | undefined) ?? ""}
-              placeholder={spec.placeholder}
-              onChange={(v) => onChange({ entries: entries.map((e) => (e.id === itemId ? { ...e, [key]: v } : e)) })}
-            />
-          </Field>
-        </Group>
+      <Group title="Görünüş">
+        <div className="grid grid-cols-2 gap-2">
+          <OpacityField value={slot.opacity} onChange={(opacity) => onSlot({ ...slot, opacity })} />
+        </div>
+      </Group>
+      <Group title="Tipografi" actions={atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
+        <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(id) => onSlot({ ...slot, atom: id })} />
+      </Group>
+      {atom && (
+        <PaintGroup
+          title="Dolgu"
+          paint={{ color: atom.color }}
+          create={() => ({ color: atom.color })}
+          colors={variables.filter((v) => v.kind === "color")}
+          byId={byId}
+          mode={theme}
+          fixed
+          onChange={(paint) => paint && onAtom({ ...atom, color: paint.color })}
+        />
       )}
     </div>
   );
@@ -2339,11 +2134,13 @@ function BoundField({ label, kind, value, targets, byId, mode, prefix, onChange 
  * hidden (the eye), removed (minus); "+" adds one when there is none. Under
  * it, `children` (a stroke's own settings).
  */
-function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode, onChange, children }: {
+function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode, fixed = false, onChange, children }: {
   title: string;
   paint?: T;
   /** A new one, for "+" */
   create: () => T;
+  /** Always there (a text's colour): no eye, no minus */
+  fixed?: boolean;
   /** The colour variables it can be bound to */
   colors: DesignVariable[];
   byId: Map<string, DesignVariable>;
@@ -2355,9 +2152,10 @@ function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode,
   return (
     <Group
       title={title}
+      muted={!paint}
       actions={
         <div ref={box} className="flex items-center gap-0.5">
-          <SquareButton label="Değişken uygula" onClick={() => { if (box.current) toggle(box.current); }}>{Glyphs.styles}</SquareButton>
+          {paint && <SquareButton label="Değişken uygula" onClick={() => { if (box.current) toggle(box.current); }}>{Glyphs.styles}</SquareButton>}
           {!paint && <SquareButton label={`${title} ekle`} onClick={() => onChange(create())}>{Glyphs.plus}</SquareButton>}
           {at && (
             <VariablePicker
@@ -2381,15 +2179,101 @@ function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode,
             <div className={cn("flex-1 min-w-0 transition-opacity", paint.hidden && "opacity-50")}>
               <BoundField label={title} kind="color" value={paint.color} targets={colors} byId={byId} mode={mode} onChange={(color) => onChange({ ...paint, color })} />
             </div>
-            <SquareButton label={paint.hidden ? "Göster" : "Gizle"} onClick={() => onChange({ ...paint, hidden: paint.hidden ? undefined : true })}>
-              {paint.hidden ? Glyphs.eyeOff : Glyphs.eye}
-            </SquareButton>
-            <SquareButton label={`${title} kaldır`} onClick={() => onChange(undefined)}>{Glyphs.minus}</SquareButton>
+            {!fixed && (
+              <>
+                <SquareButton label={paint.hidden ? "Göster" : "Gizle"} onClick={() => onChange({ ...paint, hidden: paint.hidden ? undefined : true })}>
+                  {paint.hidden ? Glyphs.eyeOff : Glyphs.eye}
+                </SquareButton>
+                <SquareButton label={`${title} kaldır`} onClick={() => onChange(undefined)}>{Glyphs.minus}</SquareButton>
+              </>
+            )}
           </div>
           {children}
         </>
       )}
     </Group>
+  );
+}
+
+/** Where a stroke is drawn, as Figma names it. */
+const STROKE_ALIGNS: { value: StrokeAlign; label: string }[] = [
+  { value: "inside", label: "İçeride" },
+  { value: "center", label: "Ortada" },
+  { value: "outside", label: "Dışarıda" },
+];
+
+/** Figma's opacity field (%). */
+function OpacityField({ value, onChange }: { value?: number; onChange: (opacity: number | undefined) => void }) {
+  return (
+    <NumberField label="Opaklık" prefix={Glyphs.opacity} value={value ?? 100} min={0} max={100} suffix="%" onChange={(n) => onChange(n >= 100 ? undefined : n)} />
+  );
+}
+
+/**
+ * A frame's look (see FrameLook), as Figma's Appearance (opacity, corner
+ * radius), Fill and Stroke sections — every frame has them: the page, a
+ * Bölüm, a Blok, a component, a molecule. Values bind to variables as
+ * everywhere (see Bindable).
+ */
+export function LookFields({ look, variables, onChange }: {
+  look?: FrameLook;
+  variables: DesignVariable[];
+  onChange: (look: FrameLook) => void;
+}) {
+  const { theme } = useTheme();
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  const sizes = variables.filter((v) => v.kind === "number");
+  const colors = variables.filter((v) => v.kind === "color");
+  const value = look ?? {};
+  const set = (patch: Partial<FrameLook>) => onChange({ ...value, ...patch });
+  return (
+    <>
+      <Group title="Görünüş">
+        <div className="grid grid-cols-2 gap-2">
+          <OpacityField value={value.opacity} onChange={(opacity) => set({ opacity })} />
+          <BoundField label="Köşe" kind="number" prefix={Glyphs.radius} value={value.radius ?? { value: 0 }} targets={sizes} byId={byId} mode={theme} onChange={(radius) => set({ radius })} />
+        </div>
+      </Group>
+      <PaintGroup
+        title="Dolgu"
+        paint={value.fill}
+        create={() => ({ color: { alias: "bg-4" } })}
+        colors={colors}
+        byId={byId}
+        mode={theme}
+        onChange={(fill) => set({ fill })}
+      />
+      <PaintGroup
+        title="Kenar çizgisi"
+        paint={value.stroke}
+        create={(): Stroke => ({ color: { alias: "border" }, weight: { value: 1 }, align: "inside" })}
+        colors={colors}
+        byId={byId}
+        mode={theme}
+        onChange={(stroke) => set({ stroke })}
+      >
+        {value.stroke && (
+          <div className="grid grid-cols-2 gap-2">
+            <SelectField
+              label="Kenar çizgisinin yeri"
+              value={value.stroke.align}
+              options={STROKE_ALIGNS}
+              onChange={(align) => value.stroke && set({ stroke: { ...value.stroke, align: align as StrokeAlign } })}
+            />
+            <BoundField
+              label="Kenar çizgisinin kalınlığı"
+              kind="number"
+              prefix={Glyphs.strokeWeight}
+              value={value.stroke.weight}
+              targets={sizes}
+              byId={byId}
+              mode={theme}
+              onChange={(weight) => value.stroke && set({ stroke: { ...value.stroke, weight } })}
+            />
+          </div>
+        )}
+      </PaintGroup>
+    </>
   );
 }
 
@@ -2420,10 +2304,6 @@ export function VariableInspector({ variable, variables, onChange }: {
 
   return (
     <div className="flex flex-col">
-      <Hint>
-        Değişken, Figma’daki gibi: ona bağlı her şey birlikte değişir.
-        {variable.token && ` Sitenin ${variable.token} token’ını yönetir.`}
-      </Hint>
       <Group title="Değişken">
         <Field label="Ad">
           <TextField label="Ad" value={variable.name} onChange={(name) => onChange({ ...variable, name })} placeholder="grup/ad" />
@@ -2431,6 +2311,11 @@ export function VariableInspector({ variable, variables, onChange }: {
         <Row label="Tür">
           <span className="text-[12px] text-[var(--text-title)]">{KIND_LABEL[variable.kind]}</span>
         </Row>
+        {variable.token && (
+          <Row label="Token">
+            <span className="text-[12px] font-mono text-[var(--text-subtitle)]">{variable.token}</span>
+          </Row>
+        )}
       </Group>
       <Group title="Değer">
         {variable.kind === "color" ? (
@@ -2496,20 +2381,13 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
   const byId = new Map(variables.map((v) => [v.id, v]));
   return (
     <div className="flex flex-col">
-      <Hint>
-        <span className="inline-flex items-center gap-1 align-top font-medium text-[var(--edit-accent)]">{Glyphs.atom}Atom</span>
-        {" · Görünüşünü taşır: onu kullanan her metin tüm sitede birlikte değişir. Metnin yeri ve kutusunun boyutu, onu içeren molekülde."}
-      </Hint>
-      <Group title="Atom">
+      <Group title="Metin stili">
         <Field label="Ad">
           <TextField label="Ad" value={atom.name} onChange={(name) => onChange({ ...atom, name })} placeholder="grup/ad" />
         </Field>
-        <Row label="Tür">
-          <span className="text-[12px] text-[var(--text-title)]">Metin</span>
-        </Row>
       </Group>
       <Group title="Tipografi">
-        {TYPOGRAPHY_FIELDS.map(({ key, label }) => (
+        {TYPOGRAPHY_FIELDS.filter(({ key }) => key !== "color").map(({ key, label }) => (
           <Field key={key} label={label}>
             <BoundField
               label={label}
@@ -2523,6 +2401,17 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
           </Field>
         ))}
       </Group>
+      {/* Its colour is a text's fill, as in Figma. */}
+      <PaintGroup
+        title="Dolgu"
+        paint={{ color: atom.color ?? { value: "#000000" } }}
+        create={() => ({ color: atom.color })}
+        colors={variables.filter((v) => v.kind === "color")}
+        byId={byId}
+        mode={theme}
+        fixed
+        onChange={(paint) => paint && onChange({ ...atom, color: paint.color })}
+      />
       <UsesGroup uses={uses} empty="Henüz hiçbir molekül bu atomu kullanmıyor." />
     </div>
   );
@@ -2545,16 +2434,11 @@ export function MoleculeInspector({ molecule, variables, atoms, uses, onChange, 
   const setSlot = (slot: MoleculeSlot) => onChange({ ...molecule, slots: molecule.slots.map((s) => (s.field === slot.field ? slot : s)) });
   return (
     <div className="flex flex-col">
-      <Hint>
-        <span className="inline-flex items-center gap-1 align-top font-medium text-[var(--edit-molecule)]">{Glyphs.molecule}Molekül</span>
-        {" · Atomlarını bir arada tutan çerçeve: onu kullanan her bileşen tüm sitede birlikte değişir. Bir örneğin bileşen içindeki boyutu, o bileşende."}
-      </Hint>
       <Group title="Molekül">
         <Field label="Ad">
           <TextField label="Ad" value={molecule.name} onChange={(name) => onChange({ ...molecule, name })} placeholder="grup/ad" />
         </Field>
       </Group>
-      <MoleculeFrameFields molecule={molecule} variables={variables} measure={`[data-molecule="${molecule.id}"]`} onChange={onChange} />
       <Group title="Atomlar">
         {molecule.slots.map((slot) => (
           <Field key={slot.field} label={slot.name}>
@@ -2565,6 +2449,7 @@ export function MoleculeInspector({ molecule, variables, atoms, uses, onChange, 
           </Field>
         ))}
       </Group>
+      <MoleculeFrameFields molecule={molecule} variables={variables} measure={`[data-molecule="${molecule.id}"]`} onChange={onChange} />
       <UsesGroup uses={uses} empty="Henüz hiçbir bileşen bu molekülü kullanmıyor." />
     </div>
   );
@@ -2579,18 +2464,10 @@ export function MoleculeInspector({ molecule, variables, atoms, uses, onChange, 
  * nothing when it can't (as in Figma, Fill sections fill it across, and a
  * Hug height leaves no room down).
  */
-export function PageFrameInspector({ project, onChange }: { project: ProjectData; onChange: (frame: PageFrame) => void }) {
+export function PageFrameInspector({ project, variables, onChange }: { project: ProjectData; variables: DesignVariable[]; onChange: (frame: PageFrame) => void }) {
   const frame = project.frame;
-  const sections = sectionsOf(project.items);
-  const allFill = sections.length > 0 && sections.every((s) => (s.size?.width ?? "fill") === "fill");
-  const hugHeight = (frame?.size?.height ?? "hug") === "hug";
-  const notes = [
-    allFill && "Bölümlerin genişliği Fill: sayfayı yatayda dolduruyorlar, bu yüzden sola / ortaya / sağa kaymazlar. Kaydırmak için bölümün W'sini Hug ya da Fixed yap.",
-    hugHeight && "Sayfanın yüksekliği Hug: içeriği kadar uzun, dikey hizalamaya yer yok. Dikey hizalama için H'yi Fixed yap.",
-  ].filter(Boolean) as string[];
   return (
     <div className="flex flex-col">
-      <Hint>Sayfanın kendi frame’i: başlığı, bölümleri ve ayırıcıları alt alta tutar. Hizalama kutusu Figma’daki gibi içeriğin sayfanın neresinde duracağını seçer.</Hint>
       <Group title="Yerleşim">
         <SizeFields size={frame?.size} measure="[data-page-frame]" heightModes={["fixed", "hug"]} onChange={(size) => onChange({ ...frame, size })} />
         <div className="grid grid-cols-2 gap-2">
@@ -2602,10 +2479,9 @@ export function PageFrameInspector({ project, onChange }: { project: ProjectData
             onChange={({ x, y }) => onChange({ ...frame, justify: x, align: y })}
           />
         </div>
-        {notes.map((note) => (
-          <p key={note} className="text-[11px] leading-4 text-[var(--text-subtitle)]">{note}</p>
-        ))}
+        <CheckRow label="İçeriği kırp" checked={Boolean(frame?.look?.clip)} onChange={(clip) => onChange({ ...frame, look: { ...frame?.look, clip: clip || undefined } })} />
       </Group>
+      <LookFields look={frame?.look} variables={variables} onChange={(look) => onChange({ ...frame, look })} />
     </div>
   );
 }
@@ -2619,7 +2495,6 @@ export function ProjectInspector({ project, slug, companies, onChange }: {
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Başlık, kategori, yıl ve açıklama sayfanın en üstünde — çift tıklayıp düzenle. Bir bölüm ya da blok seçince ayarları burada görünür.</Hint>
       <Group title="Kapak görseli">
         <CoverImageUpload slug={slug} currentSrc={project.coverImage} onChange={(coverImage) => onChange({ coverImage })} />
       </Group>
@@ -2840,7 +2715,7 @@ export function ItemInspector({ block, itemId, lang, projectSlug, layout, onChan
   itemId: string;
   lang: Lang;
   projectSlug: string;
-  /** Its frame, from its main component (see ItemLayoutGroup) — first */
+  /** Its frame, from its molecule (see ItemLayoutGroup) — after its properties, as in Figma */
   layout?: ReactNode;
   onChange: (patch: Partial<Block>) => void;
 }) {
@@ -2876,7 +2751,6 @@ export function ItemInspector({ block, itemId, lang, projectSlug, layout, onChan
 
   return (
     <div className="flex flex-col">
-      {layout}
       {spec.image && (
         <Group title={block.type === "team" ? "Fotoğraf" : "Görsel"}>
           <ImageSource
@@ -2933,6 +2807,7 @@ export function ItemInspector({ block, itemId, lang, projectSlug, layout, onChan
           </Row>
         </Group>
       )}
+      {layout}
     </div>
   );
 }

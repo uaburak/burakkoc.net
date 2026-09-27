@@ -2,8 +2,9 @@
 
 import { createContext, useContext, type CSSProperties } from "react";
 import type { BlockType, ComponentDesigns, GridSettings } from "@/types/project";
-import type { DesignMolecule, DesignVariable, MoleculeSlot, MoleculeStroke, SpacingKey, VariableValue } from "@/types/design";
-import { cssValue, resolvedValue } from "./designVariables";
+import type { DesignMolecule, DesignVariable, MoleculeSlot, SpacingKey, VariableValue } from "@/types/design";
+import { resolvedValue } from "./designVariables";
+import { frameLookStyle } from "./frameLook";
 import { innerLayoutStyle } from "./LayoutGrid";
 
 /**
@@ -51,39 +52,13 @@ export function moleculeLayout(molecule: DesignMolecule, byId: Map<string, Desig
 }
 
 /**
- * A stroke as a box shadow — inside, across or outside the edge, following
- * the corners — so, as in Figma, it never changes the frame's size (and the
- * editor's outlines stay free).
- */
-function strokeShadow(stroke: MoleculeStroke | undefined, byId: Map<string, DesignVariable>): string | undefined {
-  if (!stroke || stroke.hidden) return undefined;
-  const color = cssValue(stroke.color, "color", byId);
-  const weight = cssValue(stroke.weight, "number", byId);
-  if (!color || !weight) return undefined;
-  if (stroke.align === "outside") return `0 0 0 ${weight} ${color}`;
-  if (stroke.align === "center") return `inset 0 0 0 calc(${weight} / 2) ${color}, 0 0 0 calc(${weight} / 2) ${color}`;
-  return `inset 0 0 0 ${weight} ${color}`;
-}
-
-/** Its fill's colour as CSS — none when it has none, or it is hidden. */
-export function fillCss(molecule: DesignMolecule, byId: Map<string, DesignVariable>): string | null {
-  return molecule.fill && !molecule.fill.hidden ? cssValue(molecule.fill.color, "color", byId) : null;
-}
-
-/**
- * An instance's frame as styles: its layout (see innerLayoutStyle), corners,
- * fill and stroke. A project's own corner radius (its theme) wins over the
- * molecule's, as over the site's other cards.
+ * An instance's frame as styles: its layout (see innerLayoutStyle) and its
+ * look (see frameLookStyle). A project's own corner radius (its theme) wins
+ * over the molecule's, as over the site's other cards.
  */
 export function moleculeFrameStyle(molecule: DesignMolecule, variables: DesignVariable[]): CSSProperties {
   const byId = new Map(variables.map((v) => [v.id, v]));
-  const radius = molecule.radius ? cssValue(molecule.radius, "number", byId) : null;
-  return {
-    ...innerLayoutStyle(moleculeLayout(molecule, byId)),
-    borderRadius: radius ? `var(--project-radius-sm, ${radius})` : undefined,
-    backgroundColor: fillCss(molecule, byId) ?? undefined,
-    boxShadow: strokeShadow(molecule.stroke, byId),
-  };
+  return { ...innerLayoutStyle(moleculeLayout(molecule, byId)), ...frameLookStyle(molecule, variables, { projectRadius: true }) };
 }
 
 /** Components that laid out their items themselves before molecules — and the molecule taking that over. */
