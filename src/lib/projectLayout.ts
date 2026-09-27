@@ -211,6 +211,36 @@ export function placeInCell<T extends Placeable>(children: T[], id: string, row:
   return closeRows(next.map((c) => ({ ...c, row: c.row! })), rows);
 }
 
+/**
+ * The grid's content moved as one — its children together, each keeping its
+ * place next to the others — towards cell `row` / `col` of a grid of `count`
+ * columns and `rows` rows, as Figma's alignment box aligns the content of an
+ * auto layout frame: a corner cell puts the content in that corner, a middle
+ * one centres it as near as the cells allow. The clicked cell always ends up
+ * inside the content. `rows` must fit the content (see rowCount).
+ */
+export function alignedCells(cells: Cell[], count: number, rows: number, row: number, col: number): Cell[] {
+  if (!cells.length) return cells;
+  const top = Math.min(...cells.map((c) => c.row));
+  const bottom = Math.max(...cells.map((c) => c.row));
+  const left = Math.min(...cells.map((c) => c.col));
+  const right = Math.max(...cells.map((c) => c.col + c.span - 1));
+  // Where the content starts along one axis: from the start (first cell) to the end (last cell), in proportion.
+  const lean = (at: number, size: number, total: number) => (total <= size ? 1 : 1 + Math.round(((at - 1) / (total - 1)) * (total - size)));
+  const dRow = lean(row, bottom - top + 1, rows) - top;
+  const dCol = lean(col, right - left + 1, count) - left;
+  return cells.map((c) => ({ ...c, row: c.row + dRow, col: c.col + dCol }));
+}
+
+/** Moves the grid's content towards a cell (see alignedCells); every child is then in a cell, the list in reading order. */
+export function alignChildren<T extends Placeable>(children: T[], count: number, rows: number, row: number, col: number): T[] {
+  const cells = layoutCells(children, count, rows);
+  const moved = alignedCells(cells, count, rowCount(cells, rows), row, col);
+  return children
+    .map((child, i) => ({ ...child, row: moved[i].row, col: moved[i].col, span: moved[i].span }))
+    .sort((a, b) => a.row - b.row || a.col - b.col);
+}
+
 /** Swaps the cells of two children (each keeps its width where it fits). `rows`: the grid's set rows. */
 export function swapCells<T extends Placeable>(children: T[], aId: string, bId: string, count: number, rows = 0): T[] {
   const a = children.findIndex((c) => c.id === aId);
@@ -325,6 +355,16 @@ export function placeGroup(items: PageItem[], groupId: string, sectionId: string
 }
 
 /** Swaps the cells of two Bloks of a section. */
+/** Moves a section's Bloks together towards a cell of its grid (see alignedCells). */
+export function alignGroups(items: PageItem[], sectionId: string, row: number, col: number): PageItem[] {
+  return mapSection(items, sectionId, (s) => ({ ...s, groups: alignChildren(s.groups, gridColumns(s.grid).length, gridRows(s.grid), row, col) }));
+}
+
+/** Moves a Blok's components together towards a cell of its grid (see alignedCells). */
+export function alignBlocks(items: PageItem[], groupId: string, row: number, col: number): PageItem[] {
+  return mapGroup(items, groupId, (g) => ({ ...g, blocks: alignChildren(g.blocks, gridColumns(g.grid).length, gridRows(g.grid), row, col) }));
+}
+
 export function swapGroups(items: PageItem[], sectionId: string, aId: string, bId: string): PageItem[] {
   return mapSection(items, sectionId, (s) => ({ ...s, groups: swapCells(s.groups, aId, bId, gridColumns(s.grid).length, gridRows(s.grid)) }));
 }

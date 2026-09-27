@@ -1,7 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { Block, BlockType, Group, PageItem, PageSection, ProjectData } from "@/types/project";
 import { makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
-import { findBlock, findGroup, gridColumns, gridRows, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
+import { alignBlocks, alignGroups, findBlock, findGroup, gridColumns, gridRows, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
 
 /**
  * Every project mutation the form and the live editor perform. All updates are
@@ -133,6 +133,11 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         setItems((items) => placeGroup(items, groupId, sectionId, row, col));
       },
 
+      /** Moves a section's Bloks together towards a cell of its grid, keeping their order. */
+      alignGroups(sectionId: string, row: number, col: number) {
+        setItems((items) => alignGroups(items, sectionId, row, col));
+      },
+
       /** Swaps the cells of two Bloks of a section. */
       swapGroups(sectionId: string, aId: string, bId: string) {
         setItems((items) => swapGroups(items, sectionId, aId, bId));
@@ -216,6 +221,11 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
       /** Puts a component in a free cell of a Blok's grid; the others keep their cells. */
       placeBlock(blockId: string, groupId: string, row: number, col: number) {
         setItems((items) => placeBlock(items, blockId, groupId, row, col));
+      },
+
+      /** Moves a Blok's components together towards a cell of its grid, keeping their order. */
+      alignBlocks(groupId: string, row: number, col: number) {
+        setItems((items) => alignBlocks(items, groupId, row, col));
       },
 
       /** Swaps the cells of two components of a Blok. */

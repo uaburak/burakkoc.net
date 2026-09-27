@@ -10,7 +10,7 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, freeCells, gridColumns, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
+import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, alignedCells, freeCells, gridColumns, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
 
 /**
  * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
@@ -729,64 +729,73 @@ const ALIGNS_Y: { value: GridAlign; label: string; icon: ReactNode }[] = [
 
 /**
  * Figma's alignment box in the grid's own shape: as many columns (to width)
- * and rows as the grid has — 3 × 3, even 12 × 12. A dot in each empty cell,
- * the bars in each cell holding a child (across the cells it covers). Off —
- * faded, nothing to click — until a grid is assigned (see hasGrid). With a
- * single child (`onPlace`), click a cell to move it there.
+ * and rows as the grid has — 3 × 3, even 12 × 12. The cells holding a child
+ * show the bars, the others a dot. Click a cell to move the content there as
+ * one (`onAlign`, see alignedCells): the children keep their order — on
+ * hover, grey bars show where they would go. Off — faded, nothing to click —
+ * until a grid is assigned (see hasGrid).
  */
-function GridBox({ columns, rows, cells, assigned, onPlace }: {
+function GridBox({ columns, rows, cells, assigned, onAlign }: {
   columns: number[];
   rows: number;
   /** The children's cells */
   cells: Cell[];
   assigned: boolean;
-  /** Move the only child to a cell */
-  onPlace?: (row: number, col: number) => void;
+  /** Move the content towards a cell (unset: nothing to move) */
+  onAlign?: (row: number, col: number) => void;
 }) {
+  const [hover, setHover] = useState<{ row: number; col: number } | null>(null);
+  const align = assigned && cells.length > 0 ? onAlign : undefined;
+  const count = columns.length;
+  const key = (row: number, col: number) => `${row}:${col}`;
+  const covered = (list: Cell[]) => new Set(list.flatMap((c) => Array.from({ length: c.span }, (_, k) => key(c.row, c.col + k))));
+  const taken = covered(cells);
+  const preview = align && hover ? covered(alignedCells(cells, count, rows, hover.row, hover.col)) : null;
   const place = (row: number, col: number) => `${row}. satır, ${col}. sütun`;
-  const pick = assigned ? onPlace : undefined;
+
   return (
     <div
       role="group"
       aria-label="Izgara"
       aria-disabled={!assigned}
       title={assigned ? undefined : "Önce ızgara ata: sütun ya da satır sayısı ver"}
+      onPointerLeave={() => setHover(null)}
       className={cn("grid h-full min-h-16 p-1 rounded-[6px] bg-[var(--bg-4)]", !assigned && "opacity-50")}
       style={{ gridTemplateColumns: columns.map((w) => `minmax(0,${w}fr)`).join(" "), gridTemplateRows: `repeat(${rows}, minmax(14px, 1fr))` }}
     >
-      {freeCells(cells, columns.length, rows).map((f) => {
-        const dot = <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60 group-hover/align:hidden" />;
-        return pick ? (
+      {Array.from({ length: rows * count }, (_, i) => {
+        const row = Math.floor(i / count) + 1;
+        const col = (i % count) + 1;
+        const here = key(row, col);
+        // The cells it takes in colour; on hover, the ones it would take in grey.
+        const mark = taken.has(here) ? (
+          <AlignBars vertical="center" />
+        ) : preview?.has(here) ? (
+          <AlignBars vertical="center" faint />
+        ) : (
+          <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60" />
+        );
+        return align ? (
           <button
-            key={`free-${f.row}-${f.col}`}
+            key={here}
             type="button"
-            title={`${place(f.row, f.col)} — buraya taşı`}
-            aria-label={`${place(f.row, f.col)} — buraya taşı`}
-            onClick={() => pick(f.row, f.col)}
-            className="group/align flex items-center justify-center rounded-[4px] cursor-pointer"
-            style={{ gridRow: f.row, gridColumn: f.col }}
+            title={`İçeriği ${place(row, col)} yönüne taşı`}
+            aria-label={`İçeriği ${place(row, col)} yönüne taşı`}
+            onPointerEnter={() => setHover({ row, col })}
+            onFocus={() => setHover({ row, col })}
+            onBlur={() => setHover(null)}
+            onClick={() => align(row, col)}
+            // The mark inside changes as the preview does — never let it take the press, or the click is lost.
+            className="flex items-center justify-center rounded-[4px] cursor-pointer [&>*]:pointer-events-none"
           >
-            {dot}
-            <span className="hidden group-hover/align:flex">
-              <AlignBars vertical="center" faint />
-            </span>
+            {mark}
           </button>
         ) : (
-          <span key={`free-${f.row}-${f.col}`} className="flex items-center justify-center" style={{ gridRow: f.row, gridColumn: f.col }}>
-            {dot}
+          <span key={here} className="flex items-center justify-center">
+            {mark}
           </span>
         );
       })}
-      {cells.map((c, i) => (
-        <span
-          key={`child-${i}`}
-          title={place(c.row, c.col)}
-          className={cn("flex items-center justify-center rounded-[4px]", c.span > 1 && "mx-0.5 bg-[color-mix(in_srgb,var(--edit-accent)_12%,transparent)]")}
-          style={{ gridRow: c.row, gridColumn: `${c.col} / span ${c.span}` }}
-        >
-          <AlignBars vertical="center" />
-        </span>
-      ))}
     </div>
   );
 }
@@ -798,12 +807,12 @@ function GridBox({ columns, rows, cells, assigned, onPlace }: {
  * (GridBox) with the gaps between the children beside it, and the padding
  * inside (px).
  */
-function GridFields({ grid, cells, onPlace, onChange }: {
+function GridFields({ grid, cells, onAlign, onChange }: {
   grid?: GridSettings;
   /** Its children's cells (layoutCells) */
   cells: Cell[];
-  /** Move its only child to a cell (unset: it has none, or several) */
-  onPlace?: (row: number, col: number) => void;
+  /** Move its content towards a cell, keeping the children's order */
+  onAlign: (row: number, col: number) => void;
   onChange: (grid: GridSettings) => void;
 }) {
   const columns = gridColumns(grid);
@@ -878,7 +887,7 @@ function GridFields({ grid, cells, onPlace, onChange }: {
       {/* As in Figma's Auto layout: the box on the left, the gaps beside it; the padding under them (px). */}
       <div className="grid grid-cols-2 gap-2">
         <div className="row-span-2">
-          <GridBox columns={columns} rows={Math.max(gridRows(grid), minRows)} cells={cells} assigned={hasGrid(grid)} onPlace={onPlace} />
+          <GridBox columns={columns} rows={Math.max(gridRows(grid), minRows)} cells={cells} assigned={hasGrid(grid)} onAlign={onAlign} />
         </div>
         <NumberField label="Sütunlar arası boşluk" prefix={Glyphs.gapX} value={gaps.column} min={0} max={400} onChange={(columnGap) => onChange({ ...grid, columnGap })} />
         <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
@@ -1331,21 +1340,21 @@ const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid
   layoutCells(children, gridColumns(grid).length, gridRows(grid));
 
 /** A section: the grid its Bloks sit on, and its Bloks. */
-export function SectionInspector({ section, onChange, onPlaceGroup, onSelectGroup, onAddGroup }: {
+export function SectionInspector({ section, onChange, onAlign, onSelectGroup, onAddGroup }: {
   section: PageSection;
   onChange: (patch: { grid?: GridSettings }) => void;
-  /** Put one of its Bloks in a cell of its grid */
-  onPlaceGroup: (groupId: string, row: number, col: number) => void;
+  /** Move its Bloks together towards a cell of its grid */
+  onAlign: (row: number, col: number) => void;
   onSelectGroup: (groupId: string) => void;
   onAddGroup: () => void;
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Izgara bölümün sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Bölümde tek blok varsa kutuda bir hücreye tıklayınca oraya geçer.</Hint>
+      <Hint>Izgara bölümün sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Kutuda bir hücreye tıklayınca bloklar, sıraları korunarak o yöne kayar.</Hint>
       <GridFields
         grid={section.grid}
         cells={cellsOf(section.groups, section.grid)}
-        onPlace={section.groups.length === 1 ? (row, col) => onPlaceGroup(section.groups[0].id, row, col) : undefined}
+        onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
       />
       <Group title="Bloklar" actions={<SquareButton label="Blok ekle" onClick={onAddGroup}>{Glyphs.plus}</SquareButton>}>
@@ -1366,7 +1375,7 @@ export function SectionInspector({ section, onChange, onPlaceGroup, onSelectGrou
 }
 
 /** A Blok: its place in the section, the grid its components sit on, and its components. */
-export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap, onPlaceBlock, onSelectBlock, onAddBlock }: {
+export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap, onAlign, onSelectBlock, onAddBlock }: {
   group: PageGroup;
   section: PageSection;
   lang: Lang;
@@ -1375,14 +1384,14 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
   onPlace: (row: number, col: number) => void;
   /** Swap cells with another Blok of the section */
   onSwap: (otherId: string) => void;
-  /** Put one of its components in a cell of its grid */
-  onPlaceBlock: (blockId: string, row: number, col: number) => void;
+  /** Move its components together towards a cell of its grid */
+  onAlign: (row: number, col: number) => void;
   onSelectBlock: (blockId: string) => void;
   onAddBlock: () => void;
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Izgara bloğun sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Blokta tek bileşen varsa kutuda bir hücreye tıklayınca oraya geçer.</Hint>
+      <Hint>Izgara bloğun sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Kutuda bir hücreye tıklayınca bileşenler, sıraları korunarak o yöne kayar.</Hint>
       <PlacementGroup
         index={section.groups.findIndex((g) => g.id === group.id)}
         siblings={section.groups}
@@ -1402,7 +1411,7 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
       <GridFields
         grid={group.grid}
         cells={cellsOf(group.blocks, group.grid)}
-        onPlace={group.blocks.length === 1 ? (row, col) => onPlaceBlock(group.blocks[0].id, row, col) : undefined}
+        onAlign={onAlign}
         onChange={(grid) => onChange({ grid })}
       />
       <Group title="Bileşenler" actions={<SquareButton label="Bileşen ekle" onClick={onAddBlock}>{Glyphs.plus}</SquareButton>}>
