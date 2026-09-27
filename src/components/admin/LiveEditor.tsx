@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, ComponentDesign, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
+import type { MoleculeSlot } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { PillButton } from "@/components/Button";
@@ -30,6 +31,10 @@ import {
   TextLayerInspector,
   VariableInspector,
   AtomInspector,
+  MoleculeInspector,
+  moleculeUse,
+  typeUse,
+  type DesignUse,
   canMoveItem,
   duplicateItem,
   freeSize,
@@ -38,14 +43,15 @@ import {
   moveItem,
   plainText,
   removeItem,
-  textLayersOf,
   addEntry,
   itemNoun,
 } from "@/components/admin/LiveInspector";
-import { DESIGNED_TYPES, atomUses, resolveDesign } from "@/components/project/componentDesign";
+import { DESIGNED_TYPES, fitsType, moleculeUses, resolveDesign, useComponentDesign } from "@/components/project/componentDesign";
+import { atomUses } from "@/components/project/designMolecules";
 import { DesignSystemStyle } from "@/components/project/designSystem";
 import { VariablesPanel } from "@/components/admin/VariablesPanel";
 import { AtomsPanel } from "@/components/admin/AtomsPanel";
+import { MoleculesPanel } from "@/components/admin/MoleculesPanel";
 import type { DesignSystem } from "@/components/admin/useDesignSystem";
 import { BLOCK_DEFS, BLOCK_GROUPS, BLOCK_LABELS, BlockPickerDialog, GROUP_TONE, SECTION_TONE, blockTone, uid } from "@/components/admin/blockCatalog";
 import {
@@ -111,9 +117,11 @@ type Selection =
   /** A design variable (see DesignVariable), picked in the Değişkenler tab */
   | { kind: "variable"; variableId: string }
   /** An atom (see DesignAtom), picked in the Atomlar tab or from a text layer */
-  | { kind: "atom"; atomId: string };
+  | { kind: "atom"; atomId: string }
+  /** A molecule (see DesignMolecule), picked in the Moleküller tab or from a component's item */
+  | { kind: "molecule"; moleculeId: string };
 /** The left panel's tabs; the inspector (Düzenle) has a panel of its own, on the right. */
-type Tab = "layers" | "components" | "variables" | "atoms" | "theme" | "publish";
+type Tab = "layers" | "components" | "variables" | "atoms" | "molecules" | "theme" | "publish";
 /** Pieces of the project overview that behave like blocks. */
 type OverviewPart = "title" | "description" | "cover";
 
@@ -168,6 +176,15 @@ const RailIcons = {
       <ellipse cx="10" cy="10" rx="7.25" ry="3" stroke="currentColor" strokeWidth="1.5" transform="rotate(-30 10 10)" />
       <ellipse cx="10" cy="10" rx="7.25" ry="3" stroke="currentColor" strokeWidth="1.5" transform="rotate(30 10 10)" />
       <circle cx="10" cy="10" r="1.5" fill="currentColor" />
+    </svg>
+  ),
+  // Molecules: atoms bound together.
+  molecules: (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+      <circle cx="5" cy="14" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="15" cy="14" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="10" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M7.5 14h5M6.3 11.8l2.4-4M13.7 11.8l-2.4-4" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   ),
   publish: (
@@ -1523,7 +1540,8 @@ function LayerItem({ block, itemId, selection, onSelect }: {
   const inside = selection.kind === "block" && selection.blockId === block.id && selection.itemId === itemId;
   const tone = blockTone(block.type);
   const { open: opened, toggle } = useContext(OpenComponentsContext);
-  const texts = textLayersOf(block.type);
+  // Its text layers: its molecule's slots.
+  const texts = useComponentDesign(block.type).item.molecule.slots.map((slot) => ({ field: slot.field, name: slot.name }));
   const open = opened.has(itemId);
   const item = `[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`;
   const select = () => onSelect({ kind: "block", blockId: block.id, itemId });
@@ -2005,6 +2023,7 @@ const TAB_TITLES: Record<Tab, string> = {
   components: "Bileşenler",
   variables: "Değişkenler",
   atoms: "Atomlar",
+  molecules: "Moleküller",
   theme: "Tema",
   publish: "Yayın",
 };
@@ -2019,7 +2038,9 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
   system: DesignSystem;
   onLoadTemplate: () => void;
 }) {
-  const { designs, variables, atoms } = system;
+  const { designs, variables, atoms, molecules } = system;
+  /** The text layers of a type's items: its molecule's slots — none unless laid out by its main component. */
+  const slotsOf = (type: BlockType) => (DESIGNED_TYPES.has(type) ? resolveDesign(type, designs, molecules, atoms).item.molecule.slots : []);
   const [tab, setTab] = useState<Tab>("layers");
   const [rawSelection, setSelection] = useState<Selection>({ kind: "none" });
   // Where the component picker adds: a Blok, after one of its components or at its end.
@@ -2071,9 +2092,10 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       : null;
   const selectedVariable = rawSelection.kind === "variable" ? variables.find((v) => v.id === rawSelection.variableId) ?? null : null;
   const selectedAtom = rawSelection.kind === "atom" ? atoms.find((a) => a.id === rawSelection.atomId) ?? null : null;
+  const selectedMolecule = rawSelection.kind === "molecule" ? molecules.find((m) => m.id === rawSelection.moleculeId) ?? null : null;
   // A text layer of that item — of a component laid out by its main component.
   const selectedText =
-    selection.kind === "block" && selectedItemId && selection.text && selectedBlock && textLayersOf(selectedBlock.block.type).some((t) => t.field === selection.text)
+    selection.kind === "block" && selectedItemId && selection.text && selectedBlock && slotsOf(selectedBlock.block.type).some((slot) => slot.field === selection.text)
       ? selection.text
       : null;
   // Backspace / Delete removes the selection — the layer, or the card / item picked inside a
@@ -2252,7 +2274,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
   let inspectorTitle = "Proje bilgileri";
   let inspectorActions: ReactNode = null;
   if (selectedBlock && selectedItemId && selectedText) {
-    inspectorTitle = textLayersOf(selectedBlock.block.type).find((t) => t.field === selectedText)?.name ?? "Metin";
+    inspectorTitle = slotsOf(selectedBlock.block.type).find((slot) => slot.field === selectedText)?.name ?? "Metin";
   } else if (selectedBlock && selectedItemId) {
     const { block } = selectedBlock;
     const itemId = selectedItemId;
@@ -2321,30 +2343,72 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     inspectorActions = system.isStartingAtom(id)
       ? <LayerButton label="Sitenin görünüşüne dön" onClick={() => system.removeAtom(id)}>{Icons.reset}</LayerButton>
       : <LayerButton label="Atomu sil" onClick={() => { system.removeAtom(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
+  } else if (selectedMolecule) {
+    const { id } = selectedMolecule;
+    inspectorTitle = selectedMolecule.name;
+    inspectorActions = (
+      <>
+        <LayerButton label="Çoğalt" onClick={() => select({ kind: "molecule", moleculeId: system.copyMolecule(id) })}>{Icons.duplicate}</LayerButton>
+        {system.isStartingMolecule(id)
+          ? <LayerButton label="Sitenin görünüşüne dön" onClick={() => system.removeMolecule(id)}>{Icons.reset}</LayerButton>
+          : <LayerButton label="Molekülü sil" onClick={() => { system.removeMolecule(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>}
+      </>
+    );
   }
 
   // The selected component's main component (see ComponentDesign), if its type has one; changes go to it — every instance.
-  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs, atoms) : null;
+  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs, molecules, atoms) : null;
   const setMain = (patch: ComponentDesign) => {
     if (selectedBlock) system.setDesign(selectedBlock.block.type, { ...designs[selectedBlock.block.type], ...patch });
+  };
+  /** Changes a slot of the selected component's molecule — in every instance of it. */
+  const setSlot = (slot: MoleculeSlot) => {
+    if (!blockDesign) return;
+    const { molecule } = blockDesign.item;
+    system.setMolecule({ ...molecule, slots: molecule.slots.map((s) => (s.field === slot.field ? slot : s)) });
   };
   /** Opens an atom — from a text layer using it — in its tab and the inspector. */
   const openAtom = (atomId: string) => {
     setTab("atoms");
     select({ kind: "atom", atomId });
   };
+  /** Opens a molecule — from a component or an item — in its tab and the inspector. */
+  const openMolecule = (moleculeId: string) => {
+    setTab("molecules");
+    select({ kind: "molecule", moleculeId });
+  };
+  /** The first instance on this page of a component type with an item: its first item. */
+  const firstItemOf = (type: BlockType) => {
+    const block = sectionsOf(project.items).flatMap(sectionBlocks).find((b) => b.type === type && (b.entries?.length ?? 0) > 0);
+    const itemId = block?.entries?.[0]?.id;
+    return block && itemId ? { blockId: block.id, itemId } : null;
+  };
   /**
-   * Where the selected atom is used — each text layer selecting that text in
-   * the first of its component's instances on this page (with an item).
+   * Where the selected atom is used: the molecules' slots holding it — each
+   * selecting that text on this page, in the first component made of the
+   * molecule (the molecule itself when the page has none).
    */
-  const selectedAtomUses = selectedAtom
-    ? (atomUses(designs, atoms).get(selectedAtom.id) ?? []).map(({ type, field }) => {
-        const found = sectionsOf(project.items).flatMap(sectionBlocks).find((block) => block.type === type && (block.entries?.length ?? 0) > 0);
-        const itemId = found?.entries?.[0]?.id;
+  const uses = moleculeUses(designs, molecules);
+  const selectedAtomUses: DesignUse[] = selectedAtom
+    ? (atomUses(molecules).get(selectedAtom.id) ?? []).map(({ molecule, slot }) => {
+        const at = (uses.get(molecule.id) ?? []).map(firstItemOf).find(Boolean);
         return {
-          type,
-          field,
-          onSelect: found && itemId ? () => select({ kind: "block", blockId: found.id, itemId, text: field }, { scroll: true }) : undefined,
+          key: `${molecule.id}:${slot.field}`,
+          ...moleculeUse(molecule.name),
+          detail: slot.name,
+          onSelect: at ? () => select({ kind: "block", ...at, text: slot.field }, { scroll: true }) : () => openMolecule(molecule.id),
+        };
+      })
+    : [];
+  /** Where the selected molecule is used: the components made of it — each selecting its first item on this page (when it has one). */
+  const selectedMoleculeUses: DesignUse[] = selectedMolecule
+    ? (uses.get(selectedMolecule.id) ?? []).map((type) => {
+        const at = firstItemOf(type);
+        return {
+          key: type,
+          ...typeUse(type),
+          detail: at ? undefined : "bu sayfada yok",
+          onSelect: () => { if (at) select({ kind: "block", ...at }, { scroll: true }); },
         };
       })
     : [];
@@ -2382,6 +2446,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
           <RailButton icon={RailIcons.theme} label="Tema" active={tab === "theme"} onClick={() => setTab("theme")} />
           <RailButton icon={RailIcons.variables} label="Değişkenler" active={tab === "variables"} onClick={() => setTab("variables")} />
           <RailButton icon={RailIcons.atoms} label="Atomlar" active={tab === "atoms"} onClick={() => setTab("atoms")} />
+          <RailButton icon={RailIcons.molecules} label="Moleküller" active={tab === "molecules"} onClick={() => setTab("molecules")} />
           <RailButton icon={RailIcons.publish} label="Yayın" active={tab === "publish"} onClick={() => setTab("publish")} />
         </nav>
 
@@ -2442,6 +2507,15 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
                 selectedId={selection.kind === "atom" ? selection.atomId : null}
                 onSelect={(atomId) => select({ kind: "atom", atomId })}
                 onAdd={(kind) => select({ kind: "atom", atomId: system.addAtom(kind) })}
+              />
+            )}
+
+            {tab === "molecules" && (
+              <MoleculesPanel
+                molecules={molecules}
+                variables={variables}
+                selectedId={selection.kind === "molecule" ? selection.moleculeId : null}
+                onSelect={(moleculeId) => select({ kind: "molecule", moleculeId })}
               />
             )}
 
@@ -2600,13 +2674,14 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
                   <TextLayerInspector
                     block={selectedBlock.block}
                     itemId={selectedItemId}
-                    field={selectedText}
-                    design={blockDesign}
+                    slot={blockDesign.item.molecule.slots.find((slot) => slot.field === selectedText)!}
+                    molecule={blockDesign.item.molecule}
                     atoms={atoms}
                     variables={variables}
                     lang={lang}
-                    onDesign={(layer) => setMain({ texts: { ...designs[selectedBlock.block.type]?.texts, [selectedText]: layer } })}
+                    onSlot={setSlot}
                     onOpenAtom={openAtom}
+                    onOpenMolecule={openMolecule}
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
                   />
                 ) : selectedItemId ? (
@@ -2615,7 +2690,17 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
                     itemId={selectedItemId}
                     lang={lang}
                     projectSlug={slug}
-                    layout={blockDesign && <ItemLayoutGroup block={selectedBlock.block} itemId={selectedItemId} design={blockDesign} onChange={(item) => setMain({ item })} />}
+                    layout={blockDesign && (
+                      <ItemLayoutGroup
+                        block={selectedBlock.block}
+                        itemId={selectedItemId}
+                        design={blockDesign}
+                        variables={variables}
+                        onSize={(size) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, size } })}
+                        onMolecule={system.setMolecule}
+                        onOpenMolecule={openMolecule}
+                      />
+                    )}
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
                   />
                 ) : (
@@ -2644,7 +2729,16 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
                           measure={`[data-block-id="${selectedBlock.block.id}"]`}
                           onChange={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
                         />
-                        {blockDesign && <ComponentLayoutGroup block={selectedBlock.block} design={blockDesign} onChange={(layout) => setMain({ layout })} />}
+                        {blockDesign && (
+                          <ComponentLayoutGroup
+                            block={selectedBlock.block}
+                            design={blockDesign}
+                            molecules={molecules.filter((m) => fitsType(m, selectedBlock.block.type))}
+                            onChange={(layout) => setMain({ layout })}
+                            onMolecule={(molecule) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, molecule } })}
+                            onOpenMolecule={openMolecule}
+                          />
+                        )}
                       </>
                     }
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
@@ -2685,6 +2779,15 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
               <VariableInspector variable={selectedVariable} variables={variables} onChange={system.setVariable} />
             ) : selectedAtom ? (
               <AtomInspector atom={selectedAtom} variables={variables} uses={selectedAtomUses} onChange={system.setAtom} />
+            ) : selectedMolecule ? (
+              <MoleculeInspector
+                molecule={selectedMolecule}
+                variables={variables}
+                atoms={atoms}
+                uses={selectedMoleculeUses}
+                onChange={system.setMolecule}
+                onOpenAtom={openAtom}
+              />
             ) : (
               // Nothing selected: the inspector is never empty — it shows the project settings.
               <ProjectInspector project={project} lang={lang} slug={slug} companies={companies} onChange={actions.updateMeta} />

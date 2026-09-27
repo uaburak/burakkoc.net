@@ -1,3 +1,5 @@
+import type { GridSettings, ItemTextField, TextLayerDesign } from "@/types/project";
+
 // ── Design variables (site-wide) ──────────────────────────────────────────────
 //
 // As Figma's variables: named values — colours, sizes, spacing, weights — the
@@ -56,4 +58,41 @@ export interface DesignAtom extends Typography {
   /** Its name: "Etiket" — "/" makes groups, as a variable's */
   name: string;
   kind: AtomKind;
+}
+
+// ── Molecules (site-wide) ─────────────────────────────────────────────────────
+//
+// As Atomic Design's molecules: a few atoms working together — a card's label
+// and value. A molecule is a frame — how it lays out its atoms (Figma's auto
+// layout), its spacing, corners and background — holding its atoms, each in
+// a slot: which atom, and how big and where in the frame. A component's items
+// are its instances: change the Kart, and every component made of Kart's
+// changes, on every page. How big an item is in its component stays with the
+// component (ComponentDesign.item.size).
+
+/** A place for an atom in a molecule: the item's text it shows, and the atom giving it its look. */
+export interface MoleculeSlot extends TextLayerDesign {
+  /** The item's text it shows */
+  field: ItemTextField;
+  /** Its name in the layers: "Etiket" */
+  name: string;
+}
+
+/** The spacing of a frame that can be bound to a size variable. */
+export type SpacingKey = "paddingX" | "paddingY" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft" | "columnGap" | "rowGap";
+
+export interface DesignMolecule {
+  id: string;
+  /** Its name: "Kart" — "/" makes groups, as a variable's */
+  name: string;
+  /** How it lays out its slots, with its spacing (px) */
+  layout: GridSettings;
+  /** Spacing bound to size variables (their ids) — their values win over the layout's */
+  spacing?: Partial<Record<SpacingKey, string>>;
+  /** Corner radius (px) — or a size variable */
+  radius: VariableValue;
+  /** Background — a colour variable, or a colour of its own */
+  background: VariableValue;
+  /** Its atoms, in their order in the frame */
+  slots: MoleculeSlot[];
 }

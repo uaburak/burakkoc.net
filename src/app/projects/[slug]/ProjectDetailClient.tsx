@@ -6,7 +6,7 @@ import gsap from "gsap";
 import { ArrowLeftIcon } from "@/components/icons";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
 import { loadProject, listProjects } from "@/lib/firestore";
-import { ComponentDesigns, ProjectData, PageSection, PageItem } from "@/types/project";
+import { ProjectData, PageSection, PageItem } from "@/types/project";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import PageEntrance from "@/components/PageEntrance";
@@ -14,10 +14,7 @@ import { projectThemeAttrs } from "@/components/project/projectTheme";
 import { ProjectDivider } from "@/components/project/CoreBlocks";
 import { SectionContent, pageFrameProps, sectionWidthClass } from "@/components/project/LayoutGrid";
 import { sectionBlocks } from "@/lib/projectLayout";
-import { withStartingVariables } from "@/components/project/designVariables";
-import { withStartingAtoms } from "@/components/project/designAtoms";
-import { DesignSystemProvider, DesignSystemStyle } from "@/components/project/designSystem";
-import type { DesignAtom, DesignVariable } from "@/types/design";
+import { DesignSystemProvider, DesignSystemStyle, fromStored, type SiteDesign } from "@/components/project/designSystem";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 
@@ -252,21 +249,15 @@ interface ProjectDetailClientProps {
   slug: string;
   initialProject?: ProjectData | null;
   initialProjects?: ProjectData[];
-  /** The site's main components (see ComponentDesign) */
-  designs?: ComponentDesigns;
-  /** The site's stored design variables (see DesignVariable) */
-  variables?: DesignVariable[];
-  /** The site's stored atoms (see DesignAtom) */
-  atoms?: DesignAtom[];
+  /** The site's design system as stored: its variables, atoms, molecules and main components */
+  design?: SiteDesign;
 }
 
 export function ProjectDetailClient({
   slug,
   initialProject,
   initialProjects,
-  designs = {},
-  variables = [],
-  atoms = [],
+  design = { designs: {}, variables: [], atoms: [], molecules: [] },
 }: ProjectDetailClientProps) {
   const [project, setProject] = useState<ProjectData | null>(initialProject || null);
   const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);
@@ -338,7 +329,7 @@ export function ProjectDetailClient({
   const themeAttrs = projectThemeAttrs(project.theme);
 
   return (
-    <DesignSystemProvider variables={withStartingVariables(variables)} atoms={withStartingAtoms(atoms)} designs={designs}>
+    <DesignSystemProvider {...fromStored(design)}>
     <PageEntrance
       className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative"
       {...themeAttrs}

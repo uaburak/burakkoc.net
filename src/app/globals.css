@@ -21,7 +21,8 @@
 
   /* Admin live editor: text being edited (red), and one colour per level of
      the page — hover / selection frames, toolbars, the sections panel:
-     Bölüm (blue), Blok (green), Bileşen by its kind (text, media, data, research). */
+     Bölüm (blue), Blok (green), Bileşen by its kind (text, media, data, research);
+     and the design system's molecules (teal). */
   --edit-accent: #2f6bff;
   --edit-active: #e5484d;
   --edit-group: #16a34a;
@@ -29,6 +30,7 @@
   --edit-media: #ea580c;
   --edit-data: #db2777;
   --edit-research: #a16207;
+  --edit-molecule: #0891b2;
 
   /* Progress Bar */
   --progress-track: #e6e6e6;
@@ -67,6 +69,7 @@
   --edit-media: #ff8a3d;
   --edit-data: #f0619e;
   --edit-research: #d69e2e;
+  --edit-molecule: #22b8d8;
 
   /* Progress Bar */
   --progress-track: #1e1e1e;

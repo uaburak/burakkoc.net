@@ -1,14 +1,16 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { BlockType, ComponentDesigns, GridSettings, ItemTextField, Sizing, TextLayerDesign } from "@/types/project";
-import type { DesignAtom } from "@/types/design";
+import type { BlockType, ComponentDesigns, GridSettings, ItemTextField, Sizing } from "@/types/project";
+import type { DesignAtom, DesignMolecule, MoleculeSlot } from "@/types/design";
 import { useDesignAtoms } from "./designAtoms";
+import { STARTING_MOLECULES, useDesignMolecules } from "./designMolecules";
 
 /**
  * The main components (see ComponentDesign): one design per type, shared by
- * every instance on every page. The renderers read it from
- * ComponentDesignContext; what isn't set keeps the type's built-in look.
+ * every instance on every page — its frame, and the molecule its items are.
+ * The renderers read it from ComponentDesignContext; what isn't set keeps the
+ * type's built-in look.
  */
 
 /**
@@ -16,52 +18,63 @@ import { useDesignAtoms } from "./designAtoms";
  * could be changed, so pages only change once a main component is edited.
  */
 const BUILT_IN: ComponentDesigns = {
-  // Proje Künyesi: two columns of cards 10px apart; a card: its label (Etiket) over its value (Değer), 12 / 16px in, 2px apart.
+  // Proje Künyesi: two columns of Kart's 10px apart, each as tall as its row.
   info: {
     layout: { columnTracks: [{ size: "fill" }, { size: "fill" }], columnGap: 10, rowGap: 10 },
-    item: { layout: { flow: "vertical", paddingX: 16, paddingY: 12, rowGap: 2 }, size: { height: "fill" } },
-    texts: { label: { atom: "label" }, value: { atom: "value" } },
+    item: { molecule: "card", size: { height: "fill" } },
   },
 };
 
-/** Types whose inside is laid out by their main component (the others keep their built-in look for now). */
+/** Types whose inside is laid out by their main component, their items a molecule's instances (the others keep their built-in look for now). */
 export const DESIGNED_TYPES: ReadonlySet<BlockType> = new Set<BlockType>(["info"]);
 
+/** The texts a type's items have (see BlockEntry). */
+const ITEM_TEXTS: Partial<Record<BlockType, ItemTextField[]>> = { info: ["label", "value"] };
+
+/** Can a type's items be that molecule — do its slots show only texts they have? */
+export function fitsType(molecule: DesignMolecule, type: BlockType) {
+  const texts = ITEM_TEXTS[type] ?? [];
+  return molecule.slots.every((slot) => texts.includes(slot.field));
+}
+
 export interface ResolvedDesign {
+  /** The component's frame: how it lays out its items */
   layout: GridSettings;
-  item: { layout: GridSettings; size?: Sizing };
-  texts: Partial<Record<ItemTextField, TextLayerDesign>>;
+  /** Its items: the molecule they are, and their size in the component */
+  item: { molecule: DesignMolecule; size?: Sizing };
+}
+
+/** The atom a slot showing that text starts with (a starting molecule's), for one whose atom is gone. */
+function startingAtom(field: ItemTextField) {
+  return STARTING_MOLECULES.flatMap((m) => m.slots).find((slot) => slot.field === field)?.atom ?? "text";
 }
 
 /**
- * A type's main component: what is set, over its built-in look. A text layer
- * whose atom is not among `atoms` (deleted) gets its built-in one back.
+ * A type's main component: what is set, over its built-in look. Its items'
+ * molecule is the one set — its own one when that is gone — and a slot whose
+ * atom is not among `atoms` (deleted) gets a starting one back.
  */
-export function resolveDesign(type: BlockType, designs: ComponentDesigns, atoms?: readonly DesignAtom[]): ResolvedDesign {
+export function resolveDesign(type: BlockType, designs: ComponentDesigns, molecules: readonly DesignMolecule[], atoms?: readonly DesignAtom[]): ResolvedDesign {
   const base = BUILT_IN[type] ?? {};
   const set = designs[type] ?? {};
-  const fields = new Set([...Object.keys(base.texts ?? {}), ...Object.keys(set.texts ?? {})] as ItemTextField[]);
-  const texts: ResolvedDesign["texts"] = {};
-  for (const field of fields) {
-    const layer = { ...base.texts?.[field], ...set.texts?.[field] };
-    if (atoms && layer.atom && !atoms.some((a) => a.id === layer.atom)) layer.atom = base.texts?.[field]?.atom;
-    texts[field] = layer;
-  }
+  const find = (id?: string) => (id ? molecules.find((m) => m.id === id) ?? STARTING_MOLECULES.find((m) => m.id === id) : undefined);
+  const molecule = find(set.item?.molecule) ?? find(base.item?.molecule) ?? STARTING_MOLECULES[0];
+  const known = (slot: MoleculeSlot) => !atoms || !slot.atom || atoms.some((a) => a.id === slot.atom);
   return {
     layout: set.layout ?? base.layout ?? {},
-    item: { layout: set.item?.layout ?? base.item?.layout ?? {}, size: set.item?.size ?? base.item?.size },
-    texts,
+    item: {
+      molecule: molecule.slots.every(known) ? molecule : { ...molecule, slots: molecule.slots.map((slot) => (known(slot) ? slot : { ...slot, atom: startingAtom(slot.field) })) },
+      size: set.item?.size ?? base.item?.size,
+    },
   };
 }
 
-/** Where the site's atoms are used: each main component's text layers bound to one, by atom. */
-export function atomUses(designs: ComponentDesigns, atoms: readonly DesignAtom[]): Map<string, { type: BlockType; field: ItemTextField }[]> {
-  const uses = new Map<string, { type: BlockType; field: ItemTextField }[]>();
+/** Where the molecules are used: the types whose items are one, by molecule. */
+export function moleculeUses(designs: ComponentDesigns, molecules: readonly DesignMolecule[]): Map<string, BlockType[]> {
+  const uses = new Map<string, BlockType[]>();
   for (const type of DESIGNED_TYPES) {
-    const { texts } = resolveDesign(type, designs, atoms);
-    for (const [field, layer] of Object.entries(texts) as [ItemTextField, TextLayerDesign][]) {
-      if (layer.atom) uses.set(layer.atom, [...(uses.get(layer.atom) ?? []), { type, field }]);
-    }
+    const { id } = resolveDesign(type, designs, molecules).item.molecule;
+    uses.set(id, [...(uses.get(id) ?? []), type]);
   }
   return uses;
 }
@@ -70,5 +83,5 @@ export function atomUses(designs: ComponentDesigns, atoms: readonly DesignAtom[]
 export const ComponentDesignContext = createContext<ComponentDesigns>({});
 
 export function useComponentDesign(type: BlockType): ResolvedDesign {
-  return resolveDesign(type, useContext(ComponentDesignContext), useDesignAtoms());
+  return resolveDesign(type, useContext(ComponentDesignContext), useDesignMolecules(), useDesignAtoms());
 }

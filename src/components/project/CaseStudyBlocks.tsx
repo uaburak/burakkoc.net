@@ -12,6 +12,9 @@ import type { BlockEditApi, EntryTextKey } from "./editing";
 import { gridFlow } from "@/lib/projectLayout";
 import { innerChildStyle, innerLayoutStyle } from "./LayoutGrid";
 import { useComponentDesign, type ResolvedDesign } from "./componentDesign";
+import { moleculeFrameStyle } from "./designMolecules";
+import { useDesignVariables } from "./designVariables";
+import type { DesignVariable, MoleculeSlot } from "@/types/design";
 
 /**
  * Case-study blocks: info, stats, cards, steps, quote, gallery, compare, links,
@@ -117,7 +120,7 @@ const GRID_SM_COLS: Record<2 | 3 | 4, string> = {
  * Delete once selected).
  */
 function Entries({
-  entries, edit, as: Tag = "div", className, style, designed = false, itemAs: ItemTag = "div", itemClassName, itemStyle, strategy = "grid", render,
+  entries, edit, as: Tag = "div", className, style, designed = false, molecule, itemAs: ItemTag = "div", itemClassName, itemStyle, strategy = "grid", render,
 }: {
   entries: BlockEntry[];
   edit?: BlockEditApi;
@@ -126,6 +129,8 @@ function Entries({
   style?: CSSProperties;
   /** Laid out by its main component (see designFrame): the editor measures it as the component's frame (`data-component-frame`). */
   designed?: boolean;
+  /** The molecule its items are instances of (see DesignMolecule), as their `data-molecule` */
+  molecule?: string;
   itemAs?: ElementType;
   itemClassName?: string | ((entry: BlockEntry, index: number) => string);
   itemStyle?: CSSProperties;
@@ -137,7 +142,7 @@ function Entries({
   if (!edit) {
     return (
       <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
-        {entries.map((e, i) => <ItemTag key={e.id} className={cls(e, i)} style={itemStyle}>{render(e, i)}</ItemTag>)}
+        {entries.map((e, i) => <ItemTag key={e.id} data-molecule={molecule} className={cls(e, i)} style={itemStyle}>{render(e, i)}</ItemTag>)}
       </Tag>
     );
   }
@@ -146,7 +151,7 @@ function Entries({
     <SortableGroup ids={entries.map((e) => e.id)} onMove={edit.moveEntry} strategy={strategy}>
       <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
         {entries.map((e, i) => (
-          <SortableItem key={e.id} id={e.id} as={ItemTag} className={cls(e, i)} style={itemStyle}>
+          <SortableItem key={e.id} id={e.id} as={ItemTag} molecule={molecule} className={cls(e, i)} style={itemStyle}>
             {render(e, i)}
           </SortableItem>
         ))}
@@ -157,44 +162,68 @@ function Entries({
 
 /**
  * The layout of a component laid out by its main component (ComponentDesign),
- * at every width: its frame (how it lays out its items), each item's frame
- * and size, and a text layer's size and place in its item — as styles — and
- * the atom giving that text its look.
+ * at every width, as styles: its frame (how it lays out its items); each
+ * item — an instance of its molecule: the molecule's frame, at the item's
+ * size in the component; and the molecule's slots, each its atom's text at
+ * its size and place in the item.
  */
-function designFrame(design: ResolvedDesign) {
+function designFrame(design: ResolvedDesign, variables: DesignVariable[]) {
+  const { molecule, size } = design.item;
   return {
     frame: innerLayoutStyle(design.layout),
-    item: { ...innerLayoutStyle(design.item.layout), ...innerChildStyle(design.item.size, undefined, gridFlow(design.layout)) },
-    text: (field: ItemTextField) => innerChildStyle(design.texts[field]?.size, design.texts[field]?.align, gridFlow(design.item.layout)),
-    atom: (field: ItemTextField) => design.texts[field]?.atom,
+    molecule,
+    item: { ...moleculeFrameStyle(molecule, variables), ...innerChildStyle(size, undefined, gridFlow(design.layout)) },
+    slot: (slot: MoleculeSlot) => innerChildStyle(slot.size, slot.align, gridFlow(molecule.layout)),
   };
+}
+
+/** A text of an item: the element it is, and how it is typed in. */
+interface ItemText {
+  as: ElementType;
+  placeholder: string;
+  rich?: boolean;
+  className?: string;
+}
+
+/**
+ * An item's texts, in its molecule's slots (see designFrame): each slot
+ * showing one of the item's `texts` — the others (a molecule made for more
+ * texts) show nothing.
+ */
+function slotTexts(entry: BlockEntry, layout: ReturnType<typeof designFrame>, texts: Partial<Record<ItemTextField, ItemText>>, edit?: BlockEditApi) {
+  return layout.molecule.slots.map((slot) => {
+    const text = texts[slot.field];
+    if (!text) return null;
+    return (
+      <EditableText key={slot.field} as={text.as} layer={slot.field} atom={slot.atom} rich={text.rich} className={text.className} style={layout.slot(slot)}
+        value={entry[slot.field]} onChange={entrySetter(edit, entry, slot.field)} placeholder={text.placeholder} />
+    );
+  });
 }
 
 // ── Info (proje künyesi) ──────────────────────────────────────────────────────
 
+/** A Proje Künyesi item's texts: a term and its definition. */
+const INFO_TEXTS: Partial<Record<ItemTextField, ItemText>> = {
+  label: { as: "dt", placeholder: "Etiket" },
+  value: { as: "dd", placeholder: "Değer", rich: true, className: "break-words" },
+};
+
 function InfoBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "label", "value");
-  const layout = designFrame(useComponentDesign("info"));
+  const layout = designFrame(useComponentDesign("info"), useDesignVariables());
   if (!entries.length && !edit) return null;
-  const label = layout.text("label");
-  const value = layout.text("value");
   return (
     <Entries
       entries={entries}
       edit={edit}
       as="dl"
       designed
+      molecule={layout.molecule.id}
       style={layout.frame}
-      itemClassName="rounded-[22px] bg-[var(--bg-4)] min-w-0"
+      itemClassName="min-w-0"
       itemStyle={layout.item}
-      render={(e) => (
-        <>
-          <EditableText as="dt" layer="label" atom={layout.atom("label")} style={label}
-            value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Etiket" />
-          <EditableText as="dd" layer="value" atom={layout.atom("value")} rich className="break-words" style={value}
-            value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="Değer" />
-        </>
-      )}
+      render={(e) => slotTexts(e, layout, INFO_TEXTS, edit)}
     />
   );
 }

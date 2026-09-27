@@ -330,10 +330,11 @@ export type PageItem = PageSection | PageDivider;
 
 // ── Main components (site-wide) ───────────────────────────────────────────────
 //
-// As Figma's main components: each component type has one design, shared by
-// every instance on every page — editing it changes them all. It is the
-// component's inside, as layers: the component lays out its items (the cards
-// of a Proje Künyesi), each item lays out its text layers (Etiket, Değer).
+// As Figma's main components — Atomic Design's organisms: each component type
+// has one design, shared by every instance on every page — editing it changes
+// them all. It is the component's inside, as layers: the component lays out
+// its items (the cards of a Proje Künyesi), each item an instance of a
+// molecule (Kart — see DesignMolecule) laying out its atoms (Etiket, Değer).
 // Stored apart from the projects (see loadComponentDesigns); unset values keep
 // the type's built-in look.
 
@@ -355,9 +356,13 @@ export interface TextLayerDesign {
 export interface ComponentDesign {
   /** The component's frame: how it lays out its items */
   layout?: GridSettings;
-  /** Every item (card): its frame — how it lays out its texts — and its size in the component */
-  item?: { layout?: GridSettings; size?: Sizing };
-  /** Its text layers, by field */
+  /**
+   * Every item (card): the molecule it is (see DesignMolecule — its type's
+   * own one when unset or gone) and its size in the component. `layout` is
+   * from before molecules: the molecule's frame now (see migrateLegacyDesigns).
+   */
+  item?: { molecule?: string; size?: Sizing; layout?: GridSettings };
+  /** From before molecules: its text layers — the molecule's slots now (see migrateLegacyDesigns) */
   texts?: Partial<Record<ItemTextField, TextLayerDesign>>;
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, Group as PageGroup, ItemTextField, LayoutFlow, LinkIconType, ListItem, ListStyle, PageFrame, PageSection, ProjectData, SizeMode, Sizing, TextLayerDesign } from "@/types/project";
+import type { Absolute, AspectRatio, Block, BlockEntry, BlockType, BlockVariant, CellAlign, GridAlign, GridSettings, GridTrack, Group as PageGroup, LayoutFlow, LinkIconType, ListItem, ListStyle, PageFrame, PageSection, ProjectData, SizeMode, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { BlockFields } from "@/components/admin/BlockFields";
 import { CoverImageUpload } from "@/components/admin/FormEditor";
@@ -10,12 +10,13 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import { DESIGNED_TYPES, type ResolvedDesign } from "@/components/project/componentDesign";
+import type { ResolvedDesign } from "@/components/project/componentDesign";
+import { moleculeLayout } from "@/components/project/designMolecules";
 import { boundValue, canAlias, modeValue, type ThemeMode } from "@/components/project/designVariables";
 import { TYPOGRAPHY_KINDS } from "@/components/project/designAtoms";
 import { AtomSample, atomMetrics } from "@/components/admin/AtomsPanel";
 import { useTheme } from "@/context/ThemeContext";
-import type { DesignAtom, DesignVariable, Typography, VariableKind, VariableValue } from "@/types/design";
+import type { DesignAtom, DesignMolecule, DesignVariable, MoleculeSlot, SpacingKey, Typography, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, sectionsOf, freeCells, gridColumns, gridFlow, gridRows, hasGrid, hasPlacedCells, layoutCells, roomAt, rowCount, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
@@ -289,6 +290,15 @@ function Hint({ children }: { children: ReactNode }) {
 }
 
 const Glyphs = {
+  /** A molecule: atoms bound together */
+  molecule: (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <circle cx="3" cy="8.5" r="1.8" stroke="currentColor" strokeWidth="1.1" />
+      <circle cx="9" cy="8.5" r="1.8" stroke="currentColor" strokeWidth="1.1" />
+      <circle cx="6" cy="3" r="1.8" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M4.8 8.5h2.4M3.9 6.9L5.1 4.6M8.1 6.9L6.9 4.6" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  ),
   /** An atom: a nucleus and its orbit */
   atom: (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
@@ -991,7 +1001,18 @@ function useRenderedTracks(selector: string, revision: string) {
  * in it — with the gap(s) beside it (stacked / side by side: one, or Auto —
  * the free space shared out), and the padding inside (px).
  */
-function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange }: {
+/**
+ * Spacing that can be bound to size variables (a molecule's frame): what is
+ * bound, the variables it can be, and binding one — null unbinds it, keeping
+ * the value it had.
+ */
+interface SpacingBinding {
+  bound: Partial<Record<SpacingKey, string>>;
+  variables: DesignVariable[];
+  onBind: (key: SpacingKey, variableId: string | null) => void;
+}
+
+function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange, bind }: {
   grid?: GridSettings;
   /** Finds its frame on the canvas, for its W / H and the sizes its columns and rows have now */
   measure: string;
@@ -1004,6 +1025,8 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
   /** Where its content sits in it (the alignment box) */
   onAlign: (justify: GridAlign, align: GridAlign) => void;
   onChange: (grid: GridSettings) => void;
+  /** Its gaps and padding can be bound to variables (see SpacingBinding) */
+  bind?: SpacingBinding;
 }) {
   const columns = gridColumns(grid);
   const count = columns.length;
@@ -1029,6 +1052,29 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
         : { ...grid, paddingTop: grid?.paddingY ?? 0, paddingBottom: grid?.paddingY ?? 0, paddingLeft: grid?.paddingX ?? 0, paddingRight: grid?.paddingX ?? 0 }
     );
   const side = (key: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft", pair: "paddingX" | "paddingY") => grid?.[key] ?? grid?.[pair] ?? 0;
+  /**
+   * A gap or padding field — bindable, with `bind`: bound, it shows its
+   * variable's name, and the menu at its end binds, swaps or unbinds it
+   * (after the field's own choices, `items`).
+   */
+  const spacing = (key: SpacingKey, field: Parameters<typeof NumberField>[0], items: MenuItem[] = []) => {
+    if (!bind) return <NumberField {...field} />;
+    const boundId = bind.bound[key];
+    const variable = boundId ? bind.variables.find((v) => v.id === boundId) : undefined;
+    const binding: MenuItem[] = [
+      ...bind.variables.map((v, i) => ({ label: v.name, checked: v.id === boundId, divided: i === 0 && items.length > 0, onSelect: () => bind.onBind(key, v.id) })),
+      ...(boundId ? [{ label: "Bağlantıyı kaldır", hint: "değerini kendisi tutsun", divided: true, onSelect: () => bind.onBind(key, null) }] : []),
+    ];
+    const menu = <FieldMenu label={`${field.label}: değişkene bağla`} items={[...items, ...binding]}>{Glyphs.link}</FieldMenu>;
+    if (!boundId) return <NumberField {...field} suffix={menu} />;
+    return (
+      <div className={cn("flex items-center gap-1.5 min-w-0 px-2", FIELD)} title={`${field.label}: ${variable?.name ?? "bulunamadı"}`}>
+        <span className="flex shrink-0 items-center text-[11px] leading-none text-[var(--text-subtitle)]">{field.prefix}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{variable?.name ?? "Bulunamadı"}</span>
+        {menu}
+      </div>
+    );
+  };
 
   return (
     <Group title="Yerleşim">
@@ -1072,48 +1118,45 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
         </div>
         {flow === "grid" ? (
           <>
-            <NumberField label="Sütunlar arası boşluk" prefix={Glyphs.gapX} value={gaps.column} min={0} max={400} onChange={(columnGap) => onChange({ ...grid, columnGap })} />
-            <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
+            {spacing("columnGap", { label: "Sütunlar arası boşluk", prefix: Glyphs.gapX, value: gaps.column, min: 0, max: 400, onChange: (columnGap) => onChange({ ...grid, columnGap }) })}
+            {spacing("rowGap", { label: "Satırlar arası boşluk", prefix: Glyphs.gapY, value: gaps.row, min: 0, max: 400, onChange: (rowGap) => onChange({ ...grid, rowGap }) })}
           </>
-        ) : (
-          <NumberField
-            label="Aradaki boşluk"
-            prefix={across ? Glyphs.gapX : Glyphs.gapY}
-            value={grid?.spread ? null : gap}
-            placeholder="Auto"
-            fallback={gap}
-            min={0}
-            max={400}
-            onChange={setGap}
-            suffix={
-              <FieldMenu
-                label="Aradaki boşluk: Auto ya da sabit"
-                items={[
-                  { label: "Auto", hint: "boşluğu aralarına dağıt", checked: Boolean(grid?.spread), onSelect: () => onChange({ ...grid, spread: true }) },
-                  { label: "Sabit", hint: `${gap} px`, checked: !grid?.spread, onSelect: () => setGap(gap) },
-                ]}
-              />
-            }
-          />
-        )}
+        ) : (() => {
+          // Auto / fixed: the field's own choices — with `bind`, in the same menu as the variables.
+          const autoItems: MenuItem[] = [
+            { label: "Auto", hint: "boşluğu aralarına dağıt", checked: Boolean(grid?.spread), onSelect: () => onChange({ ...grid, spread: true }) },
+            { label: "Sabit", hint: `${gap} px`, checked: !grid?.spread, onSelect: () => setGap(gap) },
+          ];
+          const field = {
+            label: "Aradaki boşluk",
+            prefix: across ? Glyphs.gapX : Glyphs.gapY,
+            value: grid?.spread ? null : gap,
+            placeholder: "Auto",
+            fallback: gap,
+            min: 0,
+            max: 400,
+            onChange: setGap,
+          };
+          return bind
+            ? spacing(across ? "columnGap" : "rowGap", field, autoItems)
+            : <NumberField {...field} suffix={<FieldMenu label="Aradaki boşluk: Auto ya da sabit" items={autoItems} />} />;
+        })()}
         {/* Wrapping: the gap between the lines. */}
-        {wrapping && (
-          <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
-        )}
+        {wrapping && spacing("rowGap", { label: "Satırlar arası boşluk", prefix: Glyphs.gapY, value: gaps.row, min: 0, max: 400, onChange: (rowGap) => onChange({ ...grid, rowGap }) })}
       </div>
       <div className="flex items-start gap-2">
         <div className="grid grid-cols-2 gap-2 flex-1 min-w-0">
           {perSide ? (
             <>
-              <NumberField label="Soldaki iç boşluk" prefix="S" value={side("paddingLeft", "paddingX")} min={0} max={400} onChange={(paddingLeft) => onChange({ ...grid, paddingLeft })} />
-              <NumberField label="Üstteki iç boşluk" prefix="Ü" value={side("paddingTop", "paddingY")} min={0} max={400} onChange={(paddingTop) => onChange({ ...grid, paddingTop })} />
-              <NumberField label="Sağdaki iç boşluk" prefix="Sğ" value={side("paddingRight", "paddingX")} min={0} max={400} onChange={(paddingRight) => onChange({ ...grid, paddingRight })} />
-              <NumberField label="Alttaki iç boşluk" prefix="A" value={side("paddingBottom", "paddingY")} min={0} max={400} onChange={(paddingBottom) => onChange({ ...grid, paddingBottom })} />
+              {spacing("paddingLeft", { label: "Soldaki iç boşluk", prefix: "S", value: side("paddingLeft", "paddingX"), min: 0, max: 400, onChange: (paddingLeft) => onChange({ ...grid, paddingLeft }) })}
+              {spacing("paddingTop", { label: "Üstteki iç boşluk", prefix: "Ü", value: side("paddingTop", "paddingY"), min: 0, max: 400, onChange: (paddingTop) => onChange({ ...grid, paddingTop }) })}
+              {spacing("paddingRight", { label: "Sağdaki iç boşluk", prefix: "Sğ", value: side("paddingRight", "paddingX"), min: 0, max: 400, onChange: (paddingRight) => onChange({ ...grid, paddingRight }) })}
+              {spacing("paddingBottom", { label: "Alttaki iç boşluk", prefix: "A", value: side("paddingBottom", "paddingY"), min: 0, max: 400, onChange: (paddingBottom) => onChange({ ...grid, paddingBottom }) })}
             </>
           ) : (
             <>
-              <NumberField label="Yatay iç boşluk" prefix={Glyphs.padX} value={grid?.paddingX ?? 0} min={0} max={400} onChange={(paddingX) => onChange({ ...grid, paddingX })} />
-              <NumberField label="Dikey iç boşluk" prefix={Glyphs.padY} value={grid?.paddingY ?? 0} min={0} max={400} onChange={(paddingY) => onChange({ ...grid, paddingY })} />
+              {spacing("paddingX", { label: "Yatay iç boşluk", prefix: Glyphs.padX, value: grid?.paddingX ?? 0, min: 0, max: 400, onChange: (paddingX) => onChange({ ...grid, paddingX }) })}
+              {spacing("paddingY", { label: "Dikey iç boşluk", prefix: Glyphs.padY, value: grid?.paddingY ?? 0, min: 0, max: 400, onChange: (paddingY) => onChange({ ...grid, paddingY }) })}
             </>
           )}
         </div>
@@ -1350,9 +1393,12 @@ const MENU_WIDTH = 188;
  * so the panel's edges never clip it; it closes on a choice, a click
  * elsewhere or a scroll.
  */
+/** A choice in a FieldMenu: `divided` puts a line above it. */
+type MenuItem = { label: string; hint?: string; checked?: boolean; disabled?: boolean; divided?: boolean; onSelect: () => void };
+
 function FieldMenu({ label, items, children }: {
   label: string;
-  items: { label: string; hint?: string; checked?: boolean; disabled?: boolean; divided?: boolean; onSelect: () => void }[];
+  items: MenuItem[];
   children?: ReactNode;
 }) {
   const [at, setAt] = useState<{ top: number; left: number } | null>(null);
@@ -1725,19 +1771,7 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
   );
 }
 
-// ── Main components (see ComponentDesign) ─────────────────────────────────────
-
-const TEXT_LAYER_FIELDS: ReadonlySet<string> = new Set<ItemTextField>(["label", "value", "eyebrow", "title", "text", "caption"]);
-
-/**
- * The text layers of an item of a component laid out by its main component
- * (DESIGNED_TYPES) — its text fields, named as in the item's settings. None
- * for the other types.
- */
-export function textLayersOf(type: BlockType): { field: ItemTextField; name: string }[] {
-  if (!DESIGNED_TYPES.has(type)) return [];
-  return (ENTRY_SPEC[type]?.fields ?? []).filter((f) => TEXT_LAYER_FIELDS.has(f.key)).map((f) => ({ field: f.key as ItemTextField, name: f.label }));
-}
+// ── Main components and molecules (see ComponentDesign, DesignMolecule) ───────
 
 /** Figma's main component mark (purple): what changes here changes every instance. */
 function MainComponentHint({ type, what }: { type: BlockType; what: string }) {
@@ -1749,15 +1783,91 @@ function MainComponentHint({ type, what }: { type: BlockType; what: string }) {
   );
 }
 
-/** A component laid out by its main component: how it lays out its items. */
-export function ComponentLayoutGroup({ block, design, onChange }: {
-  block: Block;
-  design: ResolvedDesign;
-  onChange: (layout: GridSettings) => void;
+/** A molecule's mark (teal) and what changes with it — with a way to it. */
+function MoleculeHint({ molecule, children, onOpen }: { molecule: DesignMolecule; children: ReactNode; onOpen?: () => void }) {
+  return (
+    <Hint>
+      <span className="inline-flex items-center gap-1 align-top font-medium text-[var(--edit-molecule)]">{Glyphs.molecule}{molecule.name}</span>
+      {" · molekül. "}
+      {children}
+      {onOpen && (
+        <button type="button" onClick={onOpen} className="ml-1 inline-flex items-center gap-0.5 align-top font-medium text-[var(--text-title)] hover:underline cursor-pointer">
+          Moleküle git{Glyphs.goTo}
+        </button>
+      )}
+    </Hint>
+  );
+}
+
+/** The molecule's frame: its Yerleşim — spacing bindable to variables — and its look (corners, background); with `onSize`, an instance's W / H in its component. */
+function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onChange }: {
+  molecule: DesignMolecule;
+  variables: DesignVariable[];
+  /** Finds an instance on the canvas (see GridFields) */
+  measure: string;
+  size?: Sizing;
+  onSize?: (size: Sizing) => void;
+  onChange: (molecule: DesignMolecule) => void;
 }) {
+  const { theme } = useTheme();
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  const layout = moleculeLayout(molecule, byId);
+  const sizes = variables.filter((v) => v.kind === "number");
+  const setLayout = (next: GridSettings) => onChange({ ...molecule, layout: next });
+  const bind = (key: SpacingKey, variableId: string | null) => {
+    const spacing = { ...molecule.spacing };
+    if (variableId) spacing[key] = variableId;
+    else delete spacing[key];
+    // Unbound, it keeps the value it had.
+    onChange({ ...molecule, spacing, layout: variableId ? molecule.layout : { ...molecule.layout, [key]: layout[key] } });
+  };
   return (
     <>
-      <MainComponentHint type={block.type} what="Yerleşimi" />
+      <GridFields
+        grid={layout}
+        measure={measure}
+        size={size}
+        onSize={onSize}
+        cells={cellsOf(molecule.slots.map(() => ({})), layout)}
+        onAlign={(justify, align) => setLayout({ ...layout, justify, align })}
+        onChange={setLayout}
+        bind={{ bound: molecule.spacing ?? {}, variables: sizes, onBind: bind }}
+      />
+      <Group title="Görünüş">
+        <Field label="Köşe">
+          <BoundField label="Köşe" kind="number" value={molecule.radius ?? { value: 0 }} targets={sizes} byId={byId} mode={theme} onChange={(radius) => onChange({ ...molecule, radius })} />
+        </Field>
+        <Field label="Arka plan">
+          <BoundField
+            label="Arka plan"
+            kind="color"
+            value={molecule.background ?? { value: "transparent" }}
+            targets={variables.filter((v) => v.kind === "color")}
+            byId={byId}
+            mode={theme}
+            onChange={(background) => onChange({ ...molecule, background })}
+          />
+        </Field>
+      </Group>
+    </>
+  );
+}
+
+/** A component laid out by its main component: how it lays out its items, and the molecule they are. */
+export function ComponentLayoutGroup({ block, design, molecules, onChange, onMolecule, onOpenMolecule }: {
+  block: Block;
+  design: ResolvedDesign;
+  /** The molecules its items can be */
+  molecules: DesignMolecule[];
+  onChange: (layout: GridSettings) => void;
+  onMolecule: (id: string) => void;
+  onOpenMolecule: (id: string) => void;
+}) {
+  const { molecule } = design.item;
+  const noun = ENTRY_SPEC[block.type]?.noun ?? "Öğe";
+  return (
+    <>
+      <MainComponentHint type={block.type} what="Yerleşimi ve molekülü" />
       <GridFields
         grid={design.layout}
         measure={`[data-block-id="${block.id}"] [data-component-frame]`}
@@ -1765,79 +1875,116 @@ export function ComponentLayoutGroup({ block, design, onChange }: {
         onAlign={(justify, align) => onChange({ ...design.layout, justify, align })}
         onChange={onChange}
       />
-    </>
-  );
-}
-
-/** An item of such a component: its frame — how it lays out its text layers — and its size; the same for all its items. */
-export function ItemLayoutGroup({ block, itemId, design, onChange }: {
-  block: Block;
-  itemId: string;
-  design: ResolvedDesign;
-  onChange: (item: ResolvedDesign["item"]) => void;
-}) {
-  const noun = ENTRY_SPEC[block.type]?.noun ?? "Öğe";
-  return (
-    <>
-      <MainComponentHint type={block.type} what={`Her ${noun.toLocaleLowerCase("tr")} aynı; yerleşimi`} />
-      <GridFields
-        grid={design.item.layout}
-        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`}
-        size={design.item.size}
-        onSize={(size) => onChange({ ...design.item, size })}
-        cells={cellsOf(textLayersOf(block.type).map(() => ({})), design.item.layout)}
-        onAlign={(justify, align) => onChange({ ...design.item, layout: { ...design.item.layout, justify, align } })}
-        onChange={(layout) => onChange({ ...design.item, layout })}
-      />
+      <Group title="Molekül" actions={<SquareButton label="Moleküle git" onClick={() => onOpenMolecule(molecule.id)}>{Glyphs.goTo}</SquareButton>}>
+        <Row label={plural(noun)}>
+          <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
+            <span className="shrink-0 text-[var(--edit-molecule)]">{Glyphs.molecule}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{molecule.name}</span>
+            <FieldMenu
+              label="Molekülü değiştir"
+              items={molecules.map((m) => ({ label: m.name, hint: m.slots.map((slot) => slot.name).join(" + "), checked: m.id === molecule.id, onSelect: () => onMolecule(m.id) }))}
+            />
+          </div>
+        </Row>
+      </Group>
     </>
   );
 }
 
 /**
- * A text layer of an item: the atom giving it its look — swapped from the
- * menu, edited with the arrow — and its size in the item (both the same in
- * every item), then this item's text.
+ * An item of such a component — an instance of its molecule: the molecule's
+ * frame (the same in all of its instances, everywhere) and the item's size
+ * in the component (the same for all of its items).
  */
-export function TextLayerInspector({ block, itemId, field, design, atoms, variables, lang, onDesign, onOpenAtom, onChange }: {
+export function ItemLayoutGroup({ block, itemId, design, variables, onSize, onMolecule, onOpenMolecule }: {
   block: Block;
   itemId: string;
-  field: ItemTextField;
   design: ResolvedDesign;
+  variables: DesignVariable[];
+  onSize: (size: Sizing) => void;
+  onMolecule: (molecule: DesignMolecule) => void;
+  onOpenMolecule: (id: string) => void;
+}) {
+  const { molecule } = design.item;
+  return (
+    <>
+      <MoleculeHint molecule={molecule} onOpen={() => onOpenMolecule(molecule.id)}>
+        {`Çerçevesi onu kullanan her yerde birlikte değişir; W / H ise ${BLOCK_LABELS[block.type]} bileşeninin (tüm ${plural(ENTRY_SPEC[block.type]?.noun ?? "Öğe").toLocaleLowerCase("tr")} aynı).`}
+      </MoleculeHint>
+      <MoleculeFrameFields
+        molecule={molecule}
+        variables={variables}
+        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`}
+        size={design.item.size}
+        onSize={onSize}
+        onChange={onMolecule}
+      />
+    </>
+  );
+}
+
+/** A slot's atom: its sample, name and size — swapped from the menu. */
+function AtomPicker({ slot, atoms, byId, onChange }: {
+  slot: MoleculeSlot;
+  atoms: DesignAtom[];
+  byId: Map<string, DesignVariable>;
+  onChange: (atomId: string) => void;
+}) {
+  const atom = atoms.find((a) => a.id === slot.atom);
+  return (
+    <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
+      {atom && <AtomSample atomId={atom.id} />}
+      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{atom?.name ?? "Atomu yok"}</span>
+      {atom && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{atomMetrics(atom, byId)}</span>}
+      <FieldMenu
+        label="Atomu değiştir"
+        items={atoms.map((a) => ({ label: a.name, hint: atomMetrics(a, byId), checked: a.id === atom?.id, onSelect: () => onChange(a.id) }))}
+      />
+    </div>
+  );
+}
+
+/**
+ * A text layer of an item — a slot of its molecule: the atom giving it its
+ * look (swapped from the menu, edited with the arrow) and its size in the
+ * molecule's frame — both the same in all of the molecule's instances —
+ * then this item's text.
+ */
+export function TextLayerInspector({ block, itemId, slot, molecule, atoms, variables, lang, onSlot, onOpenAtom, onOpenMolecule, onChange }: {
+  block: Block;
+  itemId: string;
+  slot: MoleculeSlot;
+  /** The molecule it is a slot of */
+  molecule: DesignMolecule;
   /** The site's atoms (the ones it can use) */
   atoms: DesignAtom[];
   /** The site's variables (for the atoms' sizes) */
   variables: DesignVariable[];
   lang: Lang;
-  onDesign: (layer: TextLayerDesign) => void;
+  onSlot: (slot: MoleculeSlot) => void;
   /** Opens the atom in the inspector */
   onOpenAtom: (id: string) => void;
+  onOpenMolecule: (id: string) => void;
   onChange: (patch: Partial<Block>) => void;
 }) {
-  const layer = design.texts[field] ?? {};
-  const atom = atoms.find((a) => a.id === layer.atom);
+  const atom = atoms.find((a) => a.id === slot.atom);
   const byId = new Map(variables.map((v) => [v.id, v]));
-  const spec = ENTRY_SPEC[block.type]?.fields.find((f) => f.key === field);
+  const spec = ENTRY_SPEC[block.type]?.fields.find((f) => f.key === slot.field);
   const entries = block.entries ?? [];
   const entry = entries.find((e) => e.id === itemId);
-  const key = (lang === "en" && !spec?.shared ? `${field}En` : field) as keyof BlockEntry;
+  const key = (lang === "en" && !spec?.shared ? `${slot.field}En` : slot.field) as keyof BlockEntry;
   return (
     <div className="flex flex-col">
-      <MainComponentHint type={block.type} what="Atomu ve boyutu" />
-      <Group title="Atom" actions={atom && <SquareButton label="Atomu düzenle" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
-        <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
-          {atom && <AtomSample atomId={atom.id} />}
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{atom?.name ?? "Atomu yok"}</span>
-          {atom && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{atomMetrics(atom, byId)}</span>}
-          <FieldMenu
-            label="Atomu değiştir"
-            items={atoms.map((a) => ({ label: a.name, hint: atomMetrics(a, byId), checked: a.id === atom?.id, onSelect: () => onDesign({ ...layer, atom: a.id }) }))}
-          />
-        </div>
+      <MoleculeHint molecule={molecule} onOpen={() => onOpenMolecule(molecule.id)}>
+        {`${slot.name} katmanının atomu ve boyutu onu kullanan her yerde birlikte değişir.`}
+      </MoleculeHint>
+      <Group title="Atom" actions={atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
+        <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(id) => onSlot({ ...slot, atom: id })} />
       </Group>
       <SizeGroup
-        size={layer.size}
-        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"] [data-text-layer="${field}"]`}
-        onChange={(size) => onDesign({ ...layer, size })}
+        size={slot.size}
+        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"] [data-text-layer="${slot.field}"]`}
+        onChange={(size) => onSlot({ ...slot, size })}
       />
       {spec && entry && (
         <Group title="İçerik">
@@ -1994,7 +2141,7 @@ export function VariableInspector({ variable, variables, onChange }: {
   );
 }
 
-// ── Atoms (see DesignAtom) ────────────────────────────────────────────────────
+// ── Atoms and molecules (see DesignAtom, DesignMolecule) ──────────────────────
 
 const TYPOGRAPHY_FIELDS: { key: keyof Typography; label: string }[] = [
   { key: "fontSize", label: "Boyut" },
@@ -2003,13 +2150,30 @@ const TYPOGRAPHY_FIELDS: { key: keyof Typography; label: string }[] = [
   { key: "color", label: "Renk" },
 ];
 
-/** Where an atom is used: a main component's text layer. */
-export interface AtomUse {
-  type: BlockType;
-  field: ItemTextField;
-  /** Selects that text in one of the component's instances on this page — unset when the page has none */
-  onSelect?: () => void;
+/** Where an atom or a molecule is used — a click takes there. */
+export interface DesignUse {
+  key: string;
+  icon: ReactNode;
+  tone: string;
+  label: string;
+  detail?: string;
+  onSelect: () => void;
 }
+
+function UsesGroup({ uses, empty }: { uses: DesignUse[]; empty: string }) {
+  return (
+    <Group title="Kullanıldığı yerler">
+      {uses.map(({ key, ...use }) => <ChildRow key={key} {...use} onClick={use.onSelect} />)}
+      {uses.length === 0 && <p className="text-[11px] text-[var(--text-subtitle)]">{empty}</p>}
+    </Group>
+  );
+}
+
+/** Where a component type is used, for a molecule's uses: its icon and colour. */
+export const typeUse = (type: BlockType) => ({ icon: blockIcon(type), tone: blockTone(type), label: BLOCK_LABELS[type] });
+
+/** A molecule in a use (a slot of it holds an atom). */
+export const moleculeUse = (name: string) => ({ icon: Glyphs.molecule, tone: "var(--edit-molecule)", label: name });
 
 /**
  * An atom: its name and its typography — each value its own or bound to a
@@ -2019,7 +2183,8 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
   atom: DesignAtom;
   /** All of the site's variables (the ones its values can be bound to) */
   variables: DesignVariable[];
-  uses: AtomUse[];
+  /** The molecules' slots holding it */
+  uses: DesignUse[];
   onChange: (atom: DesignAtom) => void;
 }) {
   const { theme } = useTheme();
@@ -2028,7 +2193,7 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
     <div className="flex flex-col">
       <Hint>
         <span className="inline-flex items-center gap-1 align-top font-medium text-[var(--edit-accent)]">{Glyphs.atom}Atom</span>
-        {" · Görünüşünü taşır: onu kullanan her metin tüm sitede birlikte değişir. Metnin yeri ve kutusunun boyutu, onu içeren bileşende."}
+        {" · Görünüşünü taşır: onu kullanan her metin tüm sitede birlikte değişir. Metnin yeri ve kutusunun boyutu, onu içeren molekülde."}
       </Hint>
       <Group title="Atom">
         <Field label="Ad">
@@ -2053,19 +2218,49 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
           </Field>
         ))}
       </Group>
-      <Group title="Kullanıldığı yerler">
-        {uses.map((use) => (
-          <ChildRow
-            key={`${use.type}:${use.field}`}
-            icon={blockIcon(use.type)}
-            tone={blockTone(use.type)}
-            label={BLOCK_LABELS[use.type]}
-            detail={`${textLayersOf(use.type).find((t) => t.field === use.field)?.name ?? use.field}${use.onSelect ? "" : " · bu sayfada yok"}`}
-            onClick={() => use.onSelect?.()}
-          />
-        ))}
-        {uses.length === 0 && <p className="text-[11px] text-[var(--text-subtitle)]">Henüz hiçbir metin bu atomu kullanmıyor.</p>}
+      <UsesGroup uses={uses} empty="Henüz hiçbir molekül bu atomu kullanmıyor." />
+    </div>
+  );
+}
+
+/**
+ * A molecule: its name, its frame — layout, spacing, corners, background —
+ * its atoms (a slot's atom swapped from the menu) and where it is used.
+ */
+export function MoleculeInspector({ molecule, variables, atoms, uses, onChange, onOpenAtom }: {
+  molecule: DesignMolecule;
+  variables: DesignVariable[];
+  atoms: DesignAtom[];
+  /** The components whose items it is */
+  uses: DesignUse[];
+  onChange: (molecule: DesignMolecule) => void;
+  onOpenAtom: (id: string) => void;
+}) {
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  const setSlot = (slot: MoleculeSlot) => onChange({ ...molecule, slots: molecule.slots.map((s) => (s.field === slot.field ? slot : s)) });
+  return (
+    <div className="flex flex-col">
+      <Hint>
+        <span className="inline-flex items-center gap-1 align-top font-medium text-[var(--edit-molecule)]">{Glyphs.molecule}Molekül</span>
+        {" · Atomlarını bir arada tutan çerçeve: onu kullanan her bileşen tüm sitede birlikte değişir. Bir örneğin bileşen içindeki boyutu, o bileşende."}
+      </Hint>
+      <Group title="Molekül">
+        <Field label="Ad">
+          <TextField label="Ad" value={molecule.name} onChange={(name) => onChange({ ...molecule, name })} placeholder="grup/ad" />
+        </Field>
       </Group>
+      <MoleculeFrameFields molecule={molecule} variables={variables} measure={`[data-molecule="${molecule.id}"]`} onChange={onChange} />
+      <Group title="Atomlar">
+        {molecule.slots.map((slot) => (
+          <Field key={slot.field} label={slot.name}>
+            <div className="flex items-center gap-1">
+              <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(atom) => setSlot({ ...slot, atom })} />
+              {slot.atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(slot.atom!)}>{Glyphs.goTo}</SquareButton>}
+            </div>
+          </Field>
+        ))}
+      </Group>
+      <UsesGroup uses={uses} empty="Henüz hiçbir bileşen bu molekülü kullanmıyor." />
     </div>
   );
 }

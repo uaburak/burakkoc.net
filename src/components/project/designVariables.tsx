@@ -24,7 +24,8 @@ const scale = (id: string, name: string, value: number, kind: "number" | "weight
 /**
  * The first variables: the site's own tokens (globals.css), then the sizes
  * and weights its texts use — the starting atoms are bound to them (see
- * STARTING_ATOMS). Same values, so nothing changes until they are edited.
+ * STARTING_ATOMS) — and its cards' corners (STARTING_MOLECULES). Same values,
+ * so nothing changes until they are edited.
  */
 export const STARTING_VARIABLES: DesignVariable[] = [
   color("bg-1", "Arka plan/1", "--bg-1", "#ffffff", "#000000"),
@@ -46,6 +47,7 @@ export const STARTING_VARIABLES: DesignVariable[] = [
   scale("weight-light", "Yazı kalınlığı/İnce", 300, "weight"),
   scale("weight-regular", "Yazı kalınlığı/Normal", 400, "weight"),
   scale("weight-medium", "Yazı kalınlığı/Orta", 500, "weight"),
+  scale("radius-card", "Köşe/Kart", 22),
 ];
 
 /** The site's variables: the starting ones — as stored, when changed — in their place, then the added ones. */

@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ComponentDesigns, ProjectData } from "@/types/project";
-import type { DesignAtom, DesignVariable } from "@/types/design";
+import type { DesignAtom, DesignMolecule, DesignVariable } from "@/types/design";
 import { normalizeItems } from "@/lib/projectLayout";
 
 import { CVData } from "@/types/cv";
@@ -239,6 +239,26 @@ export async function loadDesignAtoms(): Promise<DesignAtom[]> {
 
 export async function saveDesignAtoms(atoms: DesignAtom[]): Promise<void> {
   await setDoc(doc(db, DESIGN_COLLECTION, ATOMS_DOC_ID), { atoms: stripUndefined({ list: atoms }).list, updatedAt: serverTimestamp() });
+}
+
+// ── Molecules (site-wide, see DesignMolecule) ─────────────────────────────────
+
+const MOLECULES_DOC_ID = "molecules";
+
+/** The molecules stored for the site (the starting ones are added by withStartingMolecules) — none when they can't be read. */
+export async function loadDesignMolecules(): Promise<DesignMolecule[]> {
+  try {
+    const snap = await getDoc(doc(db, DESIGN_COLLECTION, MOLECULES_DOC_ID));
+    const list = snap.exists() ? snap.data().molecules : undefined;
+    return Array.isArray(list) ? (list as DesignMolecule[]) : [];
+  } catch (err) {
+    console.warn("Molecules could not be loaded — using the starting ones:", err);
+    return [];
+  }
+}
+
+export async function saveDesignMolecules(molecules: DesignMolecule[]): Promise<void> {
+  await setDoc(doc(db, DESIGN_COLLECTION, MOLECULES_DOC_ID), { molecules: stripUndefined({ list: molecules }).list, updatedAt: serverTimestamp() });
 }
 
 // ── Delete project ────────────────────────────────────────────────────────────

@@ -2,27 +2,43 @@
 
 import type { ReactNode } from "react";
 import type { ComponentDesigns } from "@/types/project";
-import type { DesignAtom, DesignVariable } from "@/types/design";
+import type { DesignAtom, DesignMolecule, DesignVariable } from "@/types/design";
 import { ComponentDesignContext } from "./componentDesign";
-import { DesignVariablesContext, useDesignVariables, variablesCss } from "./designVariables";
-import { DesignAtomsContext, atomsCss, useDesignAtoms } from "./designAtoms";
+import { DesignVariablesContext, useDesignVariables, variablesCss, withStartingVariables } from "./designVariables";
+import { DesignAtomsContext, atomsCss, useDesignAtoms, withStartingAtoms } from "./designAtoms";
+import { DesignMoleculesContext, migrateLegacyDesigns, withStartingMolecules } from "./designMolecules";
 
 /**
- * The site's design system — its variables, atoms and main components — for
- * everything rendered inside: the project page, the editor's canvas.
+ * The site's design system — its variables, atoms, molecules and main
+ * components (organisms) — for everything rendered inside: the project page,
+ * the editor's canvas.
  */
-export function DesignSystemProvider({ variables, atoms, designs, children }: {
-  /** All of them, the starting ones included (withStartingVariables) */
+export interface SiteDesign {
   variables: DesignVariable[];
-  /** All of them, the starting ones included (withStartingAtoms) */
   atoms: DesignAtom[];
+  molecules: DesignMolecule[];
   designs: ComponentDesigns;
-  children: ReactNode;
-}) {
+}
+
+/** The design system from what is stored: the starting variables, atoms and molecules added, older designs moved to their molecules. */
+export function fromStored(stored: SiteDesign): SiteDesign {
+  const { designs, molecules } = migrateLegacyDesigns(stored.designs, stored.molecules);
+  return {
+    variables: withStartingVariables(stored.variables),
+    atoms: withStartingAtoms(stored.atoms),
+    molecules: withStartingMolecules(molecules),
+    designs,
+  };
+}
+
+/** Takes all of them — the starting ones included (see fromStored). */
+export function DesignSystemProvider({ variables, atoms, molecules, designs, children }: SiteDesign & { children: ReactNode }) {
   return (
     <DesignVariablesContext.Provider value={variables}>
       <DesignAtomsContext.Provider value={atoms}>
-        <ComponentDesignContext.Provider value={designs}>{children}</ComponentDesignContext.Provider>
+        <DesignMoleculesContext.Provider value={molecules}>
+          <ComponentDesignContext.Provider value={designs}>{children}</ComponentDesignContext.Provider>
+        </DesignMoleculesContext.Provider>
       </DesignAtomsContext.Provider>
     </DesignVariablesContext.Provider>
   );
