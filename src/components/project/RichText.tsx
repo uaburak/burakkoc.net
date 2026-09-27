@@ -39,7 +39,7 @@ export function renderRichText(text: string): ReactNode[] {
           key={key++}
           href={href}
           {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-          className="font-normal text-[var(--text-title)] underline decoration-[var(--border-hover)] underline-offset-4 transition-colors duration-200 hover:decoration-[var(--text-title)]"
+          className="font-normal text-[var(--text-title)] underline decoration-[var(--project-accent,var(--border-hover))] underline-offset-4 transition-colors duration-200 hover:decoration-[var(--project-accent,var(--text-title))]"
         >
           {label}
         </a>

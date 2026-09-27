@@ -175,6 +175,19 @@ export type PageItem = PageSection | PageDivider;
 
 // ── Project ──────────────────────────────────────────────────────────────────
 
+export interface ProjectTheme {
+  /** Corner radius: "default" | "0px" | "8px" | "16px" | "24px" | "32px" | "9999px" */
+  radius?: string;
+  /** Primary accent color override (e.g. #2f6bff) */
+  accentColor?: string;
+  /** Page background color override */
+  bgColor?: string;
+  /** Cards and boxes background color override */
+  cardBgColor?: string;
+  /** Title and heading text color override */
+  textColor?: string;
+}
+
 export interface ProjectData {
   slug: string;
   title: string;
@@ -190,4 +203,6 @@ export interface ProjectData {
   descriptionEn?: string;
   /** Flat ordered list of sections and dividers */
   items: PageItem[];
+  /** Optional project-level theme customizations (radius, colors) */
+  theme?: ProjectTheme;
 }

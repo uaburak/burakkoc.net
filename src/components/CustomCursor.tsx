@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import gsap from "gsap";
 
 // ── Traffic icons (tek sefer DOM'a basılır, class ile gösterilir) ──────────────
@@ -27,8 +28,11 @@ export default function CustomCursor() {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const dotRef = useRef<HTMLDivElement>(null);
   const iconRef = useRef<HTMLSpanElement>(null);
+  // Admin uses the system cursor (see app/admin/layout.tsx).
+  const onAdmin = usePathname()?.startsWith("/admin") ?? false;
 
   useEffect(() => {
+    if (onAdmin) return;
     const wrapper = wrapperRef.current;
     const dot = dotRef.current;
     const icon = iconRef.current;
@@ -158,7 +162,9 @@ export default function CustomCursor() {
       window.removeEventListener("mousedown",    onMouseDown);
       window.removeEventListener("mouseup",      onMouseUp);
     };
-  }, []);
+  }, [onAdmin]);
+
+  if (onAdmin) return null;
 
   return (
     <div

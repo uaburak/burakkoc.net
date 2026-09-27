@@ -3,9 +3,10 @@
 import { useRef } from "react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
-interface PageEntranceProps {
+interface PageEntranceProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onAnimationEnd"> {
   children: React.ReactNode;
-  className?: string;
+  /** e.g. `data-project-radius` from projectThemeAttrs */
+  "data-project-radius"?: "";
 }
 
 /**
@@ -18,12 +19,13 @@ interface PageEntranceProps {
  * element, içindeki `position: fixed` öğeler için containing block oluşturur ve
  * sabit sidebar/header sayfayla birlikte kayar.
  */
-export default function PageEntrance({ children, className = "" }: PageEntranceProps) {
+export default function PageEntrance({ children, className = "", ...rest }: PageEntranceProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   return (
     <div
       ref={ref}
+      {...rest}
       className={`page-entrance ${className}`}
       onAnimationEnd={(e) => {
         // Sadece kendi animasyonumuz (çocuklardan bubble edenler değil)

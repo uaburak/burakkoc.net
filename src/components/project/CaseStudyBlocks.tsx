@@ -1,18 +1,22 @@
 "use client";
 
-import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from "react";
 import { AspectRatio, Block, BlockEntry, BlockType, LinkIconType } from "@/types/project";
 import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { cn } from "@/lib/utils";
 import { isSafeHref, renderRichText } from "./RichText";
+import { EditableText } from "./Editable";
+import { SortableGroup, SortableItem } from "./Sortable";
+import type { BlockEditApi, EntryTextKey } from "./editing";
 
 /**
- * Case-study blocks: info, stats, cards, steps, quote, gallery, compare, links, tags.
+ * Case-study blocks: info, stats, cards, steps, quote, gallery, compare, links,
+ * tags, callout, accordion, mockup, split, table, bars, persona, team, palette.
  *
- * Shared by the public project page and the admin live preview so both render
- * identically. `animate` enables the scroll reveal used on the public page;
- * `preview` shows placeholders for empty fields instead of hiding them.
+ * With an `edit` API (live editor) every text is inline editable, entries can
+ * be reordered by press-and-hold, removed and added; empty fields show
+ * placeholders. Without it the blocks render exactly as on the public page.
  */
 
 export const CASE_STUDY_BLOCK_TYPES = [
@@ -26,34 +30,13 @@ export function isCaseStudyBlock(type: BlockType): type is CaseStudyBlockType {
   return (CASE_STUDY_BLOCK_TYPES as readonly BlockType[]).includes(type);
 }
 
-// ── Language ──────────────────────────────────────────────────────────────────
-
-/** Promotes EN fields of a case-study block (and its entries) into the default slots. */
-export function localizeCaseStudyBlock(block: Block, lang: "tr" | "en"): Block {
-  if (lang === "tr") return block;
-  return {
-    ...block,
-    authorRole: block.authorRoleEn ?? block.authorRole,
-    title: block.titleEn ?? block.title,
-    tableRows: block.tableRows?.map((r) => ({ ...r, cells: r.cellsEn ?? r.cells })),
-    entries: block.entries?.map((e) => ({
-      ...e,
-      label:   e.labelEn   ?? e.label,
-      value:   e.valueEn   ?? e.value,
-      eyebrow: e.eyebrowEn ?? e.eyebrow,
-      title:   e.titleEn   ?? e.title,
-      text:    e.textEn    ?? e.text,
-      alt:     e.altEn     ?? e.alt,
-      caption: e.captionEn ?? e.caption,
-    })),
-  };
-}
-
 // ── Shared bits ───────────────────────────────────────────────────────────────
 
 interface RenderProps {
   block: Block;
+  /** Editing: show empty entries and placeholders */
   preview: boolean;
+  edit?: BlockEditApi;
 }
 
 const ASPECT_CSS: Record<AspectRatio, string> = {
@@ -72,17 +55,20 @@ function isPortrait(ratio: AspectRatio | undefined) {
   return ratio === "3/4" || ratio === "9/16";
 }
 
-/** Placeholder copy for empty fields — only visible in the admin preview. */
-function Hint({ children }: { children: ReactNode }) {
-  return <span className="italic opacity-30 select-none">{children}</span>;
+/** Setter for one entry field, or undefined outside the editor (renders static text). */
+function entrySetter(edit: BlockEditApi | undefined, entry: BlockEntry, key: EntryTextKey) {
+  return edit ? (v: string) => edit.setEntryText(entry.id, key, v) : undefined;
 }
 
-function Caption({ text }: { text?: string }) {
-  if (!text) return null;
+function Caption({ block, edit }: { block: Block; edit?: BlockEditApi }) {
   return (
-    <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">
-      {text}
-    </p>
+    <EditableText
+      as="p"
+      className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full"
+      value={block.caption}
+      onChange={edit && ((v) => edit.setText("caption", v))}
+      placeholder="Açıklama ekle (opsiyonel)"
+    />
   );
 }
 
@@ -95,12 +81,21 @@ function MediaPlaceholder({ label, preview, side }: { label?: string; preview: b
         side === "left" ? "left-0 w-1/2" : side === "right" ? "right-0 w-1/2" : "inset-x-0"
       )}
     >
-      {preview && label ? label : "Görsel bulunamadı"}
+      {preview && label ? label : preview ? "Görsel ekle — ayarlardan" : "Görsel bulunamadı"}
     </div>
   );
 }
 
-/** Keeps entries that have any of the given fields filled; in preview keeps all. */
+/** Image inside a block: zoomable on the page, plain in the editor (a click selects the block). */
+function BlockImage({ src, alt, editing, className }: { src: string; alt?: string; editing: boolean; className: string }) {
+  if (editing) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt={alt ?? ""} draggable={false} className={className} />;
+  }
+  return <ZoomableImage src={src} alt={alt ?? ""} className={className} />;
+}
+
+/** Keeps entries that have any of the given fields filled; while editing keeps all. */
 function visibleEntries(block: Block, preview: boolean, ...fields: (keyof BlockEntry)[]) {
   const entries = block.entries ?? [];
   if (preview) return entries;
@@ -113,87 +108,141 @@ const GRID_SM_COLS: Record<2 | 3 | 4, string> = {
   4: "sm:grid-cols-4",
 };
 
+/**
+ * A block's entries. Static list on the page; in the editor a sortable group
+ * (press-and-hold to move, hover × to remove). New entries are added from the
+ * block toolbar.
+ */
+function Entries({
+  entries, edit, as: Tag = "div", className, itemAs: ItemTag = "div", itemClassName, strategy = "grid",
+  fixed = false, render,
+}: {
+  entries: BlockEntry[];
+  edit?: BlockEditApi;
+  as?: ElementType;
+  className?: string;
+  itemAs?: ElementType;
+  itemClassName?: string | ((entry: BlockEntry, index: number) => string);
+  strategy?: "grid" | "vertical";
+  /** Fixed number of entries (compare): no add / remove */
+  fixed?: boolean;
+  render: (entry: BlockEntry, index: number) => ReactNode;
+}) {
+  const cls = (e: BlockEntry, i: number) => (typeof itemClassName === "function" ? itemClassName(e, i) : itemClassName);
+
+  if (!edit) {
+    return (
+      <Tag className={className}>
+        {entries.map((e, i) => <ItemTag key={e.id} className={cls(e, i)}>{render(e, i)}</ItemTag>)}
+      </Tag>
+    );
+  }
+
+  return (
+    <SortableGroup ids={entries.map((e) => e.id)} onMove={edit.moveEntry} strategy={strategy}>
+      <Tag className={className}>
+        {entries.map((e, i) => (
+          <SortableItem key={e.id} id={e.id} as={ItemTag} className={cls(e, i)} onRemove={fixed ? undefined : () => edit.removeEntry(e.id)}>
+            {render(e, i)}
+          </SortableItem>
+        ))}
+      </Tag>
+    </SortableGroup>
+  );
+}
+
 // ── Info (proje künyesi) ──────────────────────────────────────────────────────
 
-function InfoBlock({ block, preview }: RenderProps) {
+function InfoBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "label", "value");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   return (
-    <dl className="grid grid-cols-2 gap-2.5 w-full">
-      {entries.map((e) => (
-        <div key={e.id} className="flex flex-col gap-0.5 px-4 py-3 rounded-[22px] bg-[var(--bg-4)] min-w-0">
-          <dt className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">
-            {e.label || (preview ? <Hint>Etiket</Hint> : null)}
-          </dt>
-          <dd className="text-base font-normal leading-6 text-[var(--text-title)] break-words">
-            {e.value ? renderRichText(e.value) : preview ? <Hint>Değer</Hint> : null}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <Entries
+      entries={entries}
+      edit={edit}
+      as="dl"
+      className="grid grid-cols-2 gap-2.5 w-full"
+      itemClassName="flex flex-col gap-0.5 px-4 py-3 rounded-[22px] bg-[var(--bg-4)] min-w-0"
+      render={(e) => (
+        <>
+          <EditableText as="dt" className="text-sm font-normal leading-5 text-[var(--text-subtitle)]"
+            value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Etiket" />
+          <EditableText as="dd" rich className="text-base font-normal leading-6 text-[var(--text-title)] break-words"
+            value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="Değer" />
+        </>
+      )}
+    />
   );
 }
 
 // ── Stats (metrikler) ─────────────────────────────────────────────────────────
 
-function StatsBlock({ block, preview }: RenderProps) {
+function StatsBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "value", "label");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   const cols = block.columns ?? 3;
   return (
-    <div className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}>
-      {entries.map((e) => (
-        <div key={e.id} className="flex flex-col gap-1 px-5 py-5 rounded-[22px] bg-[var(--bg-4)] min-w-0">
-          <span className="text-[28px] font-medium leading-9 tracking-[-0.02em] text-[var(--text-title)] tabular-nums break-words">
-            {e.value || (preview ? <Hint>%00</Hint> : null)}
-          </span>
-          <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">
-            {e.label || (preview ? <Hint>Metrik açıklaması</Hint> : null)}
-          </span>
-        </div>
-      ))}
-    </div>
+    <Entries
+      entries={entries}
+      edit={edit}
+      className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}
+      itemClassName="flex flex-col gap-1 px-5 py-5 rounded-[22px] bg-[var(--bg-4)] min-w-0"
+      render={(e) => (
+        <>
+          <EditableText className="text-[28px] font-medium leading-9 tracking-[-0.02em] text-[var(--text-title)] tabular-nums break-words"
+            value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="%00" />
+          <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)]"
+            value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Metrik açıklaması" />
+        </>
+      )}
+    />
   );
 }
 
 // ── Cards (özellik / sorun / çözüm kartları) ──────────────────────────────────
 
-function CardsBlock({ block, preview }: RenderProps) {
+function CardsBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "title", "text");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   const cols = block.columns ?? 2;
   return (
-    <div className={cn("grid grid-cols-1 gap-2.5 w-full", GRID_SM_COLS[cols])}>
-      {entries.map((e) => (
-        <div key={e.id} className="flex flex-col gap-2 p-5 rounded-[22px] bg-[var(--bg-4)] min-w-0">
-          {e.eyebrow && (
-            <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] tabular-nums">
-              {e.eyebrow}
-            </span>
+    <Entries
+      entries={entries}
+      edit={edit}
+      className={cn("grid grid-cols-1 gap-2.5 w-full", GRID_SM_COLS[cols])}
+      itemClassName="flex flex-col gap-2 p-5 rounded-[22px] bg-[var(--bg-4)] min-w-0"
+      render={(e) => (
+        <>
+          {(e.eyebrow || edit) && (
+            <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)] tabular-nums"
+              value={e.eyebrow} onChange={entrySetter(edit, e, "eyebrow")} placeholder="Üst etiket (opsiyonel)" />
           )}
-          <span className="text-base font-medium leading-6 text-[var(--text-title)]">
-            {e.title || (preview ? <Hint>Kart başlığı</Hint> : null)}
-          </span>
-          {(e.text || preview) && (
-            <p className="text-base font-light leading-6 text-[var(--text-p)] whitespace-pre-wrap">
-              {e.text ? renderRichText(e.text) : <Hint>Kısa açıklama…</Hint>}
-            </p>
-          )}
-        </div>
-      ))}
-    </div>
+          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
+            value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Kart başlığı" />
+          <EditableText as="p" rich multiline className="text-base font-light leading-6 text-[var(--text-p)] whitespace-pre-wrap"
+            value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Kısa açıklama…" />
+        </>
+      )}
+    />
   );
 }
 
 // ── Steps (süreç / zaman çizelgesi) ───────────────────────────────────────────
 
-function StepsBlock({ block, preview }: RenderProps) {
+function StepsBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "title", "text");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   return (
-    <ol className="flex flex-col w-full">
-      {entries.map((e, i) => (
-        <li key={e.id} className="relative flex gap-4 pb-8 last:pb-0">
+    <Entries
+      entries={entries}
+      edit={edit}
+      as="ol"
+      className="flex flex-col w-full"
+      itemAs="li"
+      itemClassName="relative flex gap-4 pb-8 last:pb-0"
+      strategy="vertical"
+      render={(e, i) => (
+        <>
           {i < entries.length - 1 && (
             <span aria-hidden className="absolute left-4 top-10 bottom-2 w-px bg-[var(--border-hover)]" />
           )}
@@ -202,45 +251,40 @@ function StepsBlock({ block, preview }: RenderProps) {
           </span>
           <div className="flex flex-col gap-1 min-w-0 pt-1">
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-base font-medium leading-6 text-[var(--text-title)]">
-                {e.title || (preview ? <Hint>Adım başlığı</Hint> : null)}
-              </span>
-              {e.eyebrow && (
-                <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">{e.eyebrow}</span>
+              <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
+                value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Adım başlığı" />
+              {(e.eyebrow || edit) && (
+                <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)]"
+                  value={e.eyebrow} onChange={entrySetter(edit, e, "eyebrow")} placeholder="Zaman (opsiyonel)" />
               )}
             </div>
-            {(e.text || preview) && (
-              <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-                {e.text ? renderRichText(e.text) : <Hint>Bu adımda ne yapıldı?</Hint>}
-              </p>
-            )}
+            <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
+              value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Bu adımda ne yapıldı?" />
           </div>
-        </li>
-      ))}
-    </ol>
+        </>
+      )}
+    />
   );
 }
 
 // ── Quote (alıntı / öne çıkan ifade) ──────────────────────────────────────────
 
-function QuoteBlock({ block, preview }: RenderProps) {
+function QuoteBlock({ block, preview, edit }: RenderProps) {
   if (!block.content && !preview) return null;
   return (
     <figure className="flex flex-col gap-5 w-full px-6 py-7 sm:px-8 sm:py-8 rounded-[32px] bg-[var(--bg-4)]">
       <span aria-hidden className="block h-5 text-[48px] font-medium leading-[0.9] text-[var(--text-subtitle)] select-none">
         &ldquo;
       </span>
-      <blockquote className="text-[20px] sm:text-[22px] font-normal leading-8 sm:leading-9 tracking-[-0.01em] text-[var(--text-title)] whitespace-pre-wrap">
-        {block.content ? renderRichText(block.content) : <Hint>Alıntı ya da öne çıkan ifade…</Hint>}
-      </blockquote>
-      {(block.author || block.authorRole) && (
+      <EditableText as="blockquote" rich multiline
+        className="text-[20px] sm:text-[22px] font-normal leading-8 sm:leading-9 tracking-[-0.01em] text-[var(--text-title)] whitespace-pre-wrap"
+        value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Alıntı ya da öne çıkan ifade…" />
+      {(block.author || block.authorRole || edit) && (
         <figcaption className="flex flex-col">
-          {block.author && (
-            <span className="text-base font-medium leading-5 text-[var(--text-title)]">{block.author}</span>
-          )}
-          {block.authorRole && (
-            <span className="text-base font-normal leading-6 text-[var(--text-subtitle)]">{block.authorRole}</span>
-          )}
+          <EditableText className="text-base font-medium leading-5 text-[var(--text-title)]"
+            value={block.author} onChange={edit && ((v) => edit.setText("author", v))} placeholder="Kişi (opsiyonel)" />
+          <EditableText className="text-base font-normal leading-6 text-[var(--text-subtitle)]"
+            value={block.authorRole} onChange={edit && ((v) => edit.setText("authorRole", v))} placeholder="Unvan / şirket (opsiyonel)" />
         </figcaption>
       )}
     </figure>
@@ -249,42 +293,59 @@ function QuoteBlock({ block, preview }: RenderProps) {
 
 // ── Gallery (çoklu görsel) ────────────────────────────────────────────────────
 
-function GalleryBlock({ block, preview }: RenderProps) {
+function GalleryBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "src");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   const cols = block.columns ?? 2;
   const portrait = isPortrait(block.aspectRatio);
   return (
     <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className={cn("grid gap-3 w-full", portrait ? "grid-cols-2" : "grid-cols-1", GRID_SM_COLS[cols])}>
-        {entries.map((e) => (
-          <figure key={e.id} className="flex flex-col gap-3 min-w-0">
+      <Entries
+        entries={entries}
+        edit={edit}
+        className={cn("grid gap-3 w-full", portrait ? "grid-cols-2" : "grid-cols-1", GRID_SM_COLS[cols])}
+        itemAs="figure"
+        itemClassName="flex flex-col gap-3 min-w-0 rounded-[24px]"
+        render={(e) => (
+          <>
             <div
               className="relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
               style={aspectStyle(block.aspectRatio, "4/3")}
             >
               {e.src ? (
-                <ZoomableImage src={e.src} alt={e.alt ?? ""} className="w-full h-full object-cover" />
+                <BlockImage src={e.src} alt={e.alt} editing={Boolean(edit)} className="w-full h-full object-cover" />
               ) : (
                 <MediaPlaceholder label={e.alt} preview={preview} />
               )}
             </div>
-            {e.caption && (
-              <figcaption className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center">
-                {e.caption}
-              </figcaption>
-            )}
-          </figure>
-        ))}
-      </div>
-      <Caption text={block.caption} />
+            <EditableText as="figcaption" className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center"
+              value={e.caption} onChange={entrySetter(edit, e, "caption")} placeholder="Görsel altı (opsiyonel)" />
+          </>
+        )}
+      />
+      <Caption block={block} edit={edit} />
     </div>
   );
 }
 
 // ── Compare (önce / sonra) ────────────────────────────────────────────────────
 
-function CompareBlock({ block, preview }: RenderProps) {
+function CompareLabel({ entry, fallback, edit, side }: { entry?: BlockEntry; fallback: string; edit?: BlockEditApi; side: "left" | "right" }) {
+  const cls = cn(
+    "absolute top-[14px] inline-flex items-center h-8 px-3 rounded-full bg-[var(--bg-1)]/80 backdrop-blur-sm text-[13px] font-medium text-[var(--text-title)]",
+    side === "left" ? "left-[14px]" : "right-[14px]",
+    edit ? "pointer-events-auto" : "pointer-events-none"
+  );
+  if (!edit || !entry) return <span className={cls}>{entry?.label || fallback}</span>;
+  // Stop the slider from grabbing presses on the label while it is being edited.
+  return (
+    <span className={cls} onPointerDown={(e) => e.stopPropagation()}>
+      <EditableText value={entry.label} onChange={(v) => edit.setEntryText(entry.id, "label", v)} placeholder={fallback} />
+    </span>
+  );
+}
+
+function CompareBlock({ block, preview, edit }: RenderProps) {
   const [before, after] = [block.entries?.[0], block.entries?.[1]];
   const [pos, setPos] = useState(50);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -315,6 +376,8 @@ function CompareBlock({ block, preview }: RenderProps) {
         ref={frameRef}
         role="slider"
         tabIndex={0}
+        // The slider owns its pointer; in the editor the block is moved from its handle instead.
+        data-no-drag={edit ? "" : undefined}
         aria-label={`${beforeLabel} / ${afterLabel}`}
         aria-valuemin={0}
         aria-valuemax={100}
@@ -358,15 +421,10 @@ function CompareBlock({ block, preview }: RenderProps) {
           </span>
         </div>
 
-        {/* Labels */}
-        <span className="absolute top-[14px] left-[14px] inline-flex items-center h-8 px-3 rounded-full bg-[var(--bg-1)]/80 backdrop-blur-sm text-[13px] font-medium text-[var(--text-title)] pointer-events-none">
-          {beforeLabel}
-        </span>
-        <span className="absolute top-[14px] right-[14px] inline-flex items-center h-8 px-3 rounded-full bg-[var(--bg-1)]/80 backdrop-blur-sm text-[13px] font-medium text-[var(--text-title)] pointer-events-none">
-          {afterLabel}
-        </span>
+        <CompareLabel entry={before} fallback="Önce" edit={edit} side="left" />
+        <CompareLabel entry={after} fallback="Sonra" edit={edit} side="right" />
       </div>
-      <Caption text={block.caption} />
+      <Caption block={block} edit={edit} />
     </div>
   );
 }
@@ -423,43 +481,56 @@ function LinkIcon({ icon }: { icon?: LinkIconType }) {
   }
 }
 
-function LinksBlock({ block, preview }: RenderProps) {
+const LINK_PILL = "inline-flex items-center gap-2 h-10 px-4 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-[14px] font-medium leading-5 text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-[0.97]";
+
+function LinksBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "href");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
+  if (!edit) {
+    return (
+      <div className="flex flex-wrap gap-2 w-full">
+        {entries.map((e) => (
+          <a key={e.id} href={e.href && isSafeHref(e.href) ? e.href : undefined} target="_blank" rel="noopener noreferrer" className={LINK_PILL}>
+            <LinkIcon icon={e.icon} />
+            {e.label || e.href}
+          </a>
+        ))}
+      </div>
+    );
+  }
+  // Editor: pills are not links (the address is set in the settings panel).
   return (
-    <div className="flex flex-wrap gap-2 w-full">
-      {entries.map((e) => (
-        <a
-          key={e.id}
-          href={e.href && isSafeHref(e.href) ? e.href : undefined}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 h-10 px-4 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-[14px] font-medium leading-5 text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-[0.97]"
-        >
+    <Entries
+      entries={entries}
+      edit={edit}
+      className="flex flex-wrap gap-2 w-full"
+      itemAs="span"
+      itemClassName={cn(LINK_PILL, "rounded-full")}
+      render={(e) => (
+        <>
           <LinkIcon icon={e.icon} />
-          {e.label || e.href || <Hint>Bağlantı</Hint>}
-        </a>
-      ))}
-    </div>
+          <EditableText value={e.label} onChange={entrySetter(edit, e, "label")} placeholder={e.href || "Bağlantı"} />
+        </>
+      )}
+    />
   );
 }
 
 // ── Tags (etiketler) ──────────────────────────────────────────────────────────
 
-function TagsBlock({ block, preview }: RenderProps) {
+function TagsBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "label");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   return (
-    <ul className="flex flex-wrap gap-2 w-full">
-      {entries.map((e) => (
-        <li
-          key={e.id}
-          className="inline-flex items-center h-8 px-3.5 rounded-full bg-[var(--bg-4)] text-[13px] font-medium leading-5 text-[var(--text-p)]"
-        >
-          {e.label || <Hint>Etiket</Hint>}
-        </li>
-      ))}
-    </ul>
+    <Entries
+      entries={entries}
+      edit={edit}
+      as="ul"
+      className="flex flex-wrap gap-2 w-full"
+      itemAs="li"
+      itemClassName="inline-flex items-center h-8 px-3.5 rounded-full bg-[var(--bg-4)] text-[13px] font-medium leading-5 text-[var(--text-p)]"
+      render={(e) => <EditableText value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Etiket" />}
+    />
   );
 }
 
@@ -479,7 +550,7 @@ function Avatar({ src, name, size }: { src?: string; name?: string; size: number
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name ?? ""} className="absolute inset-0 w-full h-full object-cover" />
+        <img src={src} alt={name ?? ""} draggable={false} className="absolute inset-0 w-full h-full object-cover" />
       ) : (
         initials || "?"
       )}
@@ -536,20 +607,22 @@ const CALLOUT: Record<CalloutVariant, { label: string; icon: ReactNode }> = {
   },
 };
 
-function CalloutBlock({ block, preview }: RenderProps) {
+function CalloutBlock({ block, preview, edit }: RenderProps) {
   if (!preview && !block.content && !block.title) return null;
   const variant: CalloutVariant = block.variant && block.variant in CALLOUT ? (block.variant as CalloutVariant) : "note";
   const meta = CALLOUT[variant];
   return (
     <aside className="flex gap-3.5 w-full p-5 rounded-[22px] bg-[var(--bg-4)]">
-      <span className="shrink-0 mt-0.5 text-[var(--text-title)]">{meta.icon}</span>
-      <div className="flex flex-col gap-1 min-w-0">
-        <span className="text-base font-medium leading-6 text-[var(--text-title)]">{block.title || meta.label}</span>
-        {(block.content || preview) && (
-          <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-            {block.content ? renderRichText(block.content) : <Hint>Not metni…</Hint>}
-          </p>
+      <span className="shrink-0 mt-0.5 text-[var(--project-accent,var(--text-title))]">{meta.icon}</span>
+      <div className="flex flex-col gap-1 min-w-0 flex-1">
+        {edit ? (
+          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
+            value={block.title} onChange={(v) => edit.setText("title", v)} placeholder={meta.label} />
+        ) : (
+          <span className="text-base font-medium leading-6 text-[var(--text-title)]">{block.title || meta.label}</span>
         )}
+        <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
+          value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Not metni…" />
       </div>
     </aside>
   );
@@ -557,11 +630,33 @@ function CalloutBlock({ block, preview }: RenderProps) {
 
 // ── Accordion (açılır detaylar) ───────────────────────────────────────────────
 
-function AccordionBlock({ block, preview }: RenderProps) {
+function AccordionBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "title", "text");
   const [openId, setOpenId] = useState<string | null>(null);
   const baseId = useId();
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
+
+  // Editor: every item open so its content can be edited in place.
+  if (edit) {
+    return (
+      <Entries
+        entries={entries}
+        edit={edit}
+        className="flex flex-col gap-2.5 w-full"
+        itemClassName="rounded-[22px] bg-[var(--bg-4)]"
+        strategy="vertical"
+        render={(e) => (
+          <div className="flex flex-col gap-1 px-5 py-3.5">
+            <EditableText className="text-base font-normal leading-6 text-[var(--text-title)]"
+              value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Başlık" />
+            <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
+              value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Açılınca görünecek içerik…" />
+          </div>
+        )}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2.5 w-full">
       {entries.map((e) => {
@@ -576,9 +671,7 @@ function AccordionBlock({ block, preview }: RenderProps) {
               onClick={() => setOpenId(isOpen ? null : e.id)}
               className="flex w-full items-center justify-between gap-4 px-5 py-3.5 text-left cursor-pointer"
             >
-              <span className="text-base font-normal leading-6 text-[var(--text-title)]">
-                {e.title || (preview ? <Hint>Başlık</Hint> : null)}
-              </span>
+              <span className="text-base font-normal leading-6 text-[var(--text-title)]">{e.title}</span>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden
                 className={cn("shrink-0 text-[var(--text-subtitle)] transition-transform duration-300", isOpen && "rotate-180")}>
                 <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -592,7 +685,7 @@ function AccordionBlock({ block, preview }: RenderProps) {
             >
               <div className="overflow-hidden">
                 <p className="px-5 pb-4 text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-                  {e.text ? renderRichText(e.text) : preview ? <Hint>Açılınca görünecek içerik…</Hint> : null}
+                  {e.text ? renderRichText(e.text) : null}
                 </p>
               </div>
             </div>
@@ -607,9 +700,9 @@ function AccordionBlock({ block, preview }: RenderProps) {
 
 type MockupVariant = "phone" | "browser" | "tablet";
 
-function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entry: BlockEntry; preview: boolean }) {
+function DeviceFrame({ variant, entry, preview, edit }: { variant: MockupVariant; entry: BlockEntry; preview: boolean; edit?: BlockEditApi }) {
   const screen = entry.src ? (
-    <ZoomableImage src={entry.src} alt={entry.alt ?? ""} className="w-full h-full object-cover object-top" />
+    <BlockImage src={entry.src} alt={entry.alt} editing={Boolean(edit)} className="w-full h-full object-cover object-top" />
   ) : (
     <MediaPlaceholder label={entry.alt} preview={preview} />
   );
@@ -623,7 +716,11 @@ function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entr
           </div>
           <div className="flex-1 flex justify-center min-w-0">
             <span className="max-w-[70%] truncate inline-flex items-center h-6 px-3 rounded-full bg-[var(--bg-4)] text-[12px] leading-4 text-[var(--text-subtitle)]">
-              {entry.label || "burakkoc.net"}
+              {edit ? (
+                <EditableText value={entry.label} onChange={(v) => edit.setEntryText(entry.id, "label", v)} placeholder="burakkoc.net" />
+              ) : (
+                entry.label || "burakkoc.net"
+              )}
             </span>
           </div>
           <div className="w-[42px]" />
@@ -637,8 +734,8 @@ function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entr
   return (
     <div className={cn(
       // ring: keeps the dark frame's edge visible on the dark theme
-      "relative flex-1 min-w-0 bg-[#0d0d0d] ring-1 ring-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.18)]",
-      phone ? "max-w-[220px] rounded-[36px] p-[7px]" : "max-w-[460px] rounded-[28px] p-[10px]"
+      "relative w-full bg-[#0d0d0d] ring-1 ring-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.18)]",
+      phone ? "rounded-[36px] p-[7px]" : "rounded-[28px] p-[10px]"
     )}>
       <div
         className={cn("relative w-full overflow-hidden bg-[var(--bg-2)]", phone ? "rounded-[29px]" : "rounded-[18px]")}
@@ -653,28 +750,33 @@ function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entr
   );
 }
 
-function MockupBlock({ block, preview }: RenderProps) {
+function MockupBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "src");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   const variant: MockupVariant = block.variant === "browser" || block.variant === "tablet" ? block.variant : "phone";
   return (
     <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className={cn(
-        "flex w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-4)] overflow-hidden",
-        variant === "browser"
-          ? "flex-col gap-6 p-5 sm:p-10"
-          : "items-center justify-center gap-3 sm:gap-6 px-4 py-8 sm:px-10 sm:py-12"
-      )}>
-        {entries.map((e) => <DeviceFrame key={e.id} variant={variant} entry={e} preview={preview} />)}
+      <div className="w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-4)] overflow-hidden p-4 sm:p-10">
+        <Entries
+          entries={entries}
+          edit={edit}
+          className={cn(
+            "flex w-full",
+            variant === "browser" ? "flex-col gap-6" : "items-center justify-center gap-3 sm:gap-6 py-4 sm:py-2"
+          )}
+          itemClassName={variant === "phone" ? "flex-1 min-w-0 max-w-[220px] rounded-[36px]" : variant === "tablet" ? "flex-1 min-w-0 max-w-[460px] rounded-[28px]" : "w-full rounded-[16px]"}
+          strategy={variant === "browser" ? "vertical" : "grid"}
+          render={(e) => <DeviceFrame variant={variant} entry={e} preview={preview} edit={edit} />}
+        />
       </div>
-      <Caption text={block.caption} />
+      <Caption block={block} edit={edit} />
     </div>
   );
 }
 
 // ── Split (görsel + metin yan yana) ───────────────────────────────────────────
 
-function SplitBlock({ block, preview }: RenderProps) {
+function SplitBlock({ block, preview, edit }: RenderProps) {
   if (!preview && !block.src && !block.title && !block.content) return null;
   const imageRight = block.variant === "right";
   return (
@@ -684,20 +786,16 @@ function SplitBlock({ block, preview }: RenderProps) {
         style={aspectStyle(block.aspectRatio, "4/3")}
       >
         {block.src ? (
-          <ZoomableImage src={block.src} alt={block.alt ?? ""} className="w-full h-full object-cover" />
+          <BlockImage src={block.src} alt={block.alt} editing={Boolean(edit)} className="w-full h-full object-cover" />
         ) : (
           <MediaPlaceholder label={block.alt} preview={preview} />
         )}
       </div>
       <div className="flex flex-col gap-2 min-w-0">
-        <h3 className="text-base font-medium leading-6 text-[var(--text-title)]">
-          {block.title || (preview ? <Hint>Başlık</Hint> : null)}
-        </h3>
-        {(block.content || preview) && (
-          <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-            {block.content ? renderRichText(block.content) : <Hint>Görselin anlattığını destekleyen kısa metin…</Hint>}
-          </p>
-        )}
+        <EditableText as="h3" className="text-base font-medium leading-6 text-[var(--text-title)]"
+          value={block.title} onChange={edit && ((v) => edit.setText("title", v))} placeholder="Başlık" />
+        <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
+          value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Görseli destekleyen kısa metin…" />
       </div>
     </div>
   );
@@ -708,26 +806,26 @@ function SplitBlock({ block, preview }: RenderProps) {
 const CHECK_TOKENS = new Set(["✓", "✔", "✅"]);
 const CROSS_TOKENS = new Set(["✗", "✕", "×", "❌"]);
 
-function TableCell({ value }: { value: string }) {
+function tableCellDisplay(value: string): ReactNode {
   const v = value.trim();
   if (CHECK_TOKENS.has(v)) {
     return (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" role="img" aria-label="Var" className="text-[var(--text-title)]">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" role="img" aria-label="Var" className="inline-block text-[var(--text-title)]">
         <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
   if (CROSS_TOKENS.has(v)) {
     return (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" role="img" aria-label="Yok" className="text-[var(--text-subtitle)] opacity-60">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" role="img" aria-label="Yok" className="inline-block text-[var(--text-subtitle)] opacity-60">
         <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
     );
   }
-  return <>{renderRichText(value)}</>;
+  return renderRichText(value);
 }
 
-function TableBlock({ block, preview }: RenderProps) {
+function TableBlock({ block, preview, edit }: RenderProps) {
   const rows = block.tableRows ?? [];
   const hasContent = rows.some((r) => r.cells.some((c) => c.trim() !== ""));
   if (!rows.length || (!preview && !hasContent)) return null;
@@ -738,6 +836,13 @@ function TableBlock({ block, preview }: RenderProps) {
   const head = withHeader ? rows[0] : undefined;
   const body = withHeader ? rows.slice(1) : rows;
 
+  const cell = (rowId: string, col: number, value: string, placeholder: string) =>
+    edit ? (
+      <EditableText value={value} onChange={(v) => edit.setTableCell(rowId, col, v)} placeholder={placeholder} display={tableCellDisplay} />
+    ) : (
+      tableCellDisplay(value)
+    );
+
   return (
     <div className="flex flex-col gap-6 items-center w-full py-4">
       <div className="w-full overflow-x-auto rounded-[22px] border border-[var(--border)]">
@@ -747,7 +852,7 @@ function TableBlock({ block, preview }: RenderProps) {
               <tr className="bg-[var(--bg-4)]">
                 {pad(head.cells).map((c, i) => (
                   <th key={i} scope="col" className="px-4 py-3 text-sm font-medium leading-5 text-[var(--text-title)] align-bottom">
-                    {c || (preview ? <Hint>Başlık</Hint> : null)}
+                    {cell(head.id, i, c, "Başlık")}
                   </th>
                 ))}
               </tr>
@@ -759,11 +864,11 @@ function TableBlock({ block, preview }: RenderProps) {
                 {pad(r.cells).map((c, i) =>
                   i === 0 ? (
                     <th key={i} scope="row" className="px-4 py-3 text-sm font-normal leading-5 text-[var(--text-title)] align-top">
-                      <TableCell value={c} />
+                      {cell(r.id, i, c, "—")}
                     </th>
                   ) : (
                     <td key={i} className="px-4 py-3 text-sm font-light leading-5 text-[var(--text-p)] align-top">
-                      <TableCell value={c} />
+                      {cell(r.id, i, c, "—")}
                     </td>
                   )
                 )}
@@ -772,7 +877,7 @@ function TableBlock({ block, preview }: RenderProps) {
           </tbody>
         </table>
       </div>
-      <Caption text={block.caption} />
+      <Caption block={block} edit={edit} />
     </div>
   );
 }
@@ -785,43 +890,78 @@ function parsePercent(raw?: string): number | null {
   return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null;
 }
 
-function BarsBlock({ block, preview }: RenderProps) {
+function formatPercent(raw: string) {
+  const pct = parsePercent(raw);
+  return pct === null ? raw : `%${pct.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}`;
+}
+
+function BarsBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "label", "value");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   return (
     <div className="flex flex-col gap-6 items-center w-full py-4">
       <div className="flex flex-col gap-4 w-full p-5 rounded-[22px] bg-[var(--bg-4)]">
-        {block.title && (
-          <span className="text-base font-medium leading-6 text-[var(--text-title)]">{block.title}</span>
+        {(block.title || edit) && (
+          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
+            value={block.title} onChange={edit && ((v) => edit.setText("title", v))} placeholder="Soru / başlık (opsiyonel)" />
         )}
-        {entries.map((e) => {
-          const pct = parsePercent(e.value);
-          return (
-            <div key={e.id} className="flex flex-col gap-2">
-              <div className="flex items-baseline justify-between gap-4">
-                <span className="text-sm font-normal leading-5 text-[var(--text-p)]">
-                  {e.label || (preview ? <Hint>Seçenek</Hint> : null)}
-                </span>
-                <span className="text-sm font-medium leading-5 text-[var(--text-title)] tabular-nums">
-                  {pct === null ? "—" : `%${pct.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}`}
-                </span>
-              </div>
-              <div aria-hidden className="h-2 w-full rounded-full bg-[var(--progress-track)] overflow-hidden">
-                <div className="h-full rounded-full bg-[var(--text-title)]" style={{ width: `${pct ?? 0}%` }} />
-              </div>
-              {e.text && <span className="text-sm font-light leading-5 text-[var(--text-subtitle)]">{e.text}</span>}
-            </div>
-          );
-        })}
+        <Entries
+          entries={entries}
+          edit={edit}
+          className="flex flex-col gap-4 w-full"
+          itemClassName="flex flex-col gap-2 rounded-[8px]"
+          strategy="vertical"
+          render={(e) => {
+            const pct = parsePercent(e.value);
+            return (
+              <>
+                <div className="flex items-baseline justify-between gap-4">
+                  <EditableText className="text-sm font-normal leading-5 text-[var(--text-p)]"
+                    value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Seçenek" />
+                  {edit ? (
+                    <EditableText className="text-sm font-medium leading-5 text-[var(--text-title)] tabular-nums"
+                      value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="%0" display={formatPercent} />
+                  ) : (
+                    <span className="text-sm font-medium leading-5 text-[var(--text-title)] tabular-nums">
+                      {pct === null ? "—" : formatPercent(e.value ?? "")}
+                    </span>
+                  )}
+                </div>
+                <div aria-hidden className="h-2 w-full rounded-full bg-[var(--progress-track)] overflow-hidden">
+                  <div className="h-full rounded-full bg-[var(--project-accent,var(--text-title))] transition-[width] duration-300" style={{ width: `${pct ?? 0}%` }} />
+                </div>
+                {(e.text || edit) && (
+                  <EditableText className="text-sm font-light leading-5 text-[var(--text-subtitle)]"
+                    value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Not (opsiyonel)" />
+                )}
+              </>
+            );
+          }}
+        />
       </div>
-      <Caption text={block.caption} />
+      <Caption block={block} edit={edit} />
     </div>
   );
 }
 
 // ── Persona ───────────────────────────────────────────────────────────────────
 
-function PersonaBlock({ block, preview }: RenderProps) {
+function personaItems(text: string): ReactNode {
+  const items = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  return (
+    // Fit-content, so the live editor's hover tint only reacts over the lines themselves.
+    <ul className="flex flex-col gap-1.5 w-fit">
+      {items.map((line, i) => (
+        <li key={i} className="flex gap-2">
+          <span aria-hidden className="shrink-0 mt-[11px] w-1 h-1 rounded-full bg-[var(--text-subtitle)]" />
+          <span className="min-w-0">{renderRichText(line)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function PersonaBlock({ block, preview, edit }: RenderProps) {
   const groups = visibleEntries(block, preview, "label", "text");
   if (!preview && !block.title && !groups.length) return null;
   return (
@@ -829,44 +969,29 @@ function PersonaBlock({ block, preview }: RenderProps) {
       <div className="flex items-center gap-4">
         <Avatar src={block.src} name={block.title} size={64} />
         <div className="flex flex-col min-w-0">
-          <span className="text-base font-medium leading-6 text-[var(--text-title)]">
-            {block.title || (preview ? <Hint>Persona adı</Hint> : null)}
-          </span>
-          {(block.subheading || preview) && (
-            <span className="text-base font-normal leading-6 text-[var(--text-subtitle)]">
-              {block.subheading || <Hint>Yaş · meslek · şehir</Hint>}
-            </span>
-          )}
+          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
+            value={block.title} onChange={edit && ((v) => edit.setText("title", v))} placeholder="Persona adı" />
+          <EditableText className="text-base font-normal leading-6 text-[var(--text-subtitle)]"
+            value={block.subheading} onChange={edit && ((v) => edit.setText("subheading", v))} placeholder="Yaş · meslek · şehir" />
         </div>
       </div>
-      {block.content && (
-        <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">{renderRichText(block.content)}</p>
-      )}
-      {groups.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {groups.map((g) => {
-            const items = (g.text ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-            return (
-              <div key={g.id} className="flex flex-col gap-2 p-4 rounded-[18px] bg-[var(--bg-1)] min-w-0">
-                <span className="text-sm font-medium leading-5 text-[var(--text-title)]">
-                  {g.label || (preview ? <Hint>Grup başlığı</Hint> : null)}
-                </span>
-                {items.length > 0 ? (
-                  <ul className="flex flex-col gap-1.5">
-                    {items.map((line, i) => (
-                      <li key={i} className="flex gap-2 text-sm font-light leading-6 text-[var(--text-p)]">
-                        <span aria-hidden className="shrink-0 mt-[11px] w-1 h-1 rounded-full bg-[var(--text-subtitle)]" />
-                        <span className="min-w-0">{renderRichText(line)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : preview ? (
-                  <span className="text-sm"><Hint>Her satır bir madde</Hint></span>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+      <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
+        value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Kısa tanım ya da persona sözü (opsiyonel)" />
+      {(groups.length > 0 || edit) && (
+        <Entries
+          entries={groups}
+          edit={edit}
+          className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full"
+          itemClassName="flex flex-col gap-2 p-4 rounded-[18px] bg-[var(--bg-1)] min-w-0"
+          render={(g) => (
+            <>
+              <EditableText className="text-sm font-medium leading-5 text-[var(--text-title)]"
+                value={g.label} onChange={entrySetter(edit, g, "label")} placeholder="Grup başlığı" />
+              <EditableText as="div" multiline className="text-sm font-light leading-6 text-[var(--text-p)]"
+                value={g.text} onChange={entrySetter(edit, g, "text")} placeholder="Her satır bir madde" display={personaItems} />
+            </>
+          )}
+        />
       )}
     </div>
   );
@@ -874,9 +999,34 @@ function PersonaBlock({ block, preview }: RenderProps) {
 
 // ── Team (ekip / katkıda bulunanlar) ──────────────────────────────────────────
 
-function TeamBlock({ block, preview }: RenderProps) {
+function TeamBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "title");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
+  const cls = "flex items-center gap-3 p-3 pr-4 rounded-[22px] bg-[var(--bg-4)] min-w-0";
+
+  if (edit) {
+    return (
+      <Entries
+        entries={entries}
+        edit={edit}
+        className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full"
+        itemClassName={cls}
+        render={(e) => (
+          <>
+            <Avatar src={e.src} name={e.title} size={44} />
+            <div className="flex flex-col min-w-0 flex-1">
+              <EditableText className="text-base font-medium leading-6 text-[var(--text-title)] truncate"
+                value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Ad Soyad" />
+              <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)] truncate"
+                value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Rol" />
+            </div>
+            {e.href && isSafeHref(e.href) && <ExternalGlyph />}
+          </>
+        )}
+      />
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
       {entries.map((e) => {
@@ -884,17 +1034,12 @@ function TeamBlock({ block, preview }: RenderProps) {
           <>
             <Avatar src={e.src} name={e.title} size={44} />
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-base font-medium leading-6 text-[var(--text-title)] truncate">
-                {e.title || (preview ? <Hint>Ad Soyad</Hint> : null)}
-              </span>
-              <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] truncate">
-                {e.text || (preview ? <Hint>Rol</Hint> : null)}
-              </span>
+              <span className="text-base font-medium leading-6 text-[var(--text-title)] truncate">{e.title}</span>
+              <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] truncate">{e.text}</span>
             </div>
             {e.href && isSafeHref(e.href) && <ExternalGlyph />}
           </>
         );
-        const cls = "flex items-center gap-3 p-3 pr-4 rounded-[22px] bg-[var(--bg-4)] min-w-0";
         return e.href && isSafeHref(e.href) ? (
           <a key={e.id} href={e.href} target="_blank" rel="noopener noreferrer"
             className={cn(cls, "transition-colors duration-200 hover:bg-[var(--bg-5)]")}>
@@ -910,30 +1055,30 @@ function TeamBlock({ block, preview }: RenderProps) {
 
 // ── Palette (renk paleti) ─────────────────────────────────────────────────────
 
-function PaletteBlock({ block, preview }: RenderProps) {
+function PaletteBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "value");
-  if (!entries.length) return null;
+  if (!entries.length && !edit) return null;
   const cols = block.columns ?? 4;
   return (
-    <div className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}>
-      {entries.map((e) => (
-        <div key={e.id} className="flex flex-col rounded-[22px] bg-[var(--bg-4)] overflow-hidden min-w-0">
-          <div
-            className="h-24 shadow-[inset_0_-1px_0_var(--border)]"
-            style={{ backgroundColor: e.value || "transparent" }}
-          />
+    <Entries
+      entries={entries}
+      edit={edit}
+      className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}
+      itemClassName="flex flex-col rounded-[22px] bg-[var(--bg-4)] overflow-hidden min-w-0"
+      render={(e) => (
+        <>
+          <div className="h-24 shadow-[inset_0_-1px_0_var(--border)]" style={{ backgroundColor: e.value || "transparent" }} />
           <div className="flex flex-col gap-0.5 px-4 py-3 min-w-0">
-            <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
-              {e.label || (preview ? <Hint>Renk adı</Hint> : null)}
-            </span>
-            <span className="text-[13px] font-normal leading-5 text-[var(--text-subtitle)] tabular-nums truncate">
-              {e.value || (preview ? <Hint>#1A1A1A</Hint> : null)}
-            </span>
-            {e.text && <span className="text-[13px] font-light leading-5 text-[var(--text-subtitle)]">{e.text}</span>}
+            <EditableText className="text-sm font-medium leading-5 text-[var(--text-title)] truncate"
+              value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Renk adı" />
+            <EditableText className="text-[13px] font-normal leading-5 text-[var(--text-subtitle)] tabular-nums truncate"
+              value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="#1A1A1A" />
+            <EditableText className="text-[13px] font-light leading-5 text-[var(--text-subtitle)]"
+              value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Kullanım (opsiyonel)" />
           </div>
-        </div>
-      ))}
-    </div>
+        </>
+      )}
+    />
   );
 }
 
@@ -960,17 +1105,9 @@ const RENDERERS: Record<CaseStudyBlockType, (props: RenderProps) => ReactNode> =
   palette: PaletteBlock,
 };
 
-export function CaseStudyBlock({
-  block,
-  animate = false,
-  preview = false,
-}: {
-  block: Block;
-  animate?: boolean;
-  preview?: boolean;
-}) {
+export function CaseStudyBlock({ block, animate = false, edit }: { block: Block; animate?: boolean; edit?: BlockEditApi }) {
   if (!isCaseStudyBlock(block.type)) return null;
   const Renderer = RENDERERS[block.type];
-  const content = <Renderer block={block} preview={preview} />;
+  const content = <Renderer block={block} preview={Boolean(edit)} edit={edit} />;
   return animate ? <ScrollReveal className="w-full">{content}</ScrollReveal> : content;
 }
