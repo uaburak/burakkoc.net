@@ -307,8 +307,10 @@ export function ProjectDetailClient({
 
   const pageFrame = pageFrameProps(project.frame);
   const site = fromStored(design);
+  // Hidden sections (their look's eye) are left out — no room, no contents entry.
+  const items = project.items.filter((item) => item.kind !== "section" || !item.look?.hidden);
   const tocItems: TocItem[] = [{ id: "overview", label: "Overview" }];
-  project.items.forEach((item) => {
+  items.forEach((item) => {
     if (item.kind === "section") {
       const headingBlock = sectionBlocks(item).find(
         (b) => b.type === "heading" && b.content && b.content.trim() !== ""
@@ -404,7 +406,7 @@ export function ProjectDetailClient({
             )}
           </section>
 
-          {project.items.map((item: PageItem) =>
+          {items.map((item: PageItem) =>
             item.kind === "divider" ? (
               <div key={item.id} className="w-full">
                 <ProjectDivider />

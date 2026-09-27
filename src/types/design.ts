@@ -96,15 +96,48 @@ export interface Stroke extends Paint {
 }
 
 /**
+ * How a frame is composited with what is under it, as Figma's blend modes:
+ * `pass-through` (unset) lets its children blend with what is under it,
+ * `normal` blends them within it first; the rest are CSS's mix-blend-mode.
+ */
+export type BlendMode =
+  | "pass-through"
+  | "normal"
+  | "darken"
+  | "multiply"
+  | "color-burn"
+  | "lighten"
+  | "screen"
+  | "color-dodge"
+  | "overlay"
+  | "soft-light"
+  | "hard-light"
+  | "difference"
+  | "exclusion"
+  | "hue"
+  | "saturation"
+  | "color"
+  | "luminosity";
+
+/** Each corner's radius — top left, top right, bottom right, bottom left (CSS's order). */
+export type Corners = [VariableValue, VariableValue, VariableValue, VariableValue];
+
+/**
  * A frame's look, as Figma's Appearance, Fill and Stroke sections — and its
  * Clip content. Any frame has one: the page's, a Bölüm's, a Blok's, a
  * component's, a molecule's.
  */
 export interface FrameLook {
+  /** Not shown (Figma's eye in Appearance): on the page it takes no room; the layers keep it */
+  hidden?: boolean;
+  /** Pass through when unset */
+  blend?: BlendMode;
   /** 0–100 (%) — 100 when unset */
   opacity?: number;
   /** Corner radius (px) — or a size variable */
   radius?: VariableValue;
+  /** Each corner on its own (Figma's independent corners) — wins over `radius` */
+  corners?: Corners;
   /** Its fill — none when unset */
   fill?: Paint;
   /** Its stroke — none when unset */

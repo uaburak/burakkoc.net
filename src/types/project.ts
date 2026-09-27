@@ -123,6 +123,11 @@ export interface Sizing {
   height?: SizeMode;
   widthPx?: number;
   heightPx?: number;
+  /**
+   * Its proportions kept (Figma's Constrain proportions): its width over its
+   * height — the height follows the width, whatever its mode.
+   */
+  ratio?: number;
   /** Limits (px), whatever the mode */
   minWidthPx?: number;
   maxWidthPx?: number;

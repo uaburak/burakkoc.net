@@ -3,7 +3,7 @@
 import type { DesignMolecule, DesignVariable } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { cssValue } from "@/components/project/designVariables";
-import { fillCss } from "@/components/project/frameLook";
+import { fillCss, radiusCss } from "@/components/project/frameLook";
 import { splitName } from "@/components/admin/VariablesPanel";
 
 /**
@@ -18,13 +18,13 @@ import { splitName } from "@/components/admin/VariablesPanel";
 function MoleculeSample({ molecule, byId }: { molecule: DesignMolecule; byId: Map<string, DesignVariable> }) {
   const background = fillCss(molecule, byId);
   const stroke = molecule.stroke && !molecule.stroke.hidden ? cssValue(molecule.stroke.color, "color", byId) : null;
-  const radius = molecule.radius ? cssValue(molecule.radius, "number", byId) : null;
+  const radius = radiusCss(molecule, byId);
   return (
     // A design scope of its own: the site's variables reach it outside the canvas too.
     <span data-design-scope="" className="flex items-center justify-center shrink-0 w-5">
       <span
         className="block w-5 h-3.5 border border-[var(--border-hover)]"
-        style={{ backgroundColor: background ?? "transparent", borderColor: stroke ?? undefined, borderRadius: radius ? `calc(${radius} / 4)` : undefined }}
+        style={{ backgroundColor: background ?? "transparent", borderColor: stroke ?? undefined, borderRadius: radius ? radius.split(" ").map((r) => `calc(${r} / 4)`).join(" ") : undefined }}
       />
     </span>
   );

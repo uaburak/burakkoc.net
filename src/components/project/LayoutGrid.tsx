@@ -149,20 +149,25 @@ export function cellProps(cell: Cell, flowing = false): { className: string; sty
  */
 export function sizeProps(size: Sizing | undefined, stretchChild: boolean, align?: CellAlign, flow: LayoutFlow = "grid"): { className: string; style: CSSProperties; fillHeight: boolean } {
   const width = size?.width ?? "fill";
-  const height = size?.height ?? "hug";
+  // Its proportions kept: the height follows the width (an aspect ratio), whatever its own mode.
+  const ratio = size?.ratio && size.ratio > 0 ? size.ratio : null;
+  const height = ratio ? "fixed" : size?.height ?? "hug";
   const fixedWidth = width === "fixed" && size?.widthPx ? size.widthPx : null;
-  const fixedHeight = height === "fixed" && size?.heightPx ? size.heightPx : null;
-  const fillHeight = height === "fill" || fixedHeight !== null;
+  const fixedHeight = !ratio && height === "fixed" && size?.heightPx ? size.heightPx : null;
+  const fillHeight = height === "fill" || fixedHeight !== null || ratio !== null;
   const { minWidthPx: minW, maxWidthPx: maxW, minHeightPx: minH, maxHeightPx: maxH } = size ?? {};
   const limits = cn(
     // Never wider than its frame, whatever the max.
     minW && "md:min-w-[min(var(--size-min-w),100%)]",
     maxW && "md:max-w-[min(var(--size-max-w),100%)]",
     minH && "md:min-h-(--size-min-h)",
-    maxH && "md:max-h-(--size-max-h) md:overflow-hidden"
+    maxH && "md:max-h-(--size-max-h) md:overflow-hidden",
+    // As a fixed height: what reaches beyond it is cut off.
+    ratio && "md:aspect-(--size-ratio) md:overflow-hidden"
   );
   const style = {
     ...(fixedWidth !== null ? { "--size-w": `${fixedWidth}px` } : {}),
+    ...(ratio ? { "--size-ratio": String(ratio) } : {}),
     ...(fixedHeight !== null ? { "--size-h": `${fixedHeight}px` } : {}),
     ...(minW ? { "--size-min-w": `${minW}px` } : {}),
     ...(maxW ? { "--size-max-w": `${maxW}px` } : {}),
@@ -180,6 +185,8 @@ export function sizeProps(size: Sizing | undefined, stretchChild: boolean, align
         fixedWidth !== null && "md:w-(--size-w) md:max-w-full md:flex-none",
         height === "fill" && (across ? "md:self-stretch" : "md:flex-1 md:min-h-0"),
         fixedHeight !== null && "md:h-(--size-h) md:overflow-hidden md:flex-none",
+        // Its height follows its width: never stretched or squeezed along the flow.
+        ratio && !(width === "fill" && across) && "md:flex-none",
         fillHeight && stretchChild && "md:flex md:flex-col md:[&>*]:flex-1 md:[&>*]:min-h-0",
         limits
       ),
@@ -263,20 +270,23 @@ export function innerLayoutStyle(grid?: GridSettings): CSSProperties {
 /** The style of a child's size in a frame inside a component (see sizeProps): Fill / Hug / Fixed, its limits, and where it sits when narrower. */
 export function innerChildStyle(size: Sizing | undefined, align: CellAlign | undefined, flow: LayoutFlow): CSSProperties {
   const width = size?.width ?? "fill";
-  const height = size?.height ?? "hug";
+  // Its proportions kept: the height follows the width (see sizeProps).
+  const ratio = size?.ratio && size.ratio > 0 ? size.ratio : null;
+  const height = ratio ? "fixed" : size?.height ?? "hug";
   const fixedWidth = width === "fixed" && size?.widthPx ? size.widthPx : null;
-  const fixedHeight = height === "fixed" && size?.heightPx ? size.heightPx : null;
+  const fixedHeight = !ratio && height === "fixed" && size?.heightPx ? size.heightPx : null;
   const limits: CSSProperties = {
     minWidth: size?.minWidthPx ? `min(${size.minWidthPx}px, 100%)` : undefined,
     maxWidth: size?.maxWidthPx ? `min(${size.maxWidthPx}px, 100%)` : undefined,
     minHeight: size?.minHeightPx ? `${size.minHeightPx}px` : undefined,
     maxHeight: size?.maxHeightPx ? `${size.maxHeightPx}px` : undefined,
-    overflow: size?.maxHeightPx || fixedHeight !== null ? "hidden" : undefined,
+    overflow: size?.maxHeightPx || fixedHeight !== null || ratio ? "hidden" : undefined,
   };
   const narrow = width === "hug" || fixedWidth !== null;
   const own = {
     width: width === "hug" ? "fit-content" : fixedWidth !== null ? `${fixedWidth}px` : undefined,
     height: fixedHeight !== null ? `${fixedHeight}px` : undefined,
+    aspectRatio: ratio ? String(ratio) : undefined,
   };
   if (flow !== "grid") {
     // Stacked / side by side: Fill takes the free space along the flow and the frame's size across it.
@@ -284,7 +294,7 @@ export function innerChildStyle(size: Sizing | undefined, align: CellAlign | und
     return {
       ...own,
       maxWidth: narrow ? "100%" : undefined,
-      flex: (width === "fill" && across) || (height === "fill" && !across) ? "1 1 0%" : narrow || fixedHeight !== null ? "none" : undefined,
+      flex: (width === "fill" && across) || (height === "fill" && !across) ? "1 1 0%" : narrow || fixedHeight !== null || ratio ? "none" : undefined,
       alignSelf: (width === "fill" && !across) || (height === "fill" && across) ? "stretch" : undefined,
       ...(width === "fill" && across ? { minWidth: 0 } : {}),
       ...(height === "fill" && !across ? { minHeight: 0 } : {}),

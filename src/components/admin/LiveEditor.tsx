@@ -180,6 +180,9 @@ const Icons = {
   expandLayers: icon("expand"),
   chevron: fi("16.chevron.down"),
   copy: icon("copy.small"),
+  // A layer shown / hidden (its look's `hidden`).
+  eye: icon("eye.small"),
+  eyeOff: icon("hidden.small"),
 };
 
 // ── Shared chrome ─────────────────────────────────────────────────────────────
@@ -911,7 +914,9 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
         (section.size?.width ?? "fill") !== "fill" && "md:w-fit md:max-w-[calc(100%+20px)]",
         SECTION_GAP,
         sectionOutline(selected || isDragging, active),
-        isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]")
+        isDragging && cn(DRAG_LIFT, "bg-[var(--bg-1)]"),
+        // Hidden (its eye): no room on the canvas either, as in Figma — the layers keep it.
+        section.look?.hidden && "hidden"
       )}
     >
       {(!empty || showCells) && (
@@ -1204,12 +1209,16 @@ function LayerButton({ label, onClick, disabled = false, children }: { label: st
  * hover opens the inspector. The row is dragged with its node (listeners sit
  * on the node).
  */
-function LayerRow({ depth, tone, icon, name, selected, open, onToggle, hover, onSelect, onInspect, onRename, children }: {
+function LayerRow({ depth, tone, icon, name, selected, hidden = false, onToggleHidden, open, onToggle, hover, onSelect, onInspect, onRename, children }: {
   depth: number;
   tone: string;
   icon: ReactNode;
   name: string;
   selected: boolean;
+  /** Not shown on the page (see FrameLook.hidden): greyed, its eye crossed out */
+  hidden?: boolean;
+  /** Layers that can be hidden: Figma's eye, at the row's end */
+  onToggleHidden?: () => void;
   /** Containers: expanded or not (undefined: no chevron) */
   open?: boolean;
   onToggle?: () => void;
@@ -1264,7 +1273,7 @@ function LayerRow({ depth, tone, icon, name, selected, open, onToggle, hover, on
           <span className={cn("transition-transform duration-150", !open && "-rotate-90")}>{Icons.chevron}</span>
         </button>
       )}
-      <span className="flex items-center justify-center w-4 h-4 shrink-0" style={{ color: tone }}>{icon}</span>
+      <span className={cn("flex items-center justify-center w-4 h-4 shrink-0", hidden && "opacity-40")} style={{ color: tone }}>{icon}</span>
       {renaming ? (
         <input
           autoFocus
@@ -1283,12 +1292,20 @@ function LayerRow({ depth, tone, icon, name, selected, open, onToggle, hover, on
           className="min-w-0 flex-1 h-6 ml-0.5 px-1.5 rounded-[6px] border border-[var(--border-hover)] bg-[var(--bg-1)] text-[12px] font-medium text-[var(--text-title)] outline-none select-text"
         />
       ) : (
-        <span className="min-w-0 truncate pl-0.5 font-medium text-[var(--text-title)]">{name}</span>
+        <span className={cn("min-w-0 truncate pl-0.5 font-medium text-[var(--text-title)]", hidden && "opacity-40")}>{name}</span>
       )}
       {!renaming && (
-        <div className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/layer:opacity-100 focus-within:opacity-100 transition-opacity">
-          {children}
-          <LayerButton label="Düzenle" onClick={onInspect}>{Icons.edit}</LayerButton>
+        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+          <div className="flex items-center gap-0.5 opacity-0 group-hover/layer:opacity-100 focus-within:opacity-100 transition-opacity">
+            {children}
+            <LayerButton label="Düzenle" onClick={onInspect}>{Icons.edit}</LayerButton>
+          </div>
+          {/* Figma's eye: on hover — always, crossed out, while hidden. */}
+          {onToggleHidden && (
+            <div className={cn(!hidden && "opacity-0 group-hover/layer:opacity-100 focus-within:opacity-100 transition-opacity")}>
+              <LayerButton label={hidden ? "Göster" : "Gizle"} onClick={onToggleHidden}>{hidden ? Icons.eyeOff : Icons.eye}</LayerButton>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1376,6 +1393,8 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
         onSelect={select}
         onInspect={select}
         onRename={(name) => actions.updateBlock(block.id, { name })}
+        hidden={Boolean(block.look?.hidden)}
+        onToggleHidden={() => actions.updateBlock(block.id, { look: { ...block.look, hidden: block.look?.hidden ? undefined : true } })}
       >
         {noun && (
           <LayerButton label={`${noun} ekle`} onClick={addItem}>{Icons.plus}</LayerButton>
@@ -1479,6 +1498,8 @@ function LayerGroup({ group, index, section, selection, collapsed, onToggle, act
         onSelect={select}
         onInspect={select}
         onRename={(name) => actions.updateGroup(group.id, { name })}
+        hidden={Boolean(group.look?.hidden)}
+        onToggleHidden={() => actions.updateGroup(group.id, { look: { ...group.look, hidden: group.look?.hidden ? undefined : true } })}
       >
         <LayerButton label="Bloğa bileşen ekle" onClick={() => onAddBlock(group.id)}>{Icons.plus}</LayerButton>
       </LayerRow>
@@ -1533,6 +1554,8 @@ function LayerSection({ section, index, selection, collapsed, onToggle, actions,
         onSelect={select}
         onInspect={select}
         onRename={(name) => actions.updateSection(section.id, { name })}
+        hidden={Boolean(section.look?.hidden)}
+        onToggleHidden={() => actions.updateSection(section.id, { look: { ...section.look, hidden: section.look?.hidden ? undefined : true } })}
       >
         <LayerButton label="Bölüme blok ekle" onClick={() => onSelect({ kind: "group", groupId: actions.addGroup(section.id) })}>{Icons.plus}</LayerButton>
       </LayerRow>
@@ -2612,7 +2635,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
                       }}
                     />
                   )}
-                  <LookFields look={selectedBlock.block.look} variables={variables} onChange={(look) => actions.updateBlock(selectedBlock.block.id, { look })} />
+                  <LookFields look={selectedBlock.block.look} variables={variables} canHide onChange={(look) => actions.updateBlock(selectedBlock.block.id, { look })} />
                 </div>
               )
             ) : selectedGroup ? (

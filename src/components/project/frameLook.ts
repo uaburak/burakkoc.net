@@ -25,6 +25,27 @@ function strokeShadow(stroke: Stroke | undefined, byId: Map<string, DesignVariab
   return `inset 0 0 0 ${weight} ${color}`;
 }
 
+/**
+ * Its corners as CSS: each corner's own (independent corners), else its
+ * radius — `projectRadius`: a project's own corner radius (its theme) wins
+ * over the radius, not over corners given one by one.
+ */
+export function radiusCss(look: FrameLook, byId: Map<string, DesignVariable>, { projectRadius = false } = {}): string | null {
+  if (look.corners) {
+    const corners = look.corners.map((c) => cssValue(c, "number", byId) ?? "0px");
+    return corners.every((c) => c === "0px" || c === "0") ? null : corners.join(" ");
+  }
+  const radius = look.radius ? cssValue(look.radius, "number", byId) : null;
+  return radius ? (projectRadius ? `var(--project-radius-sm, ${radius})` : radius) : null;
+}
+
+/** Figma's blend modes as CSS: pass through blends nothing itself; normal keeps its children's blending inside it. */
+function blendStyle(blend: FrameLook["blend"]): CSSProperties {
+  if (!blend || blend === "pass-through") return {};
+  if (blend === "normal") return { isolation: "isolate" };
+  return { mixBlendMode: blend };
+}
+
 /** Its fill's colour as CSS — none when it has none, or it is hidden. */
 export function fillCss(look: FrameLook, byId: Map<string, DesignVariable>): string | null {
   return look.fill && !look.fill.hidden ? cssValue(look.fill.color, "color", byId) : null;
@@ -39,10 +60,12 @@ export function fillCss(look: FrameLook, byId: Map<string, DesignVariable>): str
 export function frameLookStyle(look: FrameLook | undefined, variables: DesignVariable[], { projectRadius = false } = {}): CSSProperties {
   if (!look) return {};
   const byId = new Map(variables.map((v) => [v.id, v]));
-  const radius = look.radius ? cssValue(look.radius, "number", byId) : null;
   const style: CSSProperties = {
+    // Hidden: no room on the page (Figma's eye) — the layers keep it.
+    display: look.hidden ? "none" : undefined,
+    ...blendStyle(look.blend),
     opacity: look.opacity !== undefined && look.opacity < 100 ? Math.max(0, look.opacity) / 100 : undefined,
-    borderRadius: radius ? (projectRadius ? `var(--project-radius-sm, ${radius})` : radius) : undefined,
+    borderRadius: radiusCss(look, byId, { projectRadius }) ?? undefined,
     backgroundColor: fillCss(look, byId) ?? undefined,
     boxShadow: strokeShadow(look.stroke, byId),
     overflow: look.clip ? "hidden" : undefined,

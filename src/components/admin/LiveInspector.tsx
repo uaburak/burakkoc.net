@@ -18,7 +18,7 @@ import { TYPOGRAPHY_KINDS } from "@/components/project/designAtoms";
 import { AtomSample, atomMetrics } from "@/components/admin/AtomsPanel";
 import { FigmaIcon, type FigmaIconName } from "@/components/admin/figmaIcons";
 import { useTheme } from "@/context/ThemeContext";
-import type { DesignAtom, DesignMolecule, DesignVariable, FrameLook, MoleculeSlot, Stroke, Paint, SpacingKey, StrokeAlign, Typography, VariableKind, VariableValue } from "@/types/design";
+import type { BlendMode, Corners, DesignAtom, DesignMolecule, DesignVariable, FrameLook, MoleculeSlot, Stroke, Paint, SpacingKey, StrokeAlign, Typography, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
@@ -48,26 +48,45 @@ type Lang = "tr" | "en";
 /**
  * A section of the panel: its title (actions on the right, e.g. "+") over its
  * controls, a rule under it. `muted`: empty — only its title, greyed, as
- * Figma's Fill / Stroke with nothing in them.
+ * Figma's Fill / Stroke with nothing in them. Its last action sits in the
+ * icon column of its rows (see FieldRow).
  */
 function Group({ title, actions, muted = false, children }: { title: string; actions?: ReactNode; muted?: boolean; children?: ReactNode }) {
   return (
-    <section className={cn("flex flex-col gap-2 px-4 border-b border-[var(--border)]", muted ? "py-3" : "pt-3 pb-4")}>
-      <div className="flex items-center justify-between gap-2 h-6">
+    <section className={cn("flex flex-col gap-2 px-4 border-b border-[var(--border)]", muted ? "py-2.5" : "pt-2.5 pb-4")}>
+      <div className="flex items-center justify-between gap-2 h-7">
         <h3 className={cn("text-[12px] font-semibold leading-4 select-none", muted ? "text-[var(--text-subtitle)]" : "text-[var(--text-title)]")}>{title}</h3>
-        {actions && <div className="flex items-center gap-0.5 -mr-1">{actions}</div>}
+        {actions && <div className="flex items-center -mr-2">{actions}</div>}
       </div>
       {children}
     </section>
   );
 }
 
-/** A labelled line: the label on the left, the control filling the rest. */
-function Row({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * A row of Figma's properties grid: its fields — two side by side, or one
+ * across both (`wide`); more go on to the next line — then, in the column at
+ * its end, the row's icon button (wrap, constrain proportions, padding per
+ * side…) or nothing. Every row's fields end in the same place and the icons
+ * line up under the section's actions: the icon column reaches into the
+ * section's right padding, as in Figma.
+ */
+function FieldRow({ icon, wide = false, children }: { icon?: ReactNode; wide?: boolean; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 min-h-7">
+    <div className="flex items-start gap-2 -mr-2">
+      <div className={cn("grid flex-1 min-w-0 gap-2", wide ? "grid-cols-1" : "grid-cols-2")}>{children}</div>
+      <div className="flex w-7 shrink-0 justify-center">{icon}</div>
+    </div>
+  );
+}
+
+/** A labelled line: the label on the left, the control filling the rest, its icon in the icon column (see FieldRow). */
+function Row({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 min-h-7 -mr-2">
       <span className="w-[72px] shrink-0 text-[12px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
       <div className="flex flex-1 min-w-0 items-center">{children}</div>
+      <div className="flex w-7 shrink-0 justify-center">{icon}</div>
     </div>
   );
 }
@@ -263,7 +282,7 @@ function SquareButton({ label, onClick, children }: { label: string; onClick: ()
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="flex items-center justify-center w-6 h-6 rounded-[6px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+      className="flex shrink-0 items-center justify-center w-7 h-7 rounded-[6px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
     >
       {children}
     </button>
@@ -314,8 +333,16 @@ const Glyphs = {
   plus: glyph("plus.small"),
   minus: glyph("minus.small"),
   opacity: glyph("opacity"),
-  /** Corner radius */
-  radius: glyph("radius.top.left"),
+  /** Corner radius: all corners, then each on its own */
+  radius: glyph("corners"),
+  corners: glyph("corners.independent"),
+  radiusTopLeft: glyph("radius.top.left"),
+  radiusTopRight: glyph("radius.top.right"),
+  radiusBottomRight: glyph("radius.bottom.right"),
+  radiusBottomLeft: glyph("radius.bottom.left"),
+  /** Blend mode: Figma's drop — filled once it isn't pass through */
+  blend: glyph("blendmode.small"),
+  blendActive: glyph("blendmode.active.small"),
   strokeWeight: glyph("stroke-weight"),
   /** Go to (the main component, the atom it uses) */
   goTo: glyph("go.to.main.component.small"),
@@ -325,6 +352,8 @@ const Glyphs = {
   /** Column / row count */
   columns: glyph("grid-column"),
   rows: glyph("grid-row"),
+  /** Constrain proportions: the height follows the width */
+  constrain: glyph("constrain-proportions"),
   /** Min / max width and height */
   minWidth: glyph("al.width-min"),
   maxWidth: glyph("al.width-max"),
@@ -792,9 +821,9 @@ function TrackFields({ label, axis, tracks, measured, onChange }: {
 }) {
   const noun = axis === "column" ? "sütun" : "satır";
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1">
       <span className="text-[11px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
-      <div className="grid grid-cols-3 gap-2">
+      <FieldRow>
         {tracks.map((t, i) => {
           const now = Math.round(measured[i] ?? t.px ?? 0);
           const name = t.size === "fill" ? (t.fr && t.fr !== 1 ? `Fill ${t.fr}` : "Fill") : t.size === "hug" ? "Hug" : undefined;
@@ -823,7 +852,7 @@ function TrackFields({ label, axis, tracks, measured, onChange }: {
             />
           );
         })}
-      </div>
+      </FieldRow>
     </div>
   );
 }
@@ -938,17 +967,19 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
 
   return (
     <Group title="Yerleşim">
-      <div className="flex items-center gap-2">
-        <div className="flex-1 min-w-0">
-          <Choice value={flow} options={FLOWS} onChange={(next) => onChange({ ...grid, flow: next === "grid" ? undefined : next })} />
-        </div>
-        <ToggleButton label="Wrap: sığmayan alt satıra geçsin (yan yana)" pressed={wrapping} disabled={!across} onClick={() => onChange({ ...grid, wrap: !grid?.wrap || undefined })}>
-          {Glyphs.wrap}
-        </ToggleButton>
-      </div>
+      <FieldRow
+        wide
+        icon={
+          <ToggleButton label="Wrap: sığmayan alt satıra geçsin (yan yana)" pressed={wrapping} disabled={!across} onClick={() => onChange({ ...grid, wrap: !grid?.wrap || undefined })}>
+            {Glyphs.wrap}
+          </ToggleButton>
+        }
+      >
+        <Choice value={flow} options={FLOWS} onChange={(next) => onChange({ ...grid, flow: next === "grid" ? undefined : next })} />
+      </FieldRow>
       {onSize && <SizeFields size={size} measure={measure} heightModes={heightModes} onChange={onSize} />}
       {flow === "grid" && (
-        <div className="grid grid-cols-2 gap-2">
+        <FieldRow>
           <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} suffix="sütun" onChange={setCount} />
           <NumberField
             label="Satır sayısı"
@@ -959,7 +990,7 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
             suffix="satır"
             onChange={(rows) => onChange(withRowCount(grid, rows))}
           />
-        </div>
+        </FieldRow>
       )}
       {flow === "grid" && (count > 1 || rowList.length > 0) && (
         <>
@@ -972,7 +1003,7 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
         </>
       )}
       {/* As in Figma's Auto layout: the box on the left, the gaps beside it; the padding under them (px). */}
-      <div className="grid grid-cols-2 gap-2">
+      <FieldRow>
         <div className="row-span-2">
           <AlignGrid className="h-full min-h-16" x={grid?.justify ?? "start"} y={grid?.align ?? "start"} flow={flow} spread={grid?.spread} onChange={({ x, y }) => onAlign(x, y)} />
         </div>
@@ -1007,27 +1038,28 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
         })()}
         {/* Wrapping: the gap between the lines. */}
         {wrapping && spacing("rowGap", { label: "Satırlar arası boşluk", prefix: Glyphs.gapY, value: gaps.row, min: 0, max: 400, onChange: (rowGap) => onChange({ ...grid, rowGap }) })}
-      </div>
-      <div className="flex items-start gap-2">
-        <div className="grid grid-cols-2 gap-2 flex-1 min-w-0">
-          {perSide ? (
-            <>
-              {spacing("paddingLeft", { label: "Soldaki iç boşluk", prefix: Glyphs.padLeft, value: side("paddingLeft", "paddingX"), min: 0, max: 400, onChange: (paddingLeft) => onChange({ ...grid, paddingLeft }) })}
-              {spacing("paddingTop", { label: "Üstteki iç boşluk", prefix: Glyphs.padTop, value: side("paddingTop", "paddingY"), min: 0, max: 400, onChange: (paddingTop) => onChange({ ...grid, paddingTop }) })}
-              {spacing("paddingRight", { label: "Sağdaki iç boşluk", prefix: Glyphs.padRight, value: side("paddingRight", "paddingX"), min: 0, max: 400, onChange: (paddingRight) => onChange({ ...grid, paddingRight }) })}
-              {spacing("paddingBottom", { label: "Alttaki iç boşluk", prefix: Glyphs.padBottom, value: side("paddingBottom", "paddingY"), min: 0, max: 400, onChange: (paddingBottom) => onChange({ ...grid, paddingBottom }) })}
-            </>
-          ) : (
-            <>
-              {spacing("paddingX", { label: "Yatay iç boşluk", prefix: Glyphs.padX, value: grid?.paddingX ?? 0, min: 0, max: 400, onChange: (paddingX) => onChange({ ...grid, paddingX }) })}
-              {spacing("paddingY", { label: "Dikey iç boşluk", prefix: Glyphs.padY, value: grid?.paddingY ?? 0, min: 0, max: 400, onChange: (paddingY) => onChange({ ...grid, paddingY }) })}
-            </>
-          )}
-        </div>
-        <ToggleButton label="İç boşluğu her kenar için ayrı ver" pressed={perSide} onClick={toggleSides}>
-          {Glyphs.padSides}
-        </ToggleButton>
-      </div>
+      </FieldRow>
+      <FieldRow
+        icon={
+          <ToggleButton label="İç boşluğu her kenar için ayrı ver" pressed={perSide} onClick={toggleSides}>
+            {Glyphs.padSides}
+          </ToggleButton>
+        }
+      >
+        {perSide ? (
+          <>
+            {spacing("paddingLeft", { label: "Soldaki iç boşluk", prefix: Glyphs.padLeft, value: side("paddingLeft", "paddingX"), min: 0, max: 400, onChange: (paddingLeft) => onChange({ ...grid, paddingLeft }) })}
+            {spacing("paddingTop", { label: "Üstteki iç boşluk", prefix: Glyphs.padTop, value: side("paddingTop", "paddingY"), min: 0, max: 400, onChange: (paddingTop) => onChange({ ...grid, paddingTop }) })}
+            {spacing("paddingRight", { label: "Sağdaki iç boşluk", prefix: Glyphs.padRight, value: side("paddingRight", "paddingX"), min: 0, max: 400, onChange: (paddingRight) => onChange({ ...grid, paddingRight }) })}
+            {spacing("paddingBottom", { label: "Alttaki iç boşluk", prefix: Glyphs.padBottom, value: side("paddingBottom", "paddingY"), min: 0, max: 400, onChange: (paddingBottom) => onChange({ ...grid, paddingBottom }) })}
+          </>
+        ) : (
+          <>
+            {spacing("paddingX", { label: "Yatay iç boşluk", prefix: Glyphs.padX, value: grid?.paddingX ?? 0, min: 0, max: 400, onChange: (paddingX) => onChange({ ...grid, paddingX }) })}
+            {spacing("paddingY", { label: "Dikey iç boşluk", prefix: Glyphs.padY, value: grid?.paddingY ?? 0, min: 0, max: 400, onChange: (paddingY) => onChange({ ...grid, paddingY }) })}
+          </>
+        )}
+      </FieldRow>
       {clip && <CheckRow label="İçeriği kırp" checked={clip.checked} onChange={clip.onChange} />}
     </Group>
   );
@@ -1229,11 +1261,13 @@ export function InspectorHeader({ icon, tone, title, menu = [], actions }: {
  * word, the number says it all. Under the modes, as in Figma: add (or
  * remove) its min / max — only then do those fields show.
  */
-function SizeModeMenu({ axis, mode, modes, min, max, onChange, onAddLimit, onRemoveLimit }: {
+function SizeModeMenu({ axis, mode, modes, locked = false, min, max, onChange, onAddLimit, onRemoveLimit }: {
   axis: "width" | "height";
   mode: SizeMode;
   /** The modes it offers (all three unless set) */
   modes?: SizeMode[];
+  /** Its size follows the other axis' (proportions kept): no mode of its own */
+  locked?: boolean;
   min?: number;
   max?: number;
   onChange: (mode: SizeMode) => void;
@@ -1246,7 +1280,13 @@ function SizeModeMenu({ axis, mode, modes, min, max, onChange, onAddLimit, onRem
     <FieldMenu
       label={`${axis === "width" ? "Genişlik" : "Yükseklik"}: ${current?.label}`}
       items={[
-        ...SIZE_MODES[axis].filter((m) => !modes || modes.includes(m.value)).map((m) => ({ label: m.label, checked: m.value === mode, onSelect: () => onChange(m.value) })),
+        ...SIZE_MODES[axis].filter((m) => !modes || modes.includes(m.value)).map((m) => ({
+          label: m.label,
+          hint: locked ? "oran korunuyor" : undefined,
+          checked: !locked && m.value === mode,
+          disabled: locked,
+          onSelect: () => onChange(m.value),
+        })),
         min === undefined
           ? { label: `Add min ${noun}`, divided: true, onSelect: () => onAddLimit("min") }
           : { label: `Remove min ${noun}`, divided: true, onSelect: () => onRemoveLimit("min") },
@@ -1255,7 +1295,7 @@ function SizeModeMenu({ axis, mode, modes, min, max, onChange, onAddLimit, onRem
           : { label: `Remove max ${noun}`, onSelect: () => onRemoveLimit("max") },
       ]}
     >
-      {mode !== "fixed" && current?.name}
+      {!locked && mode !== "fixed" && current?.name}
     </FieldMenu>
   );
 }
@@ -1318,81 +1358,105 @@ type SizeFieldsProps = {
   /** The width / height modes it offers (all three unless set) — a section or the page has no frame around it to fill down */
   widthModes?: SizeMode[];
   heightModes?: SizeMode[];
+  /** Its proportions can be kept (Figma's Constrain proportions) — not the page's */
+  lockable?: boolean;
   onChange: (size: Sizing) => void;
 };
 
 /** The W / H fields (see SizeGroup) — in a frame's Yerleşim, as in Figma's Auto layout. */
-function SizeFields({ size, measure, widthModes, heightModes, onChange }: SizeFieldsProps) {
+function SizeFields({ size, measure, widthModes, heightModes, lockable = true, onChange }: SizeFieldsProps) {
   const rendered = useRenderedSize(measure, JSON.stringify(size ?? {}));
   const width = size?.width ?? "fill";
   const height = size?.height ?? "hug";
+  // Proportions kept: the height follows the width — typing a height sets the width it takes.
+  const ratio = size?.ratio;
   const shownWidth = width === "fixed" && size?.widthPx ? size.widthPx : rendered.width;
-  const shownHeight = height === "fixed" && size?.heightPx ? size.heightPx : rendered.height;
+  const shownHeight = !ratio && height === "fixed" && size?.heightPx ? size.heightPx : rendered.height;
+  const setHeight = (heightPx: number) =>
+    onChange(ratio ? { ...size, width: "fixed", widthPx: Math.round(heightPx * ratio) } : { ...size, height: "fixed", heightPx });
+  /** Keeps its proportions as they are now — or lets go of them, keeping the height it has. */
+  const toggleRatio = () =>
+    onChange(
+      ratio
+        ? { ...size, ratio: undefined, height: "fixed", heightPx: rendered.height }
+        : { ...size, ratio: Math.round((rendered.width / rendered.height) * 10000) / 10000 }
+    );
 
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <NumberField
-        label="Genişlik"
-        prefix="W"
-        value={shownWidth}
-        min={16}
-        max={4000}
-        onChange={(widthPx) => onChange({ ...size, width: "fixed", widthPx })}
-        suffix={
-          <SizeModeMenu
-            axis="width"
-            mode={width}
-            modes={widthModes}
-            min={size?.minWidthPx}
-            max={size?.maxWidthPx}
-            onChange={(mode) => onChange({ ...size, width: mode, ...(mode === "fixed" ? { widthPx: size?.widthPx ?? rendered.width } : {}) })}
-            onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: rendered.width })}
-            onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: undefined })}
-          />
+    <>
+      <FieldRow
+        icon={
+          lockable && (
+            <ToggleButton label="Oranı koru: yükseklik genişliğe göre değişsin" pressed={Boolean(ratio)} disabled={!ratio && !(rendered.width > 0 && rendered.height > 0)} onClick={toggleRatio}>
+              {Glyphs.constrain}
+            </ToggleButton>
+          )
         }
-      />
-      <NumberField
-        label="Yükseklik"
-        prefix="H"
-        value={shownHeight}
-        min={16}
-        max={4000}
-        onChange={(heightPx) => onChange({ ...size, height: "fixed", heightPx })}
-        suffix={
-          <SizeModeMenu
-            axis="height"
-            mode={height}
-            modes={heightModes}
-            min={size?.minHeightPx}
-            max={size?.maxHeightPx}
-            onChange={(mode) => onChange({ ...size, height: mode, ...(mode === "fixed" ? { heightPx: size?.heightPx ?? rendered.height } : {}) })}
-            onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: rendered.height })}
-            onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: undefined })}
-          />
-        }
-      />
+      >
+        <NumberField
+          label="Genişlik"
+          prefix="W"
+          value={shownWidth}
+          min={16}
+          max={4000}
+          onChange={(widthPx) => onChange({ ...size, width: "fixed", widthPx })}
+          suffix={
+            <SizeModeMenu
+              axis="width"
+              mode={width}
+              modes={widthModes}
+              min={size?.minWidthPx}
+              max={size?.maxWidthPx}
+              onChange={(mode) => onChange({ ...size, width: mode, ...(mode === "fixed" ? { widthPx: size?.widthPx ?? rendered.width } : {}) })}
+              onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: rendered.width })}
+              onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minWidthPx" : "maxWidthPx"]: undefined })}
+            />
+          }
+        />
+        <NumberField
+          label="Yükseklik"
+          prefix="H"
+          value={shownHeight}
+          min={16}
+          max={4000}
+          onChange={setHeight}
+          suffix={
+            <SizeModeMenu
+              axis="height"
+              mode={height}
+              modes={heightModes}
+              locked={Boolean(ratio)}
+              min={size?.minHeightPx}
+              max={size?.maxHeightPx}
+              onChange={(mode) => onChange({ ...size, height: mode, ...(mode === "fixed" ? { heightPx: size?.heightPx ?? rendered.height } : {}) })}
+              onAddLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: rendered.height })}
+              onRemoveLimit={(limit) => onChange({ ...size, [limit === "min" ? "minHeightPx" : "maxHeightPx"]: undefined })}
+            />
+          }
+        />
+      </FieldRow>
       {/* Limits show once added (from the W / H menus): mins on one line, maxes on the next — width left, height right. */}
       {(size?.minWidthPx !== undefined || size?.minHeightPx !== undefined) && (
-        <>
+        <FieldRow>
           {size?.minWidthPx !== undefined ? (
             <LimitField label="En az genişlik" placeholder="Min W" name="min width" icon={Glyphs.minWidth} value={size.minWidthPx} current={rendered.width} onChange={(minWidthPx) => onChange({ ...size, minWidthPx })} />
           ) : <span />}
           {size?.minHeightPx !== undefined ? (
             <LimitField label="En az yükseklik" placeholder="Min H" name="min height" icon={Glyphs.minHeight} value={size.minHeightPx} current={rendered.height} onChange={(minHeightPx) => onChange({ ...size, minHeightPx })} />
           ) : <span />}
-        </>
+        </FieldRow>
       )}
       {(size?.maxWidthPx !== undefined || size?.maxHeightPx !== undefined) && (
-        <>
+        <FieldRow>
           {size?.maxWidthPx !== undefined ? (
             <LimitField label="En çok genişlik" placeholder="Max W" name="max width" icon={Glyphs.maxWidth} value={size.maxWidthPx} current={rendered.width} onChange={(maxWidthPx) => onChange({ ...size, maxWidthPx })} />
           ) : <span />}
           {size?.maxHeightPx !== undefined ? (
             <LimitField label="En çok yükseklik" placeholder="Max H" name="max height" icon={Glyphs.maxHeight} value={size.maxHeightPx} current={rendered.height} onChange={(maxHeightPx) => onChange({ ...size, maxHeightPx })} />
           ) : <span />}
-        </>
+        </FieldRow>
       )}
-    </div>
+    </>
   );
 }
 
@@ -1447,7 +1511,7 @@ export function SectionInspector({ section, variables, onChange, onAlign }: {
         onChange={(grid) => onChange({ grid })}
         clip={clipOf(section.look, setLook)}
       />
-      <LookFields look={section.look} variables={variables} onChange={setLook} />
+      <LookFields look={section.look} variables={variables} canHide onChange={setLook} />
     </div>
   );
 }
@@ -1473,7 +1537,7 @@ export function GroupInspector({ group, variables, onChange, onAlign }: {
         onChange={(grid) => onChange({ grid })}
         clip={clipOf(group.look, setLook)}
       />
-      <LookFields look={group.look} variables={variables} onChange={setLook} />
+      <LookFields look={group.look} variables={variables} canHide onChange={setLook} />
     </div>
   );
 }
@@ -1566,17 +1630,14 @@ export function MoleculeProperty({ molecule, molecules, onMolecule, onOpenMolecu
   onOpenMolecule: (id: string) => void;
 }) {
   return (
-    <Row label="Molekül">
-      <div className="flex w-full min-w-0 items-center gap-1">
-        <div className={cn("flex flex-1 min-w-0 items-center gap-2 px-2", FIELD)}>
-          <span className="shrink-0 text-[var(--edit-molecule)]">{Glyphs.instance}</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{molecule.name}</span>
-          <FieldMenu
-            label="Molekülü değiştir"
-            items={molecules.map((m) => ({ label: m.name, hint: m.slots.map((slot) => slot.name).join(" + "), checked: m.id === molecule.id, onSelect: () => onMolecule(m.id) }))}
-          />
-        </div>
-        <SquareButton label="Moleküle git" onClick={() => onOpenMolecule(molecule.id)}>{Glyphs.goTo}</SquareButton>
+    <Row label="Molekül" icon={<SquareButton label="Moleküle git" onClick={() => onOpenMolecule(molecule.id)}>{Glyphs.goTo}</SquareButton>}>
+      <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
+        <span className="shrink-0 text-[var(--edit-molecule)]">{Glyphs.instance}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{molecule.name}</span>
+        <FieldMenu
+          label="Molekülü değiştir"
+          items={molecules.map((m) => ({ label: m.name, hint: m.slots.map((slot) => slot.name).join(" + "), checked: m.id === molecule.id, onSelect: () => onMolecule(m.id) }))}
+        />
       </div>
     </Row>
   );
@@ -1676,12 +1737,14 @@ export function TextLayerInspector({ block, itemId, slot, atoms, variables, lang
         onChange={(size) => onSlot({ ...slot, size })}
       />
       <Group title="Görünüş">
-        <div className="grid grid-cols-2 gap-2">
+        <FieldRow>
           <OpacityField value={slot.opacity} onChange={(opacity) => onSlot({ ...slot, opacity })} />
-        </div>
+        </FieldRow>
       </Group>
-      <Group title="Tipografi" actions={atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
-        <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(id) => onSlot({ ...slot, atom: id })} />
+      <Group title="Tipografi">
+        <FieldRow wide icon={atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
+          <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(id) => onSlot({ ...slot, atom: id })} />
+        </FieldRow>
       </Group>
       {atom && (
         <PaintGroup
@@ -1966,19 +2029,22 @@ function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode,
     >
       {paint && (
         <>
-          <div className="flex items-center gap-0.5">
-            <div className={cn("flex-1 min-w-0 transition-opacity", paint.hidden && "opacity-50")}>
+          {fixed ? (
+            <FieldRow wide>
               <BoundField label={title} kind="color" value={paint.color} targets={colors} byId={byId} mode={mode} onChange={(color) => onChange({ ...paint, color })} />
+            </FieldRow>
+          ) : (
+            // As Figma's: the eye, then the minus in the icon column.
+            <div className="flex items-center gap-0.5 -mr-2">
+              <div className={cn("flex-1 min-w-0 transition-opacity", paint.hidden && "opacity-50")}>
+                <BoundField label={title} kind="color" value={paint.color} targets={colors} byId={byId} mode={mode} onChange={(color) => onChange({ ...paint, color })} />
+              </div>
+              <SquareButton label={paint.hidden ? "Göster" : "Gizle"} onClick={() => onChange({ ...paint, hidden: paint.hidden ? undefined : true })}>
+                {paint.hidden ? Glyphs.eyeOff : Glyphs.eye}
+              </SquareButton>
+              <SquareButton label={`${title} kaldır`} onClick={() => onChange(undefined)}>{Glyphs.minus}</SquareButton>
             </div>
-            {!fixed && (
-              <>
-                <SquareButton label={paint.hidden ? "Göster" : "Gizle"} onClick={() => onChange({ ...paint, hidden: paint.hidden ? undefined : true })}>
-                  {paint.hidden ? Glyphs.eyeOff : Glyphs.eye}
-                </SquareButton>
-                <SquareButton label={`${title} kaldır`} onClick={() => onChange(undefined)}>{Glyphs.minus}</SquareButton>
-              </>
-            )}
-          </div>
+          )}
           {children}
         </>
       )}
@@ -2000,15 +2066,68 @@ function OpacityField({ value, onChange }: { value?: number; onChange: (opacity:
   );
 }
 
+/** Figma's blend modes, in its menu's groups (a line above each). */
+const BLEND_MODES: { value: BlendMode; label: string; divided?: boolean }[] = [
+  { value: "pass-through", label: "Pass through" },
+  { value: "normal", label: "Normal" },
+  { value: "darken", label: "Darken", divided: true },
+  { value: "multiply", label: "Multiply" },
+  { value: "color-burn", label: "Color burn" },
+  { value: "lighten", label: "Lighten", divided: true },
+  { value: "screen", label: "Screen" },
+  { value: "color-dodge", label: "Color dodge" },
+  { value: "overlay", label: "Overlay", divided: true },
+  { value: "soft-light", label: "Soft light" },
+  { value: "hard-light", label: "Hard light" },
+  { value: "difference", label: "Difference", divided: true },
+  { value: "exclusion", label: "Exclusion" },
+  { value: "hue", label: "Hue", divided: true },
+  { value: "saturation", label: "Saturation" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
+];
+
+/** Appearance's blend mode: Figma's drop, opening its modes. */
+function BlendMenu({ value, onChange }: { value?: BlendMode; onChange: (blend: BlendMode | undefined) => void }) {
+  const { at, box, toggle, close } = usePopover(MENU_WIDTH);
+  const current = value ?? "pass-through";
+  return (
+    <div ref={box} className="relative flex">
+      <SquareButton label={`Karışım modu: ${BLEND_MODES.find((m) => m.value === current)?.label}`} onClick={() => { if (box.current) toggle(box.current); }}>
+        {current === "pass-through" ? Glyphs.blend : Glyphs.blendActive}
+      </SquareButton>
+      {at && (
+        <MenuList
+          at={at}
+          width={MENU_WIDTH}
+          items={BLEND_MODES.map((m) => ({ label: m.label, divided: m.divided, checked: m.value === current, onSelect: () => onChange(m.value === "pass-through" ? undefined : m.value) }))}
+          onClose={close}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The corners, each on its own — as Figma lays them out: top left, top right; bottom left, bottom right. */
+const CORNER_FIELDS: { index: 0 | 1 | 2 | 3; label: string; glyph: keyof typeof Glyphs }[] = [
+  { index: 0, label: "Sol üst köşe", glyph: "radiusTopLeft" },
+  { index: 1, label: "Sağ üst köşe", glyph: "radiusTopRight" },
+  { index: 3, label: "Sol alt köşe", glyph: "radiusBottomLeft" },
+  { index: 2, label: "Sağ alt köşe", glyph: "radiusBottomRight" },
+];
+
 /**
- * A frame's look (see FrameLook), as Figma's Appearance (opacity, corner
- * radius), Fill and Stroke sections — every frame has them: the page, a
- * Bölüm, a Blok, a component, a molecule. Values bind to variables as
- * everywhere (see Bindable).
+ * A frame's look (see FrameLook), as Figma's Appearance — shown or hidden
+ * (`canHide`: a layer's), its blend mode, opacity and corners (all of them,
+ * or each on its own) — Fill and Stroke sections: every frame has them: the
+ * page, a Bölüm, a Blok, a component, a molecule. Values bind to variables
+ * as everywhere (see Bindable).
  */
-export function LookFields({ look, variables, onChange }: {
+export function LookFields({ look, variables, canHide = false, onChange }: {
   look?: FrameLook;
   variables: DesignVariable[];
+  /** A layer of the page (a Bölüm, a Blok, a component): it can be hidden */
+  canHide?: boolean;
   onChange: (look: FrameLook) => void;
 }) {
   const { theme } = useTheme();
@@ -2017,13 +2136,50 @@ export function LookFields({ look, variables, onChange }: {
   const colors = variables.filter((v) => v.kind === "color");
   const value = look ?? {};
   const set = (patch: Partial<FrameLook>) => onChange({ ...value, ...patch });
+  const radius = value.radius ?? { value: 0 };
+  const corners = value.corners;
+  // Each corner on its own starts from the radius; back to one radius, the top left's.
+  const toggleCorners = () => set(corners ? { corners: undefined, radius: corners[0] } : { corners: [radius, radius, radius, radius] });
+  const cornerField = (index: 0 | 1 | 2 | 3, label: string, prefix: ReactNode) =>
+    corners && (
+      <BoundField
+        key={index}
+        label={label}
+        kind="number"
+        prefix={prefix}
+        value={corners[index]}
+        targets={sizes}
+        byId={byId}
+        mode={theme}
+        onChange={(v) => set({ corners: corners.map((c, i) => (i === index ? v : c)) as Corners })}
+      />
+    );
   return (
     <>
-      <Group title="Görünüş">
-        <div className="grid grid-cols-2 gap-2">
+      <Group
+        title="Görünüş"
+        actions={
+          <>
+            {canHide && (
+              <SquareButton label={value.hidden ? "Göster" : "Gizle"} onClick={() => set({ hidden: value.hidden ? undefined : true })}>
+                {value.hidden ? Glyphs.eyeOff : Glyphs.eye}
+              </SquareButton>
+            )}
+            <BlendMenu value={value.blend} onChange={(blend) => set({ blend })} />
+          </>
+        }
+      >
+        <FieldRow
+          icon={
+            <ToggleButton label="Köşeleri ayrı ayrı ver" pressed={Boolean(corners)} onClick={toggleCorners}>
+              {Glyphs.corners}
+            </ToggleButton>
+          }
+        >
           <OpacityField value={value.opacity} onChange={(opacity) => set({ opacity })} />
-          <BoundField label="Köşe" kind="number" prefix={Glyphs.radius} value={value.radius ?? { value: 0 }} targets={sizes} byId={byId} mode={theme} onChange={(radius) => set({ radius })} />
-        </div>
+          {!corners && <BoundField label="Köşe" kind="number" prefix={Glyphs.radius} value={radius} targets={sizes} byId={byId} mode={theme} onChange={(radius) => set({ radius })} />}
+        </FieldRow>
+        {corners && <FieldRow>{CORNER_FIELDS.map((c) => cornerField(c.index, c.label, Glyphs[c.glyph]))}</FieldRow>}
       </Group>
       <PaintGroup
         title="Dolgu"
@@ -2044,7 +2200,7 @@ export function LookFields({ look, variables, onChange }: {
         onChange={(stroke) => set({ stroke })}
       >
         {value.stroke && (
-          <div className="grid grid-cols-2 gap-2">
+          <FieldRow>
             <SelectField
               label="Kenar çizgisinin yeri"
               value={value.stroke.align}
@@ -2061,7 +2217,7 @@ export function LookFields({ look, variables, onChange }: {
               mode={theme}
               onChange={(weight) => value.stroke && set({ stroke: { ...value.stroke, weight } })}
             />
-          </div>
+          </FieldRow>
         )}
       </PaintGroup>
     </>
@@ -2232,11 +2388,8 @@ export function MoleculeInspector({ molecule, variables, atoms, uses, onChange, 
       </Group>
       <Group title="Atomlar">
         {molecule.slots.map((slot) => (
-          <Field key={slot.field} label={slot.name}>
-            <div className="flex items-center gap-1">
-              <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(atom) => setSlot({ ...slot, atom })} />
-              {slot.atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(slot.atom!)}>{Glyphs.goTo}</SquareButton>}
-            </div>
+          <Field key={slot.field} label={slot.name} icon={slot.atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(slot.atom!)}>{Glyphs.goTo}</SquareButton>}>
+            <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(atom) => setSlot({ ...slot, atom })} />
           </Field>
         ))}
       </Group>
@@ -2260,8 +2413,8 @@ export function PageFrameInspector({ project, variables, onChange }: { project: 
   return (
     <div className="flex flex-col">
       <Group title="Yerleşim">
-        <SizeFields size={frame?.size} measure="[data-page-frame]" heightModes={["fixed", "hug"]} onChange={(size) => onChange({ ...frame, size })} />
-        <div className="grid grid-cols-2 gap-2">
+        <SizeFields size={frame?.size} measure="[data-page-frame]" heightModes={["fixed", "hug"]} lockable={false} onChange={(size) => onChange({ ...frame, size })} />
+        <FieldRow>
           <AlignGrid
             className="h-16"
             x={frame?.justify ?? "start"}
@@ -2269,7 +2422,7 @@ export function PageFrameInspector({ project, variables, onChange }: { project: 
             flow="vertical"
             onChange={({ x, y }) => onChange({ ...frame, justify: x, align: y })}
           />
-        </div>
+        </FieldRow>
         <CheckRow label="İçeriği kırp" checked={Boolean(frame?.look?.clip)} onChange={(clip) => onChange({ ...frame, look: { ...frame?.look, clip: clip || undefined } })} />
       </Group>
       <LookFields look={frame?.look} variables={variables} onChange={(look) => onChange({ ...frame, look })} />
@@ -2477,12 +2630,12 @@ function ItemList({ block, lang, onSelect }: { block: Block; lang: Lang; onSelec
   );
 }
 
-/** A labelled field inside an item's settings. */
-function Field({ label, children }: { label: string; children: ReactNode }) {
+/** A labelled field, the label over it — the field in the grid's columns, its icon at the end (see FieldRow). */
+function Field({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[11px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
-      {children}
+      <FieldRow wide icon={icon}>{children}</FieldRow>
     </div>
   );
 }
