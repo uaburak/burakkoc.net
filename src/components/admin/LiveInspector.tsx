@@ -10,7 +10,7 @@ import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
 import { BLOCK_DEFS, BLOCK_LABELS, GROUP_TONE, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, alignedCells, freeCells, gridColumns, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
+import { GRID_PRESETS, GRID_UNITS, MAX_COLUMNS, MAX_ROWS, freeCells, gridColumns, gridRows, hasGrid, hasPlacedCells, layoutCells, layoutName, roomAt, rowCount, withColumnCount, withColumnWidth, type Cell } from "@/lib/projectLayout";
 
 /**
  * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
@@ -353,48 +353,6 @@ const Glyphs = {
       <rect x="2" y="8" width="8" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
     </svg>
   ),
-  alignLeft: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2.5 2v10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="4.5" y="4" width="7" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="4.5" y="7.5" width="4" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  alignCenter: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M7 2v10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="3" y="4" width="8" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="4.75" y="7.5" width="4.5" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  alignRight: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M11.5 2v10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="2.5" y="4" width="7" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="5.5" y="7.5" width="4" height="2.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  alignTop: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2 2.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="4" y="4.5" width="2.5" height="7" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="7.5" y="4.5" width="2.5" height="4" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  alignMiddle: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2 7h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="4" y="3" width="2.5" height="8" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="7.5" y="4.75" width="2.5" height="4.5" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  alignBottom: (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-      <path d="M2 11.5h10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-      <rect x="4" y="2.5" width="2.5" height="7" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-      <rect x="7.5" y="5.5" width="2.5" height="4" rx="0.8" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
   /** A Blok, as in the layer tree */
   group: (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
@@ -715,87 +673,52 @@ function AlignBars({ vertical, faint = false }: { vertical: GridAlign; faint?: b
   );
 }
 
-const ALIGNS_X: { value: GridAlign; label: string; icon: ReactNode }[] = [
-  { value: "start", label: "Sola hizala", icon: Glyphs.alignLeft },
-  { value: "center", label: "Yatayda ortala", icon: Glyphs.alignCenter },
-  { value: "end", label: "Sağa hizala", icon: Glyphs.alignRight },
-];
-
-const ALIGNS_Y: { value: GridAlign; label: string; icon: ReactNode }[] = [
-  { value: "start", label: "Üste hizala", icon: Glyphs.alignTop },
-  { value: "center", label: "Dikeyde ortala", icon: Glyphs.alignMiddle },
-  { value: "end", label: "Alta hizala", icon: Glyphs.alignBottom },
-];
+const ALIGNS: GridAlign[] = ["start", "center", "end"];
+const V_NAMES: Record<GridAlign, string> = { start: "Üst", center: "Orta", end: "Alt" };
+const H_NAMES: Record<GridAlign, string> = { start: "sol", center: "orta", end: "sağ" };
 
 /**
- * Figma's alignment box in the grid's own shape: as many columns (to width)
- * and rows as the grid has — 3 × 3, even 12 × 12. The cells holding a child
- * show the bars, the others a dot. Click a cell to move the content there as
- * one (`onAlign`, see alignedCells): the children keep their order — on
- * hover, grey bars show where they would go. Off — faded, nothing to click —
- * until a grid is assigned (see hasGrid).
+ * Figma's alignment box: a 3 × 3 grid — rows top / middle / bottom, columns
+ * left / center / right — whatever the frame's grid. The chosen cell shows
+ * the bars, the others a dot — the bars on hover.
  */
-function GridBox({ columns, rows, cells, assigned, onAlign }: {
-  columns: number[];
-  rows: number;
-  /** The children's cells */
-  cells: Cell[];
-  assigned: boolean;
-  /** Move the content towards a cell (unset: nothing to move) */
-  onAlign?: (row: number, col: number) => void;
+function AlignGrid({ x, y, onChange, className }: {
+  x: GridAlign;
+  y: GridAlign;
+  onChange: (value: { x: GridAlign; y: GridAlign }) => void;
+  className?: string;
 }) {
-  const [hover, setHover] = useState<{ row: number; col: number } | null>(null);
-  const align = assigned && cells.length > 0 ? onAlign : undefined;
-  const count = columns.length;
-  const key = (row: number, col: number) => `${row}:${col}`;
-  const covered = (list: Cell[]) => new Set(list.flatMap((c) => Array.from({ length: c.span }, (_, k) => key(c.row, c.col + k))));
-  const taken = covered(cells);
-  const preview = align && hover ? covered(alignedCells(cells, count, rows, hover.row, hover.col)) : null;
-  const place = (row: number, col: number) => `${row}. satır, ${col}. sütun`;
-
   return (
-    <div
-      role="group"
-      aria-label="Izgara"
-      aria-disabled={!assigned}
-      title={assigned ? undefined : "Önce ızgara ata: sütun ya da satır sayısı ver"}
-      onPointerLeave={() => setHover(null)}
-      className={cn("grid h-full min-h-16 p-1 rounded-[6px] bg-[var(--bg-4)]", !assigned && "opacity-50")}
-      style={{ gridTemplateColumns: columns.map((w) => `minmax(0,${w}fr)`).join(" "), gridTemplateRows: `repeat(${rows}, minmax(14px, 1fr))` }}
-    >
-      {Array.from({ length: rows * count }, (_, i) => {
-        const row = Math.floor(i / count) + 1;
-        const col = (i % count) + 1;
-        const here = key(row, col);
-        // The cells it takes in colour; on hover, the ones it would take in grey.
-        const mark = taken.has(here) ? (
-          <AlignBars vertical="center" />
-        ) : preview?.has(here) ? (
-          <AlignBars vertical="center" faint />
-        ) : (
-          <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60" />
-        );
-        return align ? (
-          <button
-            key={here}
-            type="button"
-            title={`İçeriği ${place(row, col)} yönüne taşı`}
-            aria-label={`İçeriği ${place(row, col)} yönüne taşı`}
-            onPointerEnter={() => setHover({ row, col })}
-            onFocus={() => setHover({ row, col })}
-            onBlur={() => setHover(null)}
-            onClick={() => align(row, col)}
-            // The mark inside changes as the preview does — never let it take the press, or the click is lost.
-            className="flex items-center justify-center rounded-[4px] cursor-pointer [&>*]:pointer-events-none"
-          >
-            {mark}
-          </button>
-        ) : (
-          <span key={here} className="flex items-center justify-center">
-            {mark}
-          </span>
-        );
-      })}
+    <div role="radiogroup" aria-label="Hizalama" className={cn("grid grid-cols-3 grid-rows-3 p-1 rounded-[6px] bg-[var(--bg-4)]", className)}>
+      {ALIGNS.map((v) =>
+        ALIGNS.map((h) => {
+          const active = v === y && h === x;
+          return (
+            <button
+              key={`${v}-${h}`}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={`${V_NAMES[v]} ${H_NAMES[h]}`}
+              title={`${V_NAMES[v]} ${H_NAMES[h]}`}
+              onClick={() => onChange({ x: h, y: v })}
+              // The marks inside swap on hover — never let them take the press, or the click is lost.
+              className="group/align flex items-center justify-center rounded-[4px] cursor-pointer [&_*]:pointer-events-none"
+            >
+              {active ? (
+                <AlignBars vertical={v} />
+              ) : (
+                <>
+                  <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-[var(--text-subtitle)] opacity-60 group-hover/align:hidden" />
+                  <span className="hidden group-hover/align:flex">
+                    <AlignBars vertical={v} faint />
+                  </span>
+                </>
+              )}
+            </button>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -803,16 +726,16 @@ function GridBox({ columns, rows, cells, assigned, onAlign }: {
 /**
  * The grid a section lays its Bloks on — or a Blok its components, Figma's
  * "Auto layout": the column and row counts, a preset layout, each column's width
- * (twelfths — its neighbour gives or takes), then the box in the grid's shape
- * (GridBox) with the gaps between the children beside it, and the padding
- * inside (px).
+ * (twelfths — its neighbour gives or takes), then the alignment box — where
+ * its content sits in it — with the gaps between the children beside it, and
+ * the padding inside (px).
  */
 function GridFields({ grid, cells, onAlign, onChange }: {
   grid?: GridSettings;
   /** Its children's cells (layoutCells) */
   cells: Cell[];
-  /** Move its content towards a cell, keeping the children's order */
-  onAlign: (row: number, col: number) => void;
+  /** Where its content sits in it (the alignment box) */
+  onAlign: (justify: GridAlign, align: GridAlign) => void;
   onChange: (grid: GridSettings) => void;
 }) {
   const columns = gridColumns(grid);
@@ -822,7 +745,7 @@ function GridFields({ grid, cells, onAlign, onChange }: {
   const presets = GRID_PRESETS[count];
   const current = layoutName(columns);
   const gaps = gridGaps(grid);
-  const setCount = (n: number) => onChange(n <= 1 ? { ...grid, columns: undefined, align: undefined } : withColumnCount(grid, n));
+  const setCount = (n: number) => onChange(n <= 1 ? { ...grid, columns: undefined } : withColumnCount(grid, n));
 
   return (
     <Group title="Izgara">
@@ -887,12 +810,11 @@ function GridFields({ grid, cells, onAlign, onChange }: {
       {/* As in Figma's Auto layout: the box on the left, the gaps beside it; the padding under them (px). */}
       <div className="grid grid-cols-2 gap-2">
         <div className="row-span-2">
-          <GridBox columns={columns} rows={Math.max(gridRows(grid), minRows)} cells={cells} assigned={hasGrid(grid)} onAlign={onAlign} />
+          <AlignGrid className="h-full min-h-16" x={grid?.justify ?? "start"} y={grid?.align ?? "start"} onChange={({ x, y }) => onAlign(x, y)} />
         </div>
         <NumberField label="Sütunlar arası boşluk" prefix={Glyphs.gapX} value={gaps.column} min={0} max={400} onChange={(columnGap) => onChange({ ...grid, columnGap })} />
         <NumberField label="Satırlar arası boşluk" prefix={Glyphs.gapY} value={gaps.row} min={0} max={400} onChange={(rowGap) => onChange({ ...grid, rowGap })} />
       </div>
-      {!hasGrid(grid) && <p className="-mt-1 text-[11px] leading-4 text-[var(--text-subtitle)]">Kutu, ızgara atanınca çalışır: sütun ya da satır sayısı ver.</p>}
       <div className="grid grid-cols-2 gap-2">
         <NumberField label="Yatay iç boşluk" prefix={Glyphs.padX} value={grid?.paddingX ?? 0} min={0} max={400} onChange={(paddingX) => onChange({ ...grid, paddingX })} />
         <NumberField label="Dikey iç boşluk" prefix={Glyphs.padY} value={grid?.paddingY ?? 0} min={0} max={400} onChange={(paddingY) => onChange({ ...grid, paddingY })} />
@@ -978,8 +900,7 @@ function CellPicker({ columns, rows, cells, index, labels, onPlace, onSwap }: {
  * Where a Blok or component sits, Figma's "Position": its parent's grid in
  * small (CellPicker) — as many columns and rows as the grid has; click a cell
  * to move it there — and, with more than one column, how many it covers.
- * Only once a grid is assigned to the parent (see hasGrid). Where it sits
- * inside its cell is set under Boyut.
+ * Only when the parent's grid has more than one cell (see hasGrid).
  */
 export function PlacementGroup({ title = "Konum", index, siblings, labels, parent, onPlace, onSwap, onSpan }: {
   title?: string;
@@ -994,7 +915,7 @@ export function PlacementGroup({ title = "Konum", index, siblings, labels, paren
   onSwap: (otherId: string) => void;
   onSpan: (span: number) => void;
 }) {
-  // No grid assigned to its parent: no cells to choose.
+  // One cell: nothing to choose.
   if (index < 0 || !hasGrid(parent)) return null;
   const columns = gridColumns(parent);
   const count = columns.length;
@@ -1223,16 +1144,12 @@ function LimitField({ label, placeholder, name, icon, value, current, onChange }
  * Figma's W / H: each axis a number field — the size it has on the page now
  * (typing or scrubbing a number makes it Fixed) — ending in its mode: Fixed,
  * Fill (the cell / the row's height) or Hug (its content). `measure` finds
- * its element on the canvas. Under them: where it sits inside its cell, when
- * it doesn't fill it.
+ * its element on the canvas.
  */
-export function SizeGroup({ size, measure, align, onChange, onAlign }: {
+export function SizeGroup({ size, measure, onChange }: {
   size?: Sizing;
   measure: string;
-  /** Where it sits inside its cell (unset y: its grid's align) */
-  align: { x: GridAlign; y: GridAlign };
   onChange: (size: Sizing) => void;
-  onAlign: (align: CellAlign) => void;
 }) {
   const rendered = useRenderedSize(measure, JSON.stringify(size ?? {}));
   const width = size?.width ?? "fill";
@@ -1303,15 +1220,6 @@ export function SizeGroup({ size, measure, align, onChange, onAlign }: {
           </>
         )}
       </div>
-      {/* Inside its cell: across when narrower than it (Hug / Fixed width), down when shorter than its row (not Fill height). */}
-      {(width !== "fill" || height !== "fill") && (
-        <Row label="Hizala">
-          <div className="grid grid-flow-col auto-cols-fr gap-2 w-full">
-            {width !== "fill" && <Choice value={align.x} options={ALIGNS_X} onChange={(x) => onAlign({ ...align, x })} />}
-            {height !== "fill" && <Choice value={align.y} options={ALIGNS_Y} onChange={(y) => onAlign({ ...align, y })} />}
-          </div>
-        </Row>
-      )}
     </Group>
   );
 }
@@ -1343,14 +1251,14 @@ const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid
 export function SectionInspector({ section, onChange, onAlign, onSelectGroup, onAddGroup }: {
   section: PageSection;
   onChange: (patch: { grid?: GridSettings }) => void;
-  /** Move its Bloks together towards a cell of its grid */
-  onAlign: (row: number, col: number) => void;
+  /** Where its content sits in it (the alignment box) */
+  onAlign: (justify: GridAlign, align: GridAlign) => void;
   onSelectGroup: (groupId: string) => void;
   onAddGroup: () => void;
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Izgara bölümün sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Kutuda bir hücreye tıklayınca bloklar, sıraları korunarak o yöne kayar.</Hint>
+      <Hint>Izgara bölümün sütun ve satırlarını belirler. Hizalama kutusu, Figma’daki gibi, blokların bölümün neresinde duracağını seçer.</Hint>
       <GridFields
         grid={section.grid}
         cells={cellsOf(section.groups, section.grid)}
@@ -1384,14 +1292,14 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
   onPlace: (row: number, col: number) => void;
   /** Swap cells with another Blok of the section */
   onSwap: (otherId: string) => void;
-  /** Move its components together towards a cell of its grid */
-  onAlign: (row: number, col: number) => void;
+  /** Where its content sits in it (the alignment box) */
+  onAlign: (justify: GridAlign, align: GridAlign) => void;
   onSelectBlock: (blockId: string) => void;
   onAddBlock: () => void;
 }) {
   return (
     <div className="flex flex-col">
-      <Hint>Izgara bloğun sütun ve satırlarını belirler; kutu ızgaranın şeklini alır. Kutuda bir hücreye tıklayınca bileşenler, sıraları korunarak o yöne kayar.</Hint>
+      <Hint>Izgara bloğun sütun ve satırlarını belirler. Hizalama kutusu, Figma’daki gibi, bileşenlerin bloğun neresinde duracağını seçer.</Hint>
       <PlacementGroup
         index={section.groups.findIndex((g) => g.id === group.id)}
         siblings={section.groups}
@@ -1401,13 +1309,7 @@ export function GroupInspector({ group, section, lang, onChange, onPlace, onSwap
         onSwap={onSwap}
         onSpan={(span) => onChange({ span })}
       />
-      <SizeGroup
-        size={group.size}
-        measure={`[data-group-id="${group.id}"]`}
-        align={{ x: group.cellAlign?.x ?? "start", y: group.cellAlign?.y ?? section.grid?.align ?? "start" }}
-        onChange={(size) => onChange({ size })}
-        onAlign={(cellAlign) => onChange({ cellAlign })}
-      />
+      <SizeGroup size={group.size} measure={`[data-group-id="${group.id}"]`} onChange={(size) => onChange({ size })} />
       <GridFields
         grid={group.grid}
         cells={cellsOf(group.blocks, group.grid)}

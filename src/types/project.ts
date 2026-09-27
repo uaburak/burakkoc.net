@@ -131,7 +131,8 @@ export interface Sizing {
 /**
  * Where a Blok or component sits inside its cell: across (`x` — when it is
  * narrower than the cell: Hug / Fixed width) and down (`y` — when its row is
- * taller). Unset: left, and the grid's `align`.
+ * taller). Unset: where its frame's alignment puts it (the grid's `justify`
+ * / `align`) — setting the frame's alignment clears it.
  */
 export interface CellAlign {
   x?: GridAlign;
@@ -160,7 +161,13 @@ export interface GridSettings {
   /** Space inside the box in px: left and right / top and bottom */
   paddingX?: number;
   paddingY?: number;
-  /** Vertical alignment of children sharing a line (default "start") */
+  /**
+   * Where its content sits in it, as Figma's auto layout alignment box:
+   * across (`justify` — children narrower than their cells: Hug / Fixed
+   * width) and down (`align` — when it, or a child's row, is taller than
+   * the content). Default "start" (top left).
+   */
+  justify?: GridAlign;
   align?: GridAlign;
 }
 

@@ -20,15 +20,29 @@ export function gridGaps(grid?: GridSettings): { column: number; row: number } {
   return { column: grid?.columnGap ?? preset, row: grid?.rowGap ?? preset };
 }
 const ALIGN_CLASS: Record<GridAlign, string> = { start: "items-start", center: "items-center", end: "items-end" };
+/** The frame's alignment across: children narrower than their cells (from md up — small screens stack everything full width). */
+const JUSTIFY_ITEMS: Record<GridAlign, string> = { start: "md:justify-items-start", center: "md:justify-items-center", end: "md:justify-items-end" };
+/**
+ * …and down, when the frame is taller than its rows: they gather in the
+ * middle / at the bottom. At the top they keep filling it (rows stretch), so
+ * a Fill height child still fills the frame.
+ */
+const ALIGN_CONTENT: Record<GridAlign, string | false> = { start: false, center: "md:content-center", end: "md:content-end" };
 /** Where a child narrower than its cell sits (from md up; small screens stack everything full width). */
 const JUSTIFY_SELF: Record<GridAlign, string> = { start: "md:justify-self-start", center: "md:justify-self-center", end: "md:justify-self-end" };
 const ALIGN_SELF: Record<GridAlign, string> = { start: "md:self-start", center: "md:self-center", end: "md:self-end" };
 
-/** Class and style of a grid container: its columns, gaps (px ones win over the preset), padding and alignment. */
+/** Class and style of a grid container: its columns, gaps (px ones win over the preset), padding and where its content sits (`justify` / `align`). */
 export function gridProps(grid?: GridSettings): { className: string; style: CSSProperties } {
   const px = (n?: number) => (n == null ? undefined : `${n}px`);
   return {
-    className: cn("grid w-full grid-cols-1 md:grid-cols-(--grid-cols)", GAP_CLASS[grid?.gap ?? "md"], ALIGN_CLASS[grid?.align ?? "start"]),
+    className: cn(
+      "grid w-full grid-cols-1 md:grid-cols-(--grid-cols)",
+      GAP_CLASS[grid?.gap ?? "md"],
+      ALIGN_CLASS[grid?.align ?? "start"],
+      ALIGN_CONTENT[grid?.align ?? "start"],
+      grid?.justify && JUSTIFY_ITEMS[grid.justify]
+    ),
     style: {
       "--grid-cols": gridColumns(grid).map((c) => `minmax(0,${c}fr)`).join(" "),
       columnGap: px(grid?.columnGap),
@@ -74,7 +88,8 @@ export function sizeProps(size: Sizing | undefined, stretchChild: boolean, align
     className: cn(
       // Full width in its cell — on small screens always; from md up only when it fills (else `align.x` places it).
       "justify-self-stretch",
-      (width === "hug" || fixedWidth !== null) && JUSTIFY_SELF[align?.x ?? "start"],
+      // Narrower than its cell: where its own alignment says — unset, where its frame's does (justify-items).
+      (width === "hug" || fixedWidth !== null) && (align?.x ? JUSTIFY_SELF[align.x] : "md:justify-self-auto"),
       width === "hug" && "md:w-fit md:max-w-full",
       fixedWidth !== null && "md:w-(--size-w) md:max-w-full",
       // Down: a Fill height stretches to the row; otherwise `align.y` (unset: the grid's align).

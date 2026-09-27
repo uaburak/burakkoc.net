@@ -1,7 +1,7 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
-import { Block, BlockType, Group, PageItem, PageSection, ProjectData } from "@/types/project";
+import { Block, BlockType, GridAlign, Group, PageItem, PageSection, ProjectData } from "@/types/project";
 import { makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
-import { alignBlocks, alignGroups, findBlock, findGroup, gridColumns, gridRows, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
+import { findBlock, findGroup, gridColumns, gridRows, hasPlacedCells, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
 
 /**
  * Every project mutation the form and the live editor perform. All updates are
@@ -133,9 +133,18 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         setItems((items) => placeGroup(items, groupId, sectionId, row, col));
       },
 
-      /** Moves a section's Bloks together towards a cell of its grid, keeping their order. */
-      alignGroups(sectionId: string, row: number, col: number) {
-        setItems((items) => alignGroups(items, sectionId, row, col));
+      /**
+       * Where a section's content sits in it (Figma's alignment box): across
+       * and down. Its Bloks' own alignment is cleared, so this one shows.
+       */
+      alignSection(sectionId: string, justify: GridAlign, align: GridAlign) {
+        setItems((items) =>
+          mapSection(items, sectionId, (s) => ({
+            ...s,
+            grid: { ...s.grid, justify, align },
+            groups: s.groups.map(({ cellAlign: _own, ...g }) => (void _own, g)),
+          }))
+        );
       },
 
       /** Swaps the cells of two Bloks of a section. */
@@ -223,9 +232,15 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         setItems((items) => placeBlock(items, blockId, groupId, row, col));
       },
 
-      /** Moves a Blok's components together towards a cell of its grid, keeping their order. */
-      alignBlocks(groupId: string, row: number, col: number) {
-        setItems((items) => alignBlocks(items, groupId, row, col));
+      /** The same for a Blok and its components. */
+      alignGroup(groupId: string, justify: GridAlign, align: GridAlign) {
+        setItems((items) =>
+          mapGroup(items, groupId, (g) => ({
+            ...g,
+            grid: { ...g.grid, justify, align },
+            blocks: g.blocks.map(({ cellAlign: _own, ...b }) => (void _own, b)),
+          }))
+        );
       },
 
       /** Swaps the cells of two components of a Blok. */

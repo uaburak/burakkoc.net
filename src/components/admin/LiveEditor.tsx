@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useDndMonitor } from "@dnd-kit/core";
-import { Block, BlockType, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
+import { Block, BlockType, GridSettings, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { findBlock, findGroup, freeCells, gridColumns, gridRows, layoutCells, layoutName, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { IconButton, PillButton } from "@/components/Button";
@@ -572,6 +572,9 @@ function FreeCell({ level, containerId, row, col, tall, noun, onAdd }: {
   );
 }
 
+/** Is the grid's content aligned to its middle or bottom (see GridSettings.align)? */
+const lowered = (grid?: GridSettings) => grid?.align === "center" || grid?.align === "end";
+
 /**
  * The free cells of a grid laid out as `cells`, in its set `rows` (see
  * gridRows) — those of one more row too when `newRow` (a row of its own, so
@@ -924,7 +927,8 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
           count={count}
           rows={rows}
           // A new row only on demand (and when it has no set rows): while selected, empty, or while a component is dragged over it.
-          newRow={!rows && (selected || empty || (dragged && drag?.overGroupId === group.id))}
+          // Not with its content in the middle / at the bottom: the row would sit under it and look like part of it.
+          newRow={!rows && !lowered(group.grid) && (selected || empty || (dragged && drag?.overGroupId === group.id))}
           noun="bileşen"
           onAdd={(row, col) => onInsert({ cell: { row, col } })}
         />
@@ -1055,7 +1059,8 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
               count={count}
               rows={rows}
               // A new row only on demand (and when it has no set rows): while selected, empty, or while something is dragged over it.
-              newRow={!rows && (selected || empty || (dragged && drag?.overSectionId === section.id))}
+              // Not with its content in the middle / at the bottom (see LiveGroup).
+              newRow={!rows && !lowered(section.grid) && (selected || empty || (dragged && drag?.overSectionId === section.id))}
               noun="blok"
               onAdd={addGroupAt}
             />
@@ -2273,9 +2278,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                         <SizeGroup
                           size={selectedBlock.block.size}
                           measure={`[data-block-id="${selectedBlock.block.id}"]`}
-                          align={{ x: selectedBlock.block.cellAlign?.x ?? "start", y: selectedBlock.block.cellAlign?.y ?? selectedBlock.group.grid?.align ?? "start" }}
                           onChange={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
-                          onAlign={(cellAlign) => actions.updateBlock(selectedBlock.block.id, { cellAlign })}
                         />
                       </>
                     }
@@ -2294,7 +2297,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                   onChange={(patch) => actions.updateGroup(selectedGroup.group.id, patch)}
                   onPlace={(row, col) => actions.placeGroup(selectedGroup.group.id, selectedGroup.section.id, row, col)}
                   onSwap={(otherId) => actions.swapGroups(selectedGroup.section.id, selectedGroup.group.id, otherId)}
-                  onAlign={(row, col) => actions.alignBlocks(selectedGroup.group.id, row, col)}
+                  onAlign={(justify, align) => actions.alignGroup(selectedGroup.group.id, justify, align)}
                   onSelectBlock={(blockId) => select({ kind: "block", blockId }, { scroll: true })}
                   onAddBlock={() => setPicker({ groupId: selectedGroup.group.id })}
                 />
@@ -2304,7 +2307,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                 <SectionInspector
                   section={selectedSection.section}
                   onChange={(patch) => actions.updateSection(selectedSection.section.id, patch)}
-                  onAlign={(row, col) => actions.alignGroups(selectedSection.section.id, row, col)}
+                  onAlign={(justify, align) => actions.alignSection(selectedSection.section.id, justify, align)}
                   onSelectGroup={(groupId) => select({ kind: "group", groupId }, { scroll: true })}
                   onAddGroup={() => select({ kind: "group", groupId: actions.addGroup(selectedSection.section.id) }, { scroll: true })}
                 />
