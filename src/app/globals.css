@@ -19,18 +19,18 @@
   --border:       #f2f2f2;
   --border-hover: #e4e4e4;   /* Kutu/Active Light: rgba(228,228,228,1) */
 
-  /* Admin live editor: text being edited (red), and one colour per level of
-     the page — hover / selection frames, toolbars, the sections panel:
-     Bölüm (blue), Blok (green), Bileşen by its kind (text, media, data, research);
-     and the design system's molecules (teal). */
-  --edit-accent: #2f6bff;
+  /* Admin editors: text being edited (red); as Figma, frames, texts and images
+     in its blue, components and their instances in its purple (the live
+     editor); the form editor's levels: Blok (green), Bileşen by its kind
+     (text, media, data, research). */
+  --edit-accent: #0d99ff;
+  --edit-component: #9747ff;
   --edit-active: #e5484d;
   --edit-group: #16a34a;
   --edit-text: #7c4dff;
   --edit-media: #ea580c;
   --edit-data: #db2777;
   --edit-research: #a16207;
-  --edit-molecule: #0891b2;
 
   /* Progress Bar */
   --progress-track: #e6e6e6;
@@ -62,14 +62,14 @@
   --border:       #1e1e1e;   /* Background/4 Dark: rgba(30,30,30,1)  */
   --border-hover: #343434;   /* Background/5 Dark: rgba(52,52,52,1)  */
 
-  --edit-accent: #6b95ff;
+  --edit-accent: #0c8ce9;
+  --edit-component: #a970ff;
   --edit-active: #ff6369;
   --edit-group: #3fbf6f;
   --edit-text: #a384ff;
   --edit-media: #ff8a3d;
   --edit-data: #f0619e;
   --edit-research: #d69e2e;
-  --edit-molecule: #22b8d8;
 
   /* Progress Bar */
   --progress-track: #1e1e1e;

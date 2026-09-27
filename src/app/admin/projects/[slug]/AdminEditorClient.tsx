@@ -269,7 +269,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       {/* ── Editor ── */}
       <div className="flex-1 min-h-0">
         {/* Live editor: drags start right away; block editor: press and hold. */}
-        <DesignSystemProvider variables={system.variables} atoms={system.atoms} molecules={system.molecules} designs={system.designs}>
+        <DesignSystemProvider variables={system.variables} textStyles={system.textStyles} components={system.components}>
         <ProjectDndProvider items={project.items} onItemsChange={actions.setItems} activation={mode === "live" ? "press" : "hold"}>
           {mode === "form" ? (
             <FormEditor

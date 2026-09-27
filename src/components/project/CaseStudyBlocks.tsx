@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from "react";
 import { AspectRatio, Block, BlockEntry, BlockType, ItemTextField, LinkIconType } from "@/types/project";
+import type { TextLayer } from "@/types/design";
 import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { cn } from "@/lib/utils";
@@ -9,12 +10,8 @@ import { isSafeHref, renderRichText } from "./RichText";
 import { EditableText } from "./Editable";
 import { SortableGroup, SortableItem } from "./Sortable";
 import type { BlockEditApi, EntryTextKey } from "./editing";
-import { gridFlow } from "@/lib/projectLayout";
-import { innerChildStyle, innerLayoutStyle } from "./LayoutGrid";
-import { useComponentDesign, type ResolvedDesign } from "./componentDesign";
-import { moleculeFrameStyle } from "./designMolecules";
+import { instanceStyles, useInstance } from "./components";
 import { useDesignVariables } from "./designVariables";
-import type { DesignVariable, MoleculeSlot } from "@/types/design";
 
 /**
  * Case-study blocks: info, stats, cards, steps, quote, gallery, compare, links,
@@ -120,29 +117,31 @@ const GRID_SM_COLS: Record<2 | 3 | 4, string> = {
  * Delete once selected).
  */
 function Entries({
-  entries, edit, as: Tag = "div", className, style, designed = false, molecule, itemAs: ItemTag = "div", itemClassName, itemStyle, strategy = "grid", render,
+  entries, edit, as: Tag = "div", className, style, designed = false, component, itemAs: ItemTag = "div", itemClassName, itemStyle, strategy = "grid", render,
 }: {
   entries: BlockEntry[];
   edit?: BlockEditApi;
   as?: ElementType;
   className?: string;
   style?: CSSProperties;
-  /** Laid out by its main component (see designFrame): the editor measures it as the component's frame (`data-component-frame`). */
+  /** Drawn from its main component (see instanceStyles): the editor measures it as the instance's frame (`data-component-frame`). */
   designed?: boolean;
-  /** The molecule its items are instances of (see DesignMolecule), as their `data-molecule` */
-  molecule?: string;
+  /** The component its items are instances of (see DesignComponent), as their `data-component` */
+  component?: string;
   itemAs?: ElementType;
   itemClassName?: string | ((entry: BlockEntry, index: number) => string);
-  itemStyle?: CSSProperties;
+  /** Each item's style — its own one, for items that are instances with their overrides */
+  itemStyle?: CSSProperties | ((entry: BlockEntry) => CSSProperties);
   strategy?: "grid" | "vertical";
   render: (entry: BlockEntry, index: number) => ReactNode;
 }) {
   const cls = (e: BlockEntry, i: number) => (typeof itemClassName === "function" ? itemClassName(e, i) : itemClassName);
+  const css = (e: BlockEntry) => (typeof itemStyle === "function" ? itemStyle(e) : itemStyle);
 
   if (!edit) {
     return (
       <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
-        {entries.map((e, i) => <ItemTag key={e.id} data-molecule={molecule} className={cls(e, i)} style={itemStyle}>{render(e, i)}</ItemTag>)}
+        {entries.map((e, i) => <ItemTag key={e.id} data-component={component} className={cls(e, i)} style={css(e)}>{render(e, i)}</ItemTag>)}
       </Tag>
     );
   }
@@ -151,33 +150,13 @@ function Entries({
     <SortableGroup ids={entries.map((e) => e.id)} onMove={edit.moveEntry} strategy={strategy}>
       <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
         {entries.map((e, i) => (
-          <SortableItem key={e.id} id={e.id} as={ItemTag} molecule={molecule} className={cls(e, i)} style={itemStyle}>
+          <SortableItem key={e.id} id={e.id} as={ItemTag} component={component} className={cls(e, i)} style={css(e)}>
             {render(e, i)}
           </SortableItem>
         ))}
       </Tag>
     </SortableGroup>
   );
-}
-
-/**
- * The layout of a component laid out by its main component (ComponentDesign),
- * at every width, as styles: its frame (how it lays out its items); each
- * item — an instance of its molecule: the molecule's frame, at the item's
- * size in the component; and the molecule's slots, each its atom's text at
- * its size and place in the item.
- */
-function designFrame(design: ResolvedDesign, variables: DesignVariable[]) {
-  const { molecule, size } = design.item;
-  return {
-    frame: innerLayoutStyle(design.layout),
-    molecule,
-    item: { ...moleculeFrameStyle(molecule, variables), ...innerChildStyle(size, undefined, gridFlow(design.layout)) },
-    slot: (slot: MoleculeSlot): CSSProperties => ({
-      ...innerChildStyle(slot.size, slot.align, gridFlow(molecule.layout)),
-      ...(slot.opacity !== undefined && slot.opacity < 100 ? { opacity: Math.max(0, slot.opacity) / 100 } : {}),
-    }),
-  };
 }
 
 /** A text of an item: the element it is, and how it is typed in. */
@@ -189,17 +168,18 @@ interface ItemText {
 }
 
 /**
- * An item's texts, in its molecule's slots (see designFrame): each slot
- * showing one of the item's `texts` — the others (a molecule made for more
- * texts) show nothing.
+ * An item's texts: its component's text layers (see instanceStyles), each
+ * showing one of the item's `texts` in its style — the others (a component
+ * made for more texts) show nothing.
  */
-function slotTexts(entry: BlockEntry, layout: ReturnType<typeof designFrame>, texts: Partial<Record<ItemTextField, ItemText>>, edit?: BlockEditApi) {
-  return layout.molecule.slots.map((slot) => {
-    const text = texts[slot.field];
+function itemTexts(entry: BlockEntry, styles: ReturnType<typeof instanceStyles>, layers: TextLayer[], texts: Partial<Record<ItemTextField, ItemText>>, edit?: BlockEditApi) {
+  return layers.map((layer) => {
+    const text = texts[layer.field];
     if (!text) return null;
+    const { style, textStyle } = styles.text(layer, entry);
     return (
-      <EditableText key={slot.field} as={text.as} layer={slot.field} atom={slot.atom} rich={text.rich} className={text.className} style={layout.slot(slot)}
-        value={entry[slot.field]} onChange={entrySetter(edit, entry, slot.field)} placeholder={text.placeholder} />
+      <EditableText key={layer.id} as={text.as} layer={layer.field} textStyle={textStyle} rich={text.rich} className={text.className} style={style}
+        value={entry[layer.field]} onChange={entrySetter(edit, entry, layer.field)} placeholder={text.placeholder} />
     );
   });
 }
@@ -214,19 +194,22 @@ const INFO_TEXTS: Partial<Record<ItemTextField, ItemText>> = {
 
 function InfoBlock({ block, preview, edit }: RenderProps) {
   const entries = visibleEntries(block, preview, "label", "value");
-  const layout = designFrame(useComponentDesign("info"), useDesignVariables());
-  if (!entries.length && !edit) return null;
+  const instance = useInstance(block);
+  const variables = useDesignVariables();
+  if (!instance?.item || (!entries.length && !edit)) return null;
+  const styles = instanceStyles(instance, variables);
+  const layers = instance.item.component.layers.filter((layer): layer is TextLayer => layer.kind === "text");
   return (
     <Entries
       entries={entries}
       edit={edit}
       as="dl"
       designed
-      molecule={layout.molecule.id}
-      style={layout.frame}
+      component={instance.item.component.id}
+      style={styles.frame}
       itemClassName="min-w-0"
-      itemStyle={layout.item}
-      render={(e) => slotTexts(e, layout, INFO_TEXTS, edit)}
+      itemStyle={styles.item}
+      render={(e) => itemTexts(e, styles, layers, INFO_TEXTS, edit)}
     />
   );
 }

@@ -250,7 +250,7 @@ interface ProjectDetailClientProps {
   slug: string;
   initialProject?: ProjectData | null;
   initialProjects?: ProjectData[];
-  /** The site's design system as stored: its variables, atoms, molecules and main components */
+  /** The site's design system as stored: its variables, text styles and components */
   design?: SiteDesign;
 }
 
@@ -258,7 +258,7 @@ export function ProjectDetailClient({
   slug,
   initialProject,
   initialProjects,
-  design = { designs: {}, variables: [], atoms: [], molecules: [] },
+  design = { variables: [], textStyles: [], components: [] },
 }: ProjectDetailClientProps) {
   const [project, setProject] = useState<ProjectData | null>(initialProject || null);
   const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);

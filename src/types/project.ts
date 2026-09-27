@@ -1,4 +1,4 @@
-import type { FrameLook } from "@/types/design";
+import type { FrameLook, InstanceOverrides } from "@/types/design";
 
 // ── Block Types (divider removed — it's now a top-level PageItem) ─────────────
 
@@ -63,6 +63,11 @@ export interface BlockEntry {
   captionEn?: string;
   href?: string;
   icon?: LinkIconType;
+  /**
+   * An item of a component drawn from its main component is an instance of
+   * the component it repeats (the Künye's Kart): what it changes of it.
+   */
+  overrides?: InstanceOverrides;
 }
 
 // ── List Block ───────────────────────────────────────────────────────────────
@@ -279,8 +284,19 @@ export interface Block {
   cellAlign?: CellAlign;
   /** Out of its Blok's auto layout (see Absolute) */
   absolute?: Absolute;
-  /** Its look: opacity, corners, fill, stroke, clip (see FrameLook) */
+  /**
+   * Its look: opacity, corners, fill, stroke, clip (see FrameLook) — for an
+   * instance of a main component, what it changes of the main one's (Figma's
+   * overrides; see DesignComponent).
+   */
   look?: FrameLook;
+  /** An instance of a main component: the values of its auto layout it changes (its overrides) */
+  layout?: GridSettings;
+  /**
+   * An instance of a main component: the main component it is — swapped
+   * (Figma's instance swap); its type's own one when unset (or gone).
+   */
+  component?: string;
   // EN
   contentEn?: string;
   subheadingEn?: string;
@@ -341,45 +357,8 @@ export interface PageDivider {
 
 export type PageItem = PageSection | PageDivider;
 
-// ── Main components (site-wide) ───────────────────────────────────────────────
-//
-// As Figma's main components — Atomic Design's organisms: each component type
-// has one design, shared by every instance on every page — editing it changes
-// them all. It is the component's inside, as layers: the component lays out
-// its items (the cards of a Proje Künyesi), each item an instance of a
-// molecule (Kart — see DesignMolecule) laying out its atoms (Etiket, Değer).
-// Stored apart from the projects (see loadComponentDesigns); unset values keep
-// the type's built-in look.
-
-/** The text fields of an item that show as layers (see BlockEntry). */
+/** The text fields of an item that show as a component's text layers (see BlockEntry, TextLayer). */
 export type ItemTextField = "label" | "value" | "eyebrow" | "title" | "text" | "caption";
-
-/**
- * A text layer of an item: the atom giving it its look (see DesignAtom), its
- * size in the item's layout and where it sits there when narrower — the atom
- * says how the text looks, the item where and how big its box is.
- */
-export interface TextLayerDesign {
-  /** Its atom's id — its type's own one when unset (or gone) */
-  atom?: string;
-  size?: Sizing;
-  align?: CellAlign;
-}
-
-export interface ComponentDesign {
-  /** The component's frame: how it lays out its items */
-  layout?: GridSettings;
-  /**
-   * Every item (card): the molecule it is (see DesignMolecule — its type's
-   * own one when unset or gone) and its size in the component. `layout` is
-   * from before molecules: the molecule's frame now (see migrateLegacyDesigns).
-   */
-  item?: { molecule?: string; size?: Sizing; layout?: GridSettings };
-  /** From before molecules: its text layers — the molecule's slots now (see migrateLegacyDesigns) */
-  texts?: Partial<Record<ItemTextField, TextLayerDesign>>;
-}
-
-export type ComponentDesigns = Partial<Record<BlockType, ComponentDesign>>;
 
 // ── Project ──────────────────────────────────────────────────────────────────
 

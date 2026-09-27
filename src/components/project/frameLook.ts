@@ -6,7 +6,7 @@ import { cssValue, useDesignVariables } from "./designVariables";
 
 /**
  * A frame's look (see FrameLook) as styles — the page's, a Bölüm's, a Blok's,
- * a component's, a molecule's instances': Figma's Appearance, Fill, Stroke
+ * a main component's, an instance's: Figma's Appearance, Fill, Stroke
  * and Clip content.
  */
 

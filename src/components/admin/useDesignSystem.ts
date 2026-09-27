@@ -1,33 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { BlockType, ComponentDesign, ComponentDesigns } from "@/types/project";
-import type { AtomKind, DesignAtom, DesignMolecule, DesignVariable, VariableKind } from "@/types/design";
-import {
-  loadComponentDesigns,
-  loadDesignAtoms,
-  loadDesignMolecules,
-  loadDesignVariables,
-  saveComponentDesigns,
-  saveDesignAtoms,
-  saveDesignMolecules,
-  saveDesignVariables,
-} from "@/lib/firestore";
+import type { DesignComponent, DesignVariable, TextStyle, VariableKind } from "@/types/design";
+import { loadDesignComponents, loadDesignVariables, loadTextStyles, saveDesignComponents, saveDesignVariables, saveTextStyles } from "@/lib/firestore";
 import { STARTING_VARIABLES, withStartingVariables } from "@/components/project/designVariables";
-import { STARTING_ATOMS, newAtom, withStartingAtoms } from "@/components/project/designAtoms";
-import { STARTING_MOLECULES, copyMolecule, migrateLegacyDesigns, withStartingMolecules } from "@/components/project/designMolecules";
+import { STARTING_TEXT_STYLES, newTextStyle, withStartingTextStyles } from "@/components/project/textStyles";
+import { STARTING_COMPONENTS, copyComponent, isStartingComponent, withStartingComponents } from "@/components/project/components";
 import { uid } from "@/components/admin/blockCatalog";
 
 /**
- * The site's design system in the editor — its variables, atoms, molecules
- * and main components: loaded once, edited here (every page changes with
- * them) and saved with the project, only the parts that changed.
+ * The site's design system in the editor — its variables, text styles and
+ * components: loaded once, edited here (every page changes with them) and
+ * saved with the project, only the parts that changed.
  */
 export interface DesignSystem {
-  /** The main components (see ComponentDesign) */
-  designs: ComponentDesigns;
-  /** Changes a type's main component — every instance, on every page */
-  setDesign: (type: BlockType, design: ComponentDesign) => void;
   /** All of the variables, the starting ones included (see DesignVariable) */
   variables: DesignVariable[];
   /** One of the starting variables: it can only go back to its value, not be deleted */
@@ -37,31 +23,32 @@ export interface DesignSystem {
   addVariable: (kind: VariableKind) => string;
   /** Deletes an added variable — a starting one goes back to its value */
   removeVariable: (id: string) => void;
-  /** All of the atoms, the starting ones included (see DesignAtom) */
-  atoms: DesignAtom[];
-  /** One of the starting atoms: it can only go back to its look, not be deleted */
-  isStartingAtom: (id: string) => boolean;
-  setAtom: (atom: DesignAtom) => void;
-  /** Adds an atom of that kind; returns its id */
-  addAtom: (kind: AtomKind) => string;
-  /** Deletes an added atom (its texts get their own atom back) — a starting one goes back to its look */
-  removeAtom: (id: string) => void;
-  /** All of the molecules, the starting ones included (see DesignMolecule) */
-  molecules: DesignMolecule[];
-  /** One of the starting molecules: it can only go back to its look, not be deleted */
-  isStartingMolecule: (id: string) => boolean;
-  setMolecule: (molecule: DesignMolecule) => void;
-  /** Adds a copy of a molecule, to change on its own; returns its id */
-  copyMolecule: (id: string) => string;
-  /** Deletes an added molecule (the components made of it get their own back) — a starting one goes back to its look */
-  removeMolecule: (id: string) => void;
+  /** All of the text styles, the starting ones included (see TextStyle) */
+  textStyles: TextStyle[];
+  /** One of the starting text styles: it can only go back to its look, not be deleted */
+  isStartingTextStyle: (id: string) => boolean;
+  setTextStyle: (style: TextStyle) => void;
+  /** Adds a text style; returns its id */
+  addTextStyle: () => string;
+  /** Deletes an added text style (its texts get their field's starting one back) — a starting one goes back to its look */
+  removeTextStyle: (id: string) => void;
+  /** All of the components, the starting ones included (see DesignComponent) */
+  components: DesignComponent[];
+  /** One of the starting components: it can only go back to its look, not be deleted */
+  isStartingComponent: (id: string) => boolean;
+  /** Changes a main component — every instance of it, on every page */
+  setComponent: (component: DesignComponent) => void;
+  /** Adds a copy of a component, to change on its own; returns its id */
+  copyComponent: (id: string) => string;
+  /** Deletes an added component (its instances go back to their type's own) — a starting one goes back to its look */
+  removeComponent: (id: string) => void;
   /** Writes the parts that changed since the last save */
   save: () => Promise<void>;
   /** Changes with every edit (and save): effects holding `save` depend on it */
   revision: number;
 }
 
-type Part = "components" | "variables" | "atoms" | "molecules";
+type Part = "variables" | "textStyles" | "components";
 
 /** `base`, or `base 2`, `base 3`… — the first name no other has. */
 function freeName(base: string, taken: { name: string }[]) {
@@ -83,11 +70,10 @@ const NEW_VARIABLE: Record<VariableKind, { name: string; value: string | number 
 };
 
 export function useDesignSystem(): DesignSystem {
-  const [designs, setDesigns] = useState<ComponentDesigns>({});
-  // Only what is stored: the starting variables and atoms are added on top of them.
+  // Only what is stored: the starting variables, text styles and components are added on top of them.
   const [storedVariables, setStoredVariables] = useState<DesignVariable[]>([]);
-  const [storedAtoms, setStoredAtoms] = useState<DesignAtom[]>([]);
-  const [storedMolecules, setStoredMolecules] = useState<DesignMolecule[]>([]);
+  const [storedTextStyles, setStoredTextStyles] = useState<TextStyle[]>([]);
+  const [storedComponents, setStoredComponents] = useState<DesignComponent[]>([]);
   const [changed, setChanged] = useState<ReadonlySet<Part>>(() => new Set());
   const [revision, setRevision] = useState(0);
   const touch = (part: Part) => {
@@ -97,42 +83,34 @@ export function useDesignSystem(): DesignSystem {
 
   useEffect(() => {
     loadDesignVariables().then(setStoredVariables);
-    loadDesignAtoms().then(setStoredAtoms);
-    // Designs from before molecules move to their molecules — stored with the next save.
-    Promise.all([loadComponentDesigns(), loadDesignMolecules()]).then(([loaded, molecules]) => {
-      const moved = migrateLegacyDesigns(loaded, molecules);
-      setDesigns(moved.designs);
-      setStoredMolecules(moved.molecules);
-      if (moved.migrated) {
-        setChanged((prev) => new Set([...prev, "components", "molecules"]));
-        setRevision((r) => r + 1);
-      }
+    loadTextStyles().then(setStoredTextStyles);
+    // Before any component was stored they come from the legacy designs — stored with the next save.
+    loadDesignComponents().then(({ components, fromLegacy }) => {
+      setStoredComponents(components);
+      if (!fromLegacy) return;
+      setChanged((prev) => new Set([...prev, "components"]));
+      setRevision((r) => r + 1);
     });
   }, []);
 
   const variables = withStartingVariables(storedVariables);
-  const atoms = withStartingAtoms(storedAtoms);
-  const molecules = withStartingMolecules(storedMolecules);
+  const textStyles = withStartingTextStyles(storedTextStyles);
+  const components = withStartingComponents(storedComponents);
 
   const setVariable = (variable: DesignVariable) => {
     setStoredVariables((list) => upsert(list, variable));
     touch("variables");
   };
-  const setAtom = (atom: DesignAtom) => {
-    setStoredAtoms((list) => upsert(list, atom));
-    touch("atoms");
+  const setTextStyle = (style: TextStyle) => {
+    setStoredTextStyles((list) => upsert(list, style));
+    touch("textStyles");
   };
-  const setMolecule = (molecule: DesignMolecule) => {
-    setStoredMolecules((list) => upsert(list, molecule));
-    touch("molecules");
+  const setComponent = (component: DesignComponent) => {
+    setStoredComponents((list) => upsert(list, component));
+    touch("components");
   };
 
   return {
-    designs,
-    setDesign: (type, design) => {
-      setDesigns((all) => ({ ...all, [type]: design }));
-      touch("components");
-    },
     variables,
     isStartingVariable: (id) => STARTING_VARIABLES.some((v) => v.id === id),
     setVariable,
@@ -145,37 +123,36 @@ export function useDesignSystem(): DesignSystem {
       setStoredVariables((list) => list.filter((v) => v.id !== id));
       touch("variables");
     },
-    atoms,
-    isStartingAtom: (id) => STARTING_ATOMS.some((a) => a.id === id),
-    setAtom,
-    addAtom: (kind) => {
+    textStyles,
+    isStartingTextStyle: (id) => STARTING_TEXT_STYLES.some((s) => s.id === id),
+    setTextStyle,
+    addTextStyle: () => {
       const id = uid();
-      setAtom(newAtom(kind, id, freeName("Yeni metin", atoms)));
+      setTextStyle(newTextStyle(id, freeName("Yeni metin stili", textStyles)));
       return id;
     },
-    removeAtom: (id) => {
-      setStoredAtoms((list) => list.filter((a) => a.id !== id));
-      touch("atoms");
+    removeTextStyle: (id) => {
+      setStoredTextStyles((list) => list.filter((s) => s.id !== id));
+      touch("textStyles");
     },
-    molecules,
-    isStartingMolecule: (id) => STARTING_MOLECULES.some((m) => m.id === id),
-    setMolecule,
-    copyMolecule: (id) => {
-      const from = molecules.find((m) => m.id === id) ?? STARTING_MOLECULES[0];
-      const copy = copyMolecule(from, uid(), freeName(`${from.name} kopyası`, molecules));
-      setMolecule(copy);
+    components,
+    isStartingComponent,
+    setComponent,
+    copyComponent: (id) => {
+      const from = components.find((c) => c.id === id) ?? STARTING_COMPONENTS[0];
+      const copy = copyComponent(from, uid(), freeName(`${from.name} kopyası`, components));
+      setComponent(copy);
       return copy.id;
     },
-    removeMolecule: (id) => {
-      setStoredMolecules((list) => list.filter((m) => m.id !== id));
-      touch("molecules");
+    removeComponent: (id) => {
+      setStoredComponents((list) => list.filter((c) => c.id !== id));
+      touch("components");
     },
     save: async () => {
       const parts: [Part, () => Promise<void>][] = [
-        ["components", () => saveComponentDesigns(designs)],
         ["variables", () => saveDesignVariables(storedVariables)],
-        ["atoms", () => saveDesignAtoms(storedAtoms)],
-        ["molecules", () => saveDesignMolecules(storedMolecules)],
+        ["textStyles", () => saveTextStyles(storedTextStyles)],
+        ["components", () => saveDesignComponents(storedComponents)],
       ];
       for (const [part, write] of parts) {
         if (!changed.has(part)) continue;

@@ -91,12 +91,12 @@ export interface EditableTextProps {
   display?: (value: string) => ReactNode;
   /**
    * A text layer of its component's item (the live editor selects it and lays
-   * it out — see ComponentDesign — without drawing a line around it): its
+   * it out — see DesignComponent — without drawing a line around it): its
    * field, as `data-text-layer`.
    */
   layer?: string;
-  /** The atom giving it its look (see DesignAtom), as `data-atom` — its typography comes from there */
-  atom?: string;
+  /** The text style giving it its look (see TextStyle), as `data-text-style` — its typography comes from there */
+  textStyle?: string;
   style?: CSSProperties;
 }
 
@@ -113,7 +113,7 @@ export function EditableText({
   onBackspaceEmpty,
   display,
   layer,
-  atom,
+  textStyle,
   style,
 }: EditableTextProps) {
   const [editing, setEditing] = useState(autoEdit);
@@ -139,7 +139,7 @@ export function EditableText({
 
   if (!onChange) {
     if (!value) return null;
-    return <Tag data-atom={atom} className={className} style={style}>{content}</Tag>;
+    return <Tag data-text-style={textStyle} className={className} style={style}>{content}</Tag>;
   }
 
   // The two modes are separate elements (distinct keys). The editing element's
@@ -150,7 +150,7 @@ export function EditableText({
       <Tag
         key="view"
         data-text-layer={layer}
-        data-atom={atom}
+        data-text-style={textStyle}
         className={className}
         style={style}
         onDoubleClick={(e: React.MouseEvent) => {
@@ -182,7 +182,7 @@ export function EditableText({
       key="edit"
       ref={ref}
       data-text-layer={layer}
-      data-atom={atom}
+      data-text-style={textStyle}
       style={style}
       contentEditable={PLAINTEXT_ONLY ? "plaintext-only" : true}
       suppressContentEditableWarning

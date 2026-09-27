@@ -1,9 +1,9 @@
-import type { GridSettings, ItemTextField, TextLayerDesign } from "@/types/project";
+import type { BlockType, CellAlign, GridSettings, ItemTextField, Sizing } from "@/types/project";
 
 // ── Design variables (site-wide) ──────────────────────────────────────────────
 //
 // As Figma's variables: named values — colours, sizes, spacing, weights — the
-// site's atoms and molecules are bound to. Colours have a light and a dark
+// site's text styles and components are bound to. Colours have a light and a dark
 // value (the site's themes); a value can also be another variable's (an
 // alias), so a semantic one (card-title) can point at a base one (başlık/orta).
 // Each variable is a CSS custom property on the page (see variablesCss): change
@@ -28,20 +28,16 @@ export interface DesignVariable {
   token?: string;
 }
 
-// ── Atoms (site-wide) ─────────────────────────────────────────────────────────
+// ── Text styles (site-wide) ───────────────────────────────────────────────────
 //
-// As Atomic Design's atoms: the smallest pieces the site is built of — a
-// heading, a text, a label, a value. An atom carries its own look (a text's
-// typography); where it sits and how big its box is are up to what holds it
-// (for now its component's item — see TextLayerDesign). Each of its values is
-// its own or bound to a variable, as in Figma: change the variable, and every
-// atom bound to it changes; change the atom, and every text using it changes,
-// on every page. Each atom is a CSS rule on its texts (see atomsCss).
+// As Figma's text styles: a text's typography — its size, weight, line height
+// and colour — each value its own or bound to a variable, as in Figma: change
+// the variable, and every style bound to it changes; change the style, and
+// every text using it changes, on every page. A text layer of a component uses
+// one (see TextLayer); where it sits and how big its box is are up to its
+// component. Each style is a CSS rule on its texts (see textStylesCss).
 
-/** What an atom is — a piece of text, for now. */
-export type AtomKind = "text";
-
-/** A text atom's typography: each value its own, or a variable's (see VariableValue). */
+/** A text style's typography: each value its own, or a variable's (see VariableValue). */
 export interface Typography {
   /** px — or a size variable */
   fontSize: VariableValue;
@@ -53,31 +49,10 @@ export interface Typography {
   color: VariableValue;
 }
 
-export interface DesignAtom extends Typography {
+export interface TextStyle extends Typography {
   id: string;
   /** Its name: "Etiket" — "/" makes groups, as a variable's */
   name: string;
-  kind: AtomKind;
-}
-
-// ── Molecules (site-wide) ─────────────────────────────────────────────────────
-//
-// As Atomic Design's molecules: a few atoms working together — a card's label
-// and value. A molecule is a frame — how it lays out its atoms (Figma's auto
-// layout), its spacing, corners, fill and stroke — holding its atoms, each in
-// a slot: which atom, and how big and where in the frame. A component's items
-// are its instances: change the Kart, and every component made of Kart's
-// changes, on every page. How big an item is in its component stays with the
-// component (ComponentDesign.item.size).
-
-/** A place for an atom in a molecule: the item's text it shows, and the atom giving it its look. */
-export interface MoleculeSlot extends TextLayerDesign {
-  /** The item's text it shows */
-  field: ItemTextField;
-  /** Its name in the layers: "Etiket" */
-  name: string;
-  /** 0–100 (%) — 100 when unset */
-  opacity?: number;
 }
 
 /** A fill, or a stroke's colour: a colour variable, or a colour of its own — `hidden` keeps it without drawing it (Figma's eye). */
@@ -124,8 +99,8 @@ export type Corners = [VariableValue, VariableValue, VariableValue, VariableValu
 
 /**
  * A frame's look, as Figma's Appearance, Fill and Stroke sections — and its
- * Clip content. Any frame has one: the page's, a Bölüm's, a Blok's, a
- * component's, a molecule's.
+ * Clip content. Any frame has one: the page's, a Bölüm's, a Blok's, a main
+ * component's, an instance's (its overrides).
  */
 export interface FrameLook {
   /** Not shown (Figma's eye in Appearance): on the page it takes no room; the layers keep it */
@@ -149,17 +124,79 @@ export interface FrameLook {
 /** The spacing of a frame that can be bound to a size variable. */
 export type SpacingKey = "paddingX" | "paddingY" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft" | "columnGap" | "rowGap";
 
-/** Its look (FrameLook) is every instance's: corners, fill, stroke, opacity, clip. */
-export interface DesignMolecule extends FrameLook {
+// ── Components (site-wide) ────────────────────────────────────────────────────
+//
+// As Figma's components: a main component is a frame with auto layout — its
+// flow, spacing, corners, fill and stroke — holding its layers; the page holds
+// its instances. Change the main component, and every instance changes, on
+// every page; change an instance, and only it changes (its overrides — see
+// InstanceOverrides) until they are reset or pushed to the main component.
+// A component's layers are its texts (each showing one of the instance's
+// texts, in a text style) and, for a component the page holds, the instances
+// of another component it repeats — one per item: the Proje Künyesi is a frame
+// of Kart instances, one per row. Components the site's code draws (a heading,
+// an image, a gallery…) have no main component to open, as a library's.
+
+/** A text of a component: the instance's text it shows (its text property), in a text style. */
+export interface TextLayer {
+  kind: "text";
+  id: string;
+  /** Its name in the layers: "Etiket" */
+  name: string;
+  /** The instance's text it shows */
+  field: ItemTextField;
+  /** Its text style's id — its field's starting one when unset (or gone) */
+  style?: string;
+  /** Its size in the component's auto layout */
+  size?: Sizing;
+  /** Where it sits there when narrower */
+  align?: CellAlign;
+  /** 0–100 (%) — 100 when unset */
+  opacity?: number;
+}
+
+/** Instances of another component, one per item of the instance holding them (the Künye's Kart's). */
+export interface InstanceLayer {
+  kind: "instance";
+  id: string;
+  /** Its name in the layers — its component's when unset */
+  name: string;
+  /** The component they are instances of */
+  component: string;
+  /** Each one's size in the component's auto layout */
+  size?: Sizing;
+}
+
+export type ComponentLayer = TextLayer | InstanceLayer;
+
+/** A main component: its frame's look (FrameLook) is every instance's, unless one overrides it. */
+export interface DesignComponent extends FrameLook {
   id: string;
   /** Its name: "Kart" — "/" makes groups, as a variable's */
   name: string;
-  /** How it lays out its slots, with its spacing (px) */
+  /** The page component its instances are (Proje Künyesi → `info`) — none for one used inside others (Kart) */
+  type?: BlockType;
+  /** How it lays out its layers (its auto layout), with its spacing (px) */
   layout: GridSettings;
   /** Spacing bound to size variables (their ids) — their values win over the layout's */
   spacing?: Partial<Record<SpacingKey, string>>;
-  /** Corner radius (px) — or a size variable */
-  radius: VariableValue;
-  /** Its atoms, in their order in the frame */
-  slots: MoleculeSlot[];
+  /** Its layers, in their order in the frame */
+  layers: ComponentLayer[];
+}
+
+/**
+ * What an instance changes of its main component, as Figma's overrides — the
+ * rest follows the main one. An item of a page component (a Kart of a Künye)
+ * carries its own (BlockEntry.overrides); the instance on the page keeps its
+ * look and layout on itself (Block.look, Block.layout).
+ */
+export interface InstanceOverrides {
+  /** Its auto layout's values set here, over the main one's */
+  layout?: GridSettings;
+  /** Its look's values set here, over the main one's */
+  look?: FrameLook;
+  /** Its size in the frame holding it, over the one its layer gives it */
+  size?: Sizing;
+  /** A text's style, over its text layer's */
+  styles?: Partial<Record<ItemTextField, string>>;
 }

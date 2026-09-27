@@ -8,33 +8,30 @@ import { CoverImageUpload } from "@/components/admin/FormEditor";
 import { UploadZone } from "@/components/admin/ImageBlockEditor";
 import type { ProjectMeta } from "@/components/admin/editorActions";
 import { editorUid } from "@/components/project/editing";
-import { BLOCK_DEFS, BLOCK_LABELS, blockTone } from "@/components/admin/blockCatalog";
 import { gridGaps } from "@/components/project/LayoutGrid";
-import type { ResolvedDesign } from "@/components/project/componentDesign";
-import { moleculeLayout } from "@/components/project/designMolecules";
-import { boundValue, canAlias, modeValue, resolvedValue, type ThemeMode } from "@/components/project/designVariables";
-import { splitName } from "@/components/admin/VariablesPanel";
-import { TYPOGRAPHY_KINDS } from "@/components/project/designAtoms";
-import { AtomSample, atomMetrics } from "@/components/admin/AtomsPanel";
+import { componentLayout } from "@/components/project/components";
+import { boundValue, resolvedValue, splitName, type ThemeMode } from "@/components/project/designVariables";
+import { TYPOGRAPHY_KINDS } from "@/components/project/textStyles";
+import { TextStyleSample, textStyleMetrics } from "@/components/admin/textStyleSample";
 import { FigmaIcon, type FigmaIconName } from "@/components/admin/figmaIcons";
 import { useTheme } from "@/context/ThemeContext";
-import type { BlendMode, Corners, DesignAtom, DesignMolecule, DesignVariable, FrameLook, MoleculeSlot, Stroke, Paint, SpacingKey, StrokeAlign, Typography, VariableKind, VariableValue } from "@/types/design";
+import type { BlendMode, Corners, DesignComponent, DesignVariable, FrameLook, InstanceLayer, Stroke, Paint, SpacingKey, StrokeAlign, TextLayer, TextStyle, Typography, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
- * The live editor's inspector ("Düzenle") — whatever was clicked on the page:
- * - the project (nothing selected): cover, company, address;
- * - a section (Bölüm): the grid its Bloks sit on, and its Bloks;
- * - a Blok (group): its width in the section, the grid its components sit
- *   on, and its components;
- * - a component (Bileşen): its layout options, its image, and the list of its items;
- * - an item inside a component (card, step, link, list item…): its fields.
+ * The live editor's design panel (Tasarım) — Figma's properties panel, for
+ * whatever is selected:
+ * - the page's frame, a Bölüm, a Blok: its auto layout, W / H and look;
+ * - an instance on the page: the component it is, its properties, its items,
+ *   its frame — what it changes of its main component (its overrides);
+ * - an item inside it (a Kart of a Künye — an instance too), or a text of it;
+ * - on the Bileşenler page, a main component and its layers;
+ * - nothing: the page's styles and variables (see the design panel).
  * Text can always be edited on the page too; this is the tidy way to reach
  * everything else (images, links, icons, values).
  *
- * Laid out like Figma's properties panel, in the layer tree's language (see
- * the primitives below). Only reads shared components — the block editor is
- * unaffected.
+ * Its primitives (below) are Figma's: full-width sections, small grey fields.
+ * Only reads shared components — the block editor is unaffected.
  */
 
 type Lang = "tr" | "en";
@@ -51,7 +48,7 @@ type Lang = "tr" | "en";
  * Figma's Fill / Stroke with nothing in them. Its last action sits in the
  * icon column of its rows (see FieldRow).
  */
-function Group({ title, actions, muted = false, children }: { title: string; actions?: ReactNode; muted?: boolean; children?: ReactNode }) {
+export function Group({ title, actions, muted = false, children }: { title: string; actions?: ReactNode; muted?: boolean; children?: ReactNode }) {
   return (
     <section className={cn("flex flex-col gap-2 px-4 border-b border-[var(--border)]", muted ? "py-2.5" : "pt-2.5 pb-4")}>
       <div className="flex items-center justify-between gap-2 h-7">
@@ -71,7 +68,7 @@ function Group({ title, actions, muted = false, children }: { title: string; act
  * line up under the section's actions: the icon column reaches into the
  * section's right padding, as in Figma.
  */
-function FieldRow({ icon, wide = false, children }: { icon?: ReactNode; wide?: boolean; children: ReactNode }) {
+export function FieldRow({ icon, wide = false, children }: { icon?: ReactNode; wide?: boolean; children: ReactNode }) {
   return (
     <div className="flex items-start gap-2 -mr-2">
       <div className={cn("grid flex-1 min-w-0 gap-2", wide ? "grid-cols-1" : "grid-cols-2")}>{children}</div>
@@ -81,7 +78,7 @@ function FieldRow({ icon, wide = false, children }: { icon?: ReactNode; wide?: b
 }
 
 /** A labelled line: the label on the left, the control filling the rest, its icon in the icon column (see FieldRow). */
-function Row({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
+export function Row({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex items-center gap-2 min-h-7 -mr-2">
       <span className="w-[72px] shrink-0 text-[12px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
@@ -92,14 +89,14 @@ function Row({ label, icon, children }: { label: string; icon?: ReactNode; child
 }
 
 /** The grey box every field sits in (`group/field`: marks at its end show on its hover, see Bindable). */
-const FIELD =
+export const FIELD =
   "group/field h-7 rounded-[6px] bg-[var(--bg-4)] border border-transparent hover:border-[var(--border-hover)] focus-within:border-[var(--text-subtitle)] transition-colors";
 
 /** The chosen option of a segmented control: raised (white; a step lighter in the dark theme). */
 const RAISED = "bg-[var(--bg-1)] [[data-theme=dark]_&]:bg-[var(--bg-5)] text-[var(--text-title)] shadow-[0_1px_2px_rgba(0,0,0,0.08)]";
 
 /** Figma's segmented control: a grey track, the chosen option raised. Options may be icons (their label then names them). */
-function Choice<T>({ value, options, onChange }: {
+export function Choice<T>({ value, options, onChange }: {
   value: T;
   options: { value: T; label: string; icon?: ReactNode }[];
   onChange: (value: T) => void;
@@ -137,7 +134,7 @@ function Choice<T>({ value, options, onChange }: {
  * may be empty: its placeholder shows, emptying the field clears it
  * (`onClear`), stepping or scrubbing starts from `fallback`.
  */
-function NumberField({ label, prefix, value, min, max, suffix, placeholder, fallback, onChange, onClear }: {
+export function NumberField({ label, prefix, value, min, max, suffix, placeholder, fallback, onChange, onClear }: {
   label: string;
   prefix: ReactNode;
   value: number | null;
@@ -221,7 +218,7 @@ function NumberField({ label, prefix, value, min, max, suffix, placeholder, fall
 }
 
 /** A one-line text field in the grey box, with an optional prefix (icon, colour swatch) and suffix. */
-function TextField({ label, value, onChange, placeholder, type = "text", prefix, suffix }: {
+export function TextField({ label, value, onChange, placeholder, type = "text", prefix, suffix }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -247,7 +244,7 @@ function TextField({ label, value, onChange, placeholder, type = "text", prefix,
 }
 
 /** A dropdown in the grey box (the system's own menu), with an optional suffix before its chevron. */
-function SelectField({ label, value, options, placeholder, suffix, onChange }: {
+export function SelectField({ label, value, options, placeholder, suffix, onChange }: {
   label: string;
   value: string;
   options: { value: string; label: string }[];
@@ -275,7 +272,7 @@ function SelectField({ label, value, options, placeholder, suffix, onChange }: {
 }
 
 /** A square icon button (section actions), as in the layer tree. */
-function SquareButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+export function SquareButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -290,7 +287,7 @@ function SquareButton({ label, onClick, children }: { label: string; onClick: ()
 }
 
 /** An icon button that stays pressed (Figma's wrap, per-side padding…); off when `disabled`. */
-function ToggleButton({ label, pressed, disabled = false, onClick, children }: { label: string; pressed: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
+export function ToggleButton({ label, pressed, disabled = false, onClick, children }: { label: string; pressed: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -316,10 +313,10 @@ function ToggleButton({ label, pressed, disabled = false, onClick, children }: {
  * of its 24px box, where a field's prefix or a button's icon goes — the box
  * spilling around it, as a Figma 24px button would be.
  */
-const glyph = (name: FigmaIconName) => <FigmaIcon name={name} className="-m-1.5 shrink-0" />;
+export const glyph = (name: FigmaIconName) => <FigmaIcon name={name} className="-m-1.5 shrink-0" />;
 
 /** The panel's icons: Figma's own (UI3), by what they do here. */
-const Glyphs = {
+export const Glyphs = {
   /** Apply a variable (Figma's hexagon) */
   variable: glyph("variable.small"),
   /** Detach a variable (Figma's broken link) */
@@ -344,8 +341,14 @@ const Glyphs = {
   blend: glyph("blendmode.small"),
   blendActive: glyph("blendmode.active.small"),
   strokeWeight: glyph("stroke-weight"),
-  /** Go to (the main component, the atom it uses) */
+  /** Go to (the main component) */
   goTo: glyph("go.to.main.component.small"),
+  /** Reset all changes (an instance's overrides) — or a starting value back */
+  reset: glyph("reset.instance.small"),
+  trash: glyph("trash"),
+  close: glyph("close.small"),
+  /** Edit a text style */
+  editStyle: glyph("pencil.small"),
   /** Figma's instance mark: a diamond */
   instance: glyph("instance.small"),
   chevron: glyph("chevron.right"),
@@ -899,7 +902,7 @@ interface SpacingBinding {
   onBind: (key: SpacingKey, variableId: string | null) => void;
 }
 
-function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange, bind, clip }: {
+export function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange, bind, clip }: {
   grid?: GridSettings;
   /** Finds its frame on the canvas, for its W / H and the sizes its columns and rows have now */
   measure: string;
@@ -1066,7 +1069,7 @@ function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, 
 }
 
 /** Figma's checkbox with its label (Clip content). */
-function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+export function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
     <label className="flex items-center gap-2 h-7 w-fit cursor-pointer select-none">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
@@ -1124,15 +1127,18 @@ function useRenderedSize(selector: string, revision: string) {
   return size;
 }
 
-const MENU_WIDTH = 188;
+export const MENU_WIDTH = 188;
+
+/** Where a popover sits on the screen: under what opened it (`top`), or over it (`bottom`, from the screen's bottom). */
+export type PopoverAt = { left: number } & ({ top: number; bottom?: undefined } | { bottom: number; top?: undefined });
 
 /**
- * A popover fixed to the screen under what opened it — the panel's edges
- * never clip it. It lives inside `box` (with what opens it): a click outside
- * the box, or a scroll outside it, closes it.
+ * A popover fixed to the screen under (or over) what opened it — the panel's
+ * edges never clip it. It lives inside `box` (with what opens it): a click
+ * outside the box, or a scroll outside it, closes it.
  */
-function usePopover(width: number) {
-  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+export function usePopover(width: number) {
+  const [at, setAt] = useState<PopoverAt | null>(null);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!at) return;
@@ -1146,13 +1152,22 @@ function usePopover(width: number) {
       document.removeEventListener("scroll", close, true);
     };
   }, [at]);
-  /** Opens it under `under` — its right edge with `under`'s, or its left edge with `side` "left" — or closes it. */
-  const toggle = (under: Element, side: "left" | "right" = "right") => {
+  /**
+   * Opens it under `under` — its right edge with `under`'s, or its left edge
+   * with `side` "left"; over it with `place` "above" — or closes it.
+   */
+  const toggle = (under: Element, side: "left" | "right" = "right", place: "below" | "above" = "below") => {
     const r = under.getBoundingClientRect();
-    const left = side === "left" ? r.left : r.right - width;
-    setAt((open) => (open ? null : { top: r.bottom + 6, left: Math.min(Math.max(8, left), window.innerWidth - width - 8) }));
+    const left = Math.min(Math.max(8, side === "left" ? r.left : r.right - width), window.innerWidth - width - 8);
+    setAt((open) => (open ? null : place === "above" ? { bottom: window.innerHeight - r.top + 6, left } : { top: r.bottom + 6, left }));
   };
   return { at, box, toggle, close: () => setAt(null) };
+}
+
+/** A popover's place as styles, never taller than the room it has. */
+export function popoverStyle(at: PopoverAt, width: number, max?: number) {
+  const room = at.top !== undefined ? `calc(100vh - ${at.top + 8}px)` : `calc(100vh - ${at.bottom + 8}px)`;
+  return { top: at.top, bottom: at.bottom, left: at.left, width, maxHeight: max ? `min(${max}px, ${room})` : room };
 }
 
 /** A choice in a FieldMenu: `divided` puts a line above it. */
@@ -1162,7 +1177,7 @@ export type MenuItem = { label: string; hint?: string; checked?: boolean; disabl
  * A small menu at the end of a field: its trigger (`children` and a chevron)
  * opens a list of choices (see usePopover); it closes on a choice too.
  */
-function FieldMenu({ label, items, children }: {
+export function FieldMenu({ label, items, children }: {
   label: string;
   items: MenuItem[];
   children?: ReactNode;
@@ -1188,11 +1203,11 @@ function FieldMenu({ label, items, children }: {
 }
 
 /** A menu's list of choices (see usePopover): each ticked when chosen; a choice closes it. */
-function MenuList({ at, width, items, onClose }: { at: { top: number; left: number }; width: number; items: MenuItem[]; onClose: () => void }) {
+export function MenuList({ at, width, items, onClose }: { at: PopoverAt; width: number; items: MenuItem[]; onClose: () => void }) {
   return (
     <div
       role="menu"
-      style={{ top: at.top, left: at.left, width, maxHeight: `calc(100vh - ${at.top + 8}px)` }}
+      style={popoverStyle(at, width)}
       className="fixed z-50 p-1 overflow-y-auto overscroll-contain rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
     >
       {items.map((item) => (
@@ -1364,7 +1379,7 @@ type SizeFieldsProps = {
 };
 
 /** The W / H fields (see SizeGroup) — in a frame's Yerleşim, as in Figma's Auto layout. */
-function SizeFields({ size, measure, widthModes, heightModes, lockable = true, onChange }: SizeFieldsProps) {
+export function SizeFields({ size, measure, widthModes, heightModes, lockable = true, onChange }: SizeFieldsProps) {
   const rendered = useRenderedSize(measure, JSON.stringify(size ?? {}));
   const width = size?.width ?? "fill";
   const height = size?.height ?? "hug";
@@ -1476,15 +1491,12 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
   );
 }
 
-/** A component's icon, from the catalog (16px, drawn at 14px). */
-const blockIcon = (type: BlockType) => <span className="flex [&_svg]:w-3.5 [&_svg]:h-3.5">{BLOCK_DEFS.find((d) => d.type === type)?.icon}</span>;
-
 /** Where `children` sit on their grid. */
 const cellsOf = (children: { span?: number; row?: number; col?: number }[], grid?: GridSettings) =>
   layoutCells(children, gridColumns(grid).length, gridRows(grid));
 
 /** Figma's Clip content, for a frame's look. */
-const clipOf = (look: FrameLook | undefined, onChange: (look: FrameLook) => void) => ({
+export const clipOf = (look: FrameLook | undefined, onChange: (look: FrameLook) => void) => ({
   checked: Boolean(look?.clip),
   onChange: (clip: boolean) => onChange({ ...look, clip: clip || undefined }),
 });
@@ -1542,183 +1554,232 @@ export function GroupInspector({ group, variables, onChange, onAlign }: {
   );
 }
 
-// ── Main components and molecules (see ComponentDesign, DesignMolecule) ───────
+// ── Components and instances (see DesignComponent) ────────────────────────────
 
 /**
- * A molecule's frame: its Yerleşim — spacing bindable to variables, Clip
- * content — and its look (see LookFields); with `onSize`, an instance's
- * W / H in its component.
+ * Figma's instance section, first in an instance's properties: the component
+ * it is — swapped from the menu (the main components it can be), opened with
+ * the arrow (Go to main component) — and, once it changes anything of it,
+ * "Reset all changes".
  */
-function MoleculeFrameFields({ molecule, variables, measure, size, onSize, onChange }: {
-  molecule: DesignMolecule;
-  variables: DesignVariable[];
-  /** Finds an instance on the canvas (see GridFields) */
-  measure: string;
-  size?: Sizing;
-  onSize?: (size: Sizing) => void;
-  onChange: (molecule: DesignMolecule) => void;
+export function InstanceGroup({ name, swaps, current, onSwap, onGoToMain, overridden = false, onReset, note }: {
+  name: string;
+  /** The main components it can be swapped to */
+  swaps?: { id: string; name: string; hint?: string }[];
+  current?: string;
+  onSwap?: (id: string) => void;
+  /** Opens its main component — none for one the site's code draws */
+  onGoToMain?: () => void;
+  /** It changes something of its main component (see hasOverrides) */
+  overridden?: boolean;
+  onReset?: () => void;
+  /** A word under it */
+  note?: string;
 }) {
-  const byId = new Map(variables.map((v) => [v.id, v]));
-  const layout = moleculeLayout(molecule, byId);
-  const sizes = variables.filter((v) => v.kind === "number");
-  const setLayout = (next: GridSettings) => onChange({ ...molecule, layout: next });
-  const setLook = (look: FrameLook) => onChange({ ...molecule, ...look });
-  const bind = (key: SpacingKey, variableId: string | null) => {
-    const spacing = { ...molecule.spacing };
-    if (variableId) spacing[key] = variableId;
-    else delete spacing[key];
-    // Bound, a gap is a fixed one (not Auto); unbound, it keeps the value it had.
-    const gap = key === "columnGap" || key === "rowGap";
-    onChange({ ...molecule, spacing, layout: variableId ? { ...molecule.layout, ...(gap ? { spread: undefined } : {}) } : { ...molecule.layout, [key]: layout[key] } });
-  };
   return (
-    <>
-      <GridFields
-        grid={layout}
-        measure={measure}
-        size={size}
-        onSize={onSize}
-        cells={cellsOf(molecule.slots.map(() => ({})), layout)}
-        onAlign={(justify, align) => setLayout({ ...layout, justify, align })}
-        onChange={setLayout}
-        bind={{ bound: molecule.spacing ?? {}, variables: sizes, onBind: bind }}
-        clip={clipOf(molecule, setLook)}
-      />
-      <LookFields look={molecule} variables={variables} onChange={setLook} />
-    </>
+    <Group
+      title="Örnek"
+      actions={overridden && onReset && <SquareButton label="Tüm değişiklikleri sıfırla" onClick={onReset}>{Glyphs.reset}</SquareButton>}
+    >
+      <FieldRow wide icon={onGoToMain && <SquareButton label="Ana bileşene git" onClick={onGoToMain}>{Glyphs.goTo}</SquareButton>}>
+        <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
+          <span className="shrink-0 text-[var(--edit-component)]">{Glyphs.instance}</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{name}</span>
+          {swaps && swaps.length > 1 && onSwap && (
+            <FieldMenu label="Örneği değiştir" items={swaps.map((c) => ({ label: c.name, hint: c.hint, checked: c.id === current, onSelect: () => onSwap(c.id) }))} />
+          )}
+        </div>
+      </FieldRow>
+      {overridden && <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">Bu örnek ana bileşeninden farklı — değişiklikler yalnızca burada.</p>}
+      {note && <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">{note}</p>}
+    </Group>
   );
 }
 
-/**
- * A component laid out by its main component, as Figma's instance of a
- * frame with auto layout: the main component's Yerleşim — how it lays out
- * its items — with this one's W / H.
- */
-export function ComponentLayoutGroup({ block, design, onChange, onSize, onLook }: {
-  block: Block;
-  design: ResolvedDesign;
-  /** Changes the main component's layout — every instance */
-  onChange: (layout: GridSettings) => void;
-  /** Changes this one's size */
-  onSize: (size: Sizing) => void;
-  /** Changes this one's look (its Clip content) */
-  onLook: (look: FrameLook) => void;
-}) {
-  return (
-    <GridFields
-      grid={design.layout}
-      measure={`[data-block-id="${block.id}"] [data-component-frame]`}
-      size={block.size}
-      onSize={onSize}
-      cells={cellsOf(itemsOf(block).map(() => ({})), design.layout)}
-      onAlign={(justify, align) => onChange({ ...design.layout, justify, align })}
-      onChange={onChange}
-      clip={clipOf(block.look, onLook)}
-    />
-  );
-}
-
-/**
- * The molecule a component's items are, as Figma's instance swap property —
- * a row of its properties: swapped from the menu, opened with the arrow.
- */
-export function MoleculeProperty({ molecule, molecules, onMolecule, onOpenMolecule }: {
-  molecule: DesignMolecule;
-  /** The molecules its items can be */
-  molecules: DesignMolecule[];
-  onMolecule: (id: string) => void;
-  onOpenMolecule: (id: string) => void;
-}) {
-  return (
-    <Row label="Molekül" icon={<SquareButton label="Moleküle git" onClick={() => onOpenMolecule(molecule.id)}>{Glyphs.goTo}</SquareButton>}>
-      <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
-        <span className="shrink-0 text-[var(--edit-molecule)]">{Glyphs.instance}</span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{molecule.name}</span>
-        <FieldMenu
-          label="Molekülü değiştir"
-          items={molecules.map((m) => ({ label: m.name, hint: m.slots.map((slot) => slot.name).join(" + "), checked: m.id === molecule.id, onSelect: () => onMolecule(m.id) }))}
-        />
-      </div>
-    </Row>
-  );
-}
-
-/**
- * An item of such a component — an instance of its molecule: the molecule's
- * frame and look (the same in all of its instances, everywhere) with the
- * item's W / H in the component (the same for all of its items).
- */
-export function ItemLayoutGroup({ block, itemId, design, variables, onSize, onMolecule }: {
-  block: Block;
-  itemId: string;
-  design: ResolvedDesign;
-  variables: DesignVariable[];
-  onSize: (size: Sizing) => void;
-  onMolecule: (molecule: DesignMolecule) => void;
-}) {
-  return (
-    <MoleculeFrameFields
-      molecule={design.item.molecule}
-      variables={variables}
-      measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`}
-      size={design.item.size}
-      onSize={onSize}
-      onChange={onMolecule}
-    />
-  );
-}
-
-/** A slot's atom: its sample, name and size — swapped from the menu. */
-function AtomPicker({ slot, atoms, byId, onChange }: {
-  slot: MoleculeSlot;
-  atoms: DesignAtom[];
+/** A text style picked for a text: its sample, name and size — swapped from the menu. */
+export function StylePicker({ value, styles, byId, onChange }: {
+  value?: string;
+  styles: TextStyle[];
   byId: Map<string, DesignVariable>;
-  onChange: (atomId: string) => void;
+  onChange: (styleId: string) => void;
 }) {
-  const atom = atoms.find((a) => a.id === slot.atom);
+  const style = styles.find((s) => s.id === value);
   return (
     <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
-      {atom && <AtomSample atomId={atom.id} />}
-      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{atom?.name ?? "Atomu yok"}</span>
-      {atom && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{atomMetrics(atom, byId)}</span>}
+      {style && <TextStyleSample styleId={style.id} />}
+      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{style?.name ?? "Stil yok"}</span>
+      {style && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{textStyleMetrics(style, byId)}</span>}
       <FieldMenu
-        label="Atomu değiştir"
-        items={atoms.map((a) => ({ label: a.name, hint: atomMetrics(a, byId), checked: a.id === atom?.id, onSelect: () => onChange(a.id) }))}
+        label="Metin stilini değiştir"
+        items={styles.map((s) => ({ label: s.name, hint: textStyleMetrics(s, byId), checked: s.id === style?.id, onSelect: () => onChange(s.id) }))}
       />
     </div>
   );
 }
 
+/** Figma's Typography section: the text's style — swapped from the menu, edited with the pen (every text in it changes). */
+export function TypographyGroup({ styleId, styles, variables, note, onChange, onEditStyle }: {
+  styleId?: string;
+  styles: TextStyle[];
+  variables: DesignVariable[];
+  note?: string;
+  onChange: (styleId: string) => void;
+  onEditStyle: (styleId: string, under: Element) => void;
+}) {
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <Group title="Tipografi">
+      <div ref={ref}>
+        <FieldRow wide icon={styleId && <SquareButton label="Metin stilini düzenle" onClick={() => ref.current && onEditStyle(styleId, ref.current)}>{Glyphs.editStyle}</SquareButton>}>
+          <StylePicker value={styleId} styles={styles} byId={byId} onChange={onChange} />
+        </FieldRow>
+      </div>
+      {note && <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">{note}</p>}
+    </Group>
+  );
+}
+
+/** Spacing of a main component bound to variables (see SpacingBinding): binding one, or letting go of it keeping its value. */
+function componentBinding(component: DesignComponent, variables: DesignVariable[], layout: GridSettings, onChange: (component: DesignComponent) => void): SpacingBinding {
+  return {
+    bound: component.spacing ?? {},
+    variables: variables.filter((v) => v.kind === "number"),
+    onBind: (key, variableId) => {
+      const spacing = { ...component.spacing };
+      if (variableId) spacing[key] = variableId;
+      else delete spacing[key];
+      // Bound, a gap is a fixed one (not Auto); unbound, it keeps the value it had.
+      const gap = key === "columnGap" || key === "rowGap";
+      onChange({ ...component, spacing, layout: variableId ? { ...component.layout, ...(gap ? { spread: undefined } : {}) } : { ...component.layout, [key]: layout[key] } });
+    },
+  };
+}
+
 /**
- * A text layer of an item — a slot of its molecule — as Figma's text layer:
- * this item's text (its property), then the slot's Yerleşim (W / H), Görünüş
- * (opacity), Tipografi — the atom giving it its look, swapped from the menu,
- * opened with the arrow — and Dolgu: the atom's colour. All but the text
- * are the same in all of the molecule's instances.
+ * A main component, as Figma's: its name and what it is, its auto layout —
+ * spacing bindable to variables, Clip content — its look, and where it is
+ * used. Every instance changes with it, on every page, except for what an
+ * instance changes itself.
  */
-export function TextLayerInspector({ block, itemId, slot, atoms, variables, lang, onSlot, onAtom, onOpenAtom, onChange }: {
+export function ComponentInspector({ component, variables, measure, kind, uses, onChange }: {
+  component: DesignComponent;
+  variables: DesignVariable[];
+  /** Finds it on the canvas */
+  measure: string;
+  /** What it is, in words */
+  kind: string;
+  uses: DesignUse[];
+  onChange: (component: DesignComponent) => void;
+}) {
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  const layout = componentLayout(component, byId);
+  const setLook = (look: FrameLook) => onChange({ ...component, ...look });
+  return (
+    <div className="flex flex-col">
+      <Group title="Bileşen">
+        <Field label="Ad">
+          <TextField label="Ad" value={component.name} onChange={(name) => onChange({ ...component, name })} placeholder="grup/ad" />
+        </Field>
+        <Row label="Tür">
+          <span className="min-w-0 text-[12px] leading-4 text-[var(--text-title)]">{kind}</span>
+        </Row>
+      </Group>
+      <GridFields
+        grid={layout}
+        measure={measure}
+        cells={cellsOf(component.layers.map(() => ({})), layout)}
+        onAlign={(justify, align) => onChange({ ...component, layout: { ...component.layout, justify, align } })}
+        onChange={(next) => onChange({ ...component, layout: next })}
+        bind={componentBinding(component, variables, layout, onChange)}
+        clip={clipOf(component, setLook)}
+      />
+      <LookFields look={component} variables={variables} onChange={setLook} />
+      <UsesGroup uses={uses} empty="Henüz hiçbir yerde kullanılmıyor." />
+    </div>
+  );
+}
+
+/**
+ * A text layer of a main component, as Figma's: its W / H in the component,
+ * its opacity and its text style. Every instance's text changes with it.
+ */
+export function ComponentTextInspector({ layer, measure, styles, variables, onChange, onEditStyle }: {
+  layer: TextLayer;
+  measure: string;
+  styles: TextStyle[];
+  variables: DesignVariable[];
+  onChange: (layer: TextLayer) => void;
+  onEditStyle: (styleId: string, under: Element) => void;
+}) {
+  return (
+    <div className="flex flex-col">
+      <SizeGroup size={layer.size} measure={measure} onChange={(size) => onChange({ ...layer, size })} />
+      <Group title="Görünüş">
+        <FieldRow>
+          <OpacityField value={layer.opacity} onChange={(opacity) => onChange({ ...layer, opacity })} />
+        </FieldRow>
+      </Group>
+      <TypographyGroup styleId={layer.style} styles={styles} variables={variables} onChange={(style) => onChange({ ...layer, style })} onEditStyle={onEditStyle} />
+    </div>
+  );
+}
+
+/**
+ * The instances a main component repeats, one per item (the Künye's Kart):
+ * the component they are — swapped from the menu, opened with the arrow —
+ * and each one's W / H in the component.
+ */
+export function InstanceLayerInspector({ layer, component, swaps, measure, onChange, onGoToMain }: {
+  layer: InstanceLayer;
+  /** The component they are */
+  component: DesignComponent;
+  /** The components they can be */
+  swaps: DesignComponent[];
+  measure: string;
+  onChange: (layer: InstanceLayer) => void;
+  onGoToMain: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-col">
+      <InstanceGroup
+        name={component.name}
+        swaps={swaps.map((c) => ({ id: c.id, name: c.name, hint: c.layers.map((l) => l.name).join(" + ") }))}
+        current={component.id}
+        onSwap={(id) => onChange({ ...layer, component: id, name: swaps.find((c) => c.id === id)?.name ?? layer.name })}
+        onGoToMain={() => onGoToMain(component.id)}
+        note="Her örneğin her öğesi bunun bir örneği."
+      />
+      <SizeGroup size={layer.size} measure={measure} onChange={(size) => onChange({ ...layer, size })} />
+    </div>
+  );
+}
+
+/**
+ * A text of an item on the page — a text layer of the item's component: this
+ * item's text (its property), then its text style — this item's own, over its
+ * layer's (an override, as in Figma). Its size and opacity are its main
+ * component's.
+ */
+export function TextLayerInspector({ block, itemId, layer, styleId, overridden, styles, variables, lang, onStyle, onEditStyle, onChange }: {
   block: Block;
   itemId: string;
-  slot: MoleculeSlot;
-  /** The site's atoms (the ones it can use) */
-  atoms: DesignAtom[];
-  /** The site's variables (for the atoms' sizes, the colours) */
+  layer: TextLayer;
+  /** The style it has in this item */
+  styleId?: string;
+  /** This item's own style, not its layer's */
+  overridden: boolean;
+  styles: TextStyle[];
   variables: DesignVariable[];
   lang: Lang;
-  onSlot: (slot: MoleculeSlot) => void;
-  /** Changes its atom (its colour) — every text using it */
-  onAtom: (atom: DesignAtom) => void;
-  /** Opens the atom in the inspector */
-  onOpenAtom: (id: string) => void;
+  onStyle: (styleId: string) => void;
+  onEditStyle: (styleId: string, under: Element) => void;
   onChange: (patch: Partial<Block>) => void;
 }) {
-  const { theme } = useTheme();
-  const atom = atoms.find((a) => a.id === slot.atom);
-  const byId = new Map(variables.map((v) => [v.id, v]));
-  const spec = ENTRY_SPEC[block.type]?.fields.find((f) => f.key === slot.field);
+  const spec = ENTRY_SPEC[block.type]?.fields.find((f) => f.key === layer.field);
   const entries = block.entries ?? [];
   const entry = entries.find((e) => e.id === itemId);
-  const key = (lang === "en" && !spec?.shared ? `${slot.field}En` : slot.field) as keyof BlockEntry;
+  const key = (lang === "en" && !spec?.shared ? `${layer.field}En` : layer.field) as keyof BlockEntry;
   return (
     <div className="flex flex-col">
       {spec && entry && (
@@ -1731,56 +1792,37 @@ export function TextLayerInspector({ block, itemId, slot, atoms, variables, lang
           />
         </Group>
       )}
-      <SizeGroup
-        size={slot.size}
-        measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"] [data-text-layer="${slot.field}"]`}
-        onChange={(size) => onSlot({ ...slot, size })}
+      <TypographyGroup
+        styleId={styleId}
+        styles={styles}
+        variables={variables}
+        note={overridden ? "Bu öğeye özel — ana bileşende başka." : undefined}
+        onChange={onStyle}
+        onEditStyle={onEditStyle}
       />
-      <Group title="Görünüş">
-        <FieldRow>
-          <OpacityField value={slot.opacity} onChange={(opacity) => onSlot({ ...slot, opacity })} />
-        </FieldRow>
-      </Group>
-      <Group title="Tipografi">
-        <FieldRow wide icon={atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(atom.id)}>{Glyphs.goTo}</SquareButton>}>
-          <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(id) => onSlot({ ...slot, atom: id })} />
-        </FieldRow>
-      </Group>
-      {atom && (
-        <PaintGroup
-          title="Dolgu"
-          paint={{ color: atom.color }}
-          create={() => ({ color: atom.color })}
-          colors={variables.filter((v) => v.kind === "color")}
-          byId={byId}
-          mode={theme}
-          fixed
-          onChange={(paint) => paint && onAtom({ ...atom, color: paint.color })}
-        />
-      )}
     </div>
   );
 }
 
 // ── Design variables (see DesignVariable) ─────────────────────────────────────
 
-const KIND_LABEL: Record<VariableKind, string> = { color: "Renk", number: "Sayı (px)", weight: "Yazı kalınlığı" };
+export const KIND_LABEL: Record<VariableKind, string> = { color: "Renk", number: "Sayı (px)", weight: "Yazı kalınlığı" };
 const WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: String(w) }));
 
 /** A colour's swatch in a field. */
-function Swatch({ color }: { color: string | number | null }) {
+export function Swatch({ color }: { color: string | number | null }) {
   return <span className="block w-3.5 h-3.5 shrink-0 rounded-[3px] border border-[var(--border-hover)]" style={{ backgroundColor: typeof color === "string" ? color : "transparent" }} />;
 }
 
-const PICKER_WIDTH = 240;
+export const PICKER_WIDTH = 240;
 
 /**
  * Figma's variable picker: the variables a value can be bound to, grouped by
  * their names' paths and found by a search — each with its swatch (a colour)
  * or its value; the bound one ticked.
  */
-function VariablePicker({ at, variables, byId, mode, selectedId, onPick }: {
-  at: { top: number; left: number };
+export function VariablePicker({ at, variables, byId, mode, selectedId, onPick }: {
+  at: PopoverAt;
   variables: DesignVariable[];
   byId: Map<string, DesignVariable>;
   mode: ThemeMode;
@@ -1800,7 +1842,7 @@ function VariablePicker({ at, variables, byId, mode, selectedId, onPick }: {
     <div
       role="dialog"
       aria-label="Değişkenler"
-      style={{ top: at.top, left: at.left, width: PICKER_WIDTH, maxHeight: `min(360px, calc(100vh - ${at.top + 8}px))` }}
+      style={popoverStyle(at, PICKER_WIDTH, 360)}
       className="fixed z-50 flex flex-col rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
     >
       <div className="shrink-0 p-2 border-b border-[var(--border)]">
@@ -1870,7 +1912,7 @@ function HoverMark({ label, open = false, onClick, children }: { label: string; 
  * it, and on hover the detach mark: unbound, it keeps the value it had.
  * The whole name and the value show on hover (its title).
  */
-function Bindable({ kind, value, targets, byId, mode, prefix, onChange, children }: {
+export function Bindable({ kind, value, targets, byId, mode, prefix, onChange, children }: {
   kind: VariableKind;
   value: VariableValue;
   /** The variables it can be bound to */
@@ -1931,7 +1973,7 @@ function Bindable({ kind, value, targets, byId, mode, prefix, onChange, children
 }
 
 /** A colour of its own: its swatch (the system's colour picker) and its value, typed. */
-function ColorField({ label, value, suffix, onChange }: { label: string; value: string; suffix?: ReactNode; onChange: (value: string) => void }) {
+export function ColorField({ label, value, suffix, onChange }: { label: string; value: string; suffix?: ReactNode; onChange: (value: string) => void }) {
   return (
     <TextField
       label={label}
@@ -1954,7 +1996,7 @@ function ColorField({ label, value, suffix, onChange }: { label: string; value: 
 }
 
 /** A value of that kind that can be bound to a variable (see Bindable): a size, a weight or a colour. */
-function BoundField({ label, kind, value, targets, byId, mode, prefix, onChange }: {
+export function BoundField({ label, kind, value, targets, byId, mode, prefix, onChange }: {
   label: string;
   kind: VariableKind;
   value: VariableValue;
@@ -1988,7 +2030,7 @@ function BoundField({ label, kind, value, targets, byId, mode, prefix, onChange 
  * hidden (the eye), removed (minus); "+" adds one when there is none. Under
  * it, `children` (a stroke's own settings).
  */
-function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode, fixed = false, onChange, children }: {
+export function PaintGroup<T extends Paint>({ title, paint, create, colors, byId, mode, fixed = false, onChange, children }: {
   title: string;
   paint?: T;
   /** A new one, for "+" */
@@ -2060,7 +2102,7 @@ const STROKE_ALIGNS: { value: StrokeAlign; label: string }[] = [
 ];
 
 /** Figma's opacity field (%). */
-function OpacityField({ value, onChange }: { value?: number; onChange: (opacity: number | undefined) => void }) {
+export function OpacityField({ value, onChange }: { value?: number; onChange: (opacity: number | undefined) => void }) {
   return (
     <NumberField label="Opaklık" prefix={Glyphs.opacity} value={value ?? 100} min={0} max={100} suffix="%" onChange={(n) => onChange(n >= 100 ? undefined : n)} />
   );
@@ -2224,61 +2266,7 @@ export function LookFields({ look, variables, canHide = false, onChange }: {
   );
 }
 
-/**
- * A variable: its name, and its value in each theme (a colour) or its one
- * value — its own, or another variable's (an alias, chosen from the menu at
- * the field's end).
- */
-export function VariableInspector({ variable, variables, onChange }: {
-  variable: DesignVariable;
-  /** All of the site's variables (the ones it can point at) */
-  variables: DesignVariable[];
-  onChange: (variable: DesignVariable) => void;
-}) {
-  const byId = new Map(variables.map((v) => [v.id, v]));
-  const targets = variables.filter((t) => canAlias(variable, t, byId));
-  const valueField = (mode: ThemeMode) => (
-    <BoundField
-      label={variable.kind === "color" ? (mode === "dark" ? "Koyu değer" : "Açık değer") : variable.kind === "weight" ? "Kalınlık" : "Değer"}
-      kind={variable.kind}
-      value={modeValue(variable, mode)}
-      targets={targets}
-      byId={byId}
-      mode={mode}
-      onChange={(value) => onChange(mode === "dark" ? { ...variable, dark: value } : { ...variable, light: value })}
-    />
-  );
-
-  return (
-    <div className="flex flex-col">
-      <Group title="Değişken">
-        <Field label="Ad">
-          <TextField label="Ad" value={variable.name} onChange={(name) => onChange({ ...variable, name })} placeholder="grup/ad" />
-        </Field>
-        <Row label="Tür">
-          <span className="text-[12px] text-[var(--text-title)]">{KIND_LABEL[variable.kind]}</span>
-        </Row>
-        {variable.token && (
-          <Row label="Token">
-            <span className="text-[12px] font-mono text-[var(--text-subtitle)]">{variable.token}</span>
-          </Row>
-        )}
-      </Group>
-      <Group title="Değer">
-        {variable.kind === "color" ? (
-          <>
-            <Field label="Açık tema">{valueField("light")}</Field>
-            <Field label="Koyu tema">{valueField("dark")}</Field>
-          </>
-        ) : (
-          <Field label="Değer">{valueField("light")}</Field>
-        )}
-      </Group>
-    </div>
-  );
-}
-
-// ── Atoms and molecules (see DesignAtom, DesignMolecule) ──────────────────────
+// ── Text styles (see TextStyle) ───────────────────────────────────────────────
 
 const TYPOGRAPHY_FIELDS: { key: keyof Typography; label: string }[] = [
   { key: "fontSize", label: "Boyut" },
@@ -2287,7 +2275,7 @@ const TYPOGRAPHY_FIELDS: { key: keyof Typography; label: string }[] = [
   { key: "color", label: "Renk" },
 ];
 
-/** Where an atom or a molecule is used — a click takes there. */
+/** Where a text style or a component is used — a click takes there. */
 export interface DesignUse {
   key: string;
   icon: ReactNode;
@@ -2297,7 +2285,7 @@ export interface DesignUse {
   onSelect: () => void;
 }
 
-function UsesGroup({ uses, empty }: { uses: DesignUse[]; empty: string }) {
+export function UsesGroup({ uses, empty }: { uses: DesignUse[]; empty: string }) {
   return (
     <Group title="Kullanıldığı yerler">
       {uses.map(({ key, ...use }) => <ChildRow key={key} {...use} onClick={use.onSelect} />)}
@@ -2306,23 +2294,18 @@ function UsesGroup({ uses, empty }: { uses: DesignUse[]; empty: string }) {
   );
 }
 
-/** Where a component type is used, for a molecule's uses: its icon and colour. */
-export const typeUse = (type: BlockType) => ({ icon: blockIcon(type), tone: blockTone(type), label: BLOCK_LABELS[type] });
-
-/** A molecule in a use (a slot of it holds an atom). */
-export const moleculeUse = (name: string) => ({ icon: <FigmaIcon name="16.component" />, tone: "var(--edit-molecule)", label: name });
-
 /**
- * An atom: its name and its typography — each value its own or bound to a
- * variable (the menu at the field's end) — and where it is used.
+ * A text style, as Figma's "Edit text style": its name and its typography —
+ * each value its own or bound to a variable (the mark at the field's end) —
+ * its colour (a text's fill), and where it is used.
  */
-export function AtomInspector({ atom, variables, uses, onChange }: {
-  atom: DesignAtom;
+export function TextStyleFields({ style, variables, uses, onChange }: {
+  style: TextStyle;
   /** All of the site's variables (the ones its values can be bound to) */
   variables: DesignVariable[];
-  /** The molecules' slots holding it */
+  /** The components' text layers in it */
   uses: DesignUse[];
-  onChange: (atom: DesignAtom) => void;
+  onChange: (style: TextStyle) => void;
 }) {
   const { theme } = useTheme();
   const byId = new Map(variables.map((v) => [v.id, v]));
@@ -2330,7 +2313,7 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
     <div className="flex flex-col">
       <Group title="Metin stili">
         <Field label="Ad">
-          <TextField label="Ad" value={atom.name} onChange={(name) => onChange({ ...atom, name })} placeholder="grup/ad" />
+          <TextField label="Ad" value={style.name} onChange={(name) => onChange({ ...style, name })} placeholder="grup/ad" />
         </Field>
       </Group>
       <Group title="Tipografi">
@@ -2339,11 +2322,11 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
             <BoundField
               label={label}
               kind={TYPOGRAPHY_KINDS[key]}
-              value={atom[key] ?? { value: "" }}
+              value={style[key] ?? { value: "" }}
               targets={variables.filter((v) => v.kind === TYPOGRAPHY_KINDS[key])}
               byId={byId}
               mode={theme}
-              onChange={(value) => onChange({ ...atom, [key]: value })}
+              onChange={(value) => onChange({ ...style, [key]: value })}
             />
           </Field>
         ))}
@@ -2351,50 +2334,15 @@ export function AtomInspector({ atom, variables, uses, onChange }: {
       {/* Its colour is a text's fill, as in Figma. */}
       <PaintGroup
         title="Dolgu"
-        paint={{ color: atom.color ?? { value: "#000000" } }}
-        create={() => ({ color: atom.color })}
+        paint={{ color: style.color ?? { value: "#000000" } }}
+        create={() => ({ color: style.color })}
         colors={variables.filter((v) => v.kind === "color")}
         byId={byId}
         mode={theme}
         fixed
-        onChange={(paint) => paint && onChange({ ...atom, color: paint.color })}
+        onChange={(paint) => paint && onChange({ ...style, color: paint.color })}
       />
-      <UsesGroup uses={uses} empty="Henüz hiçbir molekül bu atomu kullanmıyor." />
-    </div>
-  );
-}
-
-/**
- * A molecule: its name, its frame — layout, spacing, corners, background —
- * its atoms (a slot's atom swapped from the menu) and where it is used.
- */
-export function MoleculeInspector({ molecule, variables, atoms, uses, onChange, onOpenAtom }: {
-  molecule: DesignMolecule;
-  variables: DesignVariable[];
-  atoms: DesignAtom[];
-  /** The components whose items it is */
-  uses: DesignUse[];
-  onChange: (molecule: DesignMolecule) => void;
-  onOpenAtom: (id: string) => void;
-}) {
-  const byId = new Map(variables.map((v) => [v.id, v]));
-  const setSlot = (slot: MoleculeSlot) => onChange({ ...molecule, slots: molecule.slots.map((s) => (s.field === slot.field ? slot : s)) });
-  return (
-    <div className="flex flex-col">
-      <Group title="Molekül">
-        <Field label="Ad">
-          <TextField label="Ad" value={molecule.name} onChange={(name) => onChange({ ...molecule, name })} placeholder="grup/ad" />
-        </Field>
-      </Group>
-      <Group title="Atomlar">
-        {molecule.slots.map((slot) => (
-          <Field key={slot.field} label={slot.name} icon={slot.atom && <SquareButton label="Atoma git" onClick={() => onOpenAtom(slot.atom!)}>{Glyphs.goTo}</SquareButton>}>
-            <AtomPicker slot={slot} atoms={atoms} byId={byId} onChange={(atom) => setSlot({ ...slot, atom })} />
-          </Field>
-        ))}
-      </Group>
-      <MoleculeFrameFields molecule={molecule} variables={variables} measure={`[data-molecule="${molecule.id}"]`} onChange={onChange} />
-      <UsesGroup uses={uses} empty="Henüz hiçbir bileşen bu molekülü kullanmıyor." />
+      <UsesGroup uses={uses} empty="Henüz hiçbir bileşen bu stili kullanmıyor." />
     </div>
   );
 }
@@ -2631,7 +2579,7 @@ function ItemList({ block, lang, onSelect }: { block: Block; lang: Lang; onSelec
 }
 
 /** A labelled field, the label over it — the field in the grid's columns, its icon at the end (see FieldRow). */
-function Field({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
+export function Field({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[11px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
@@ -2640,7 +2588,7 @@ function Field({ label, icon, children }: { label: string; icon?: ReactNode; chi
   );
 }
 
-function AutoTextarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function AutoTextarea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <textarea
       aria-label={label}

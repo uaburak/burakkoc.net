@@ -23,8 +23,8 @@ const scale = (id: string, name: string, value: number, kind: "number" | "weight
 
 /**
  * The first variables: the site's own tokens (globals.css), then the sizes
- * and weights its texts use — the starting atoms are bound to them (see
- * STARTING_ATOMS) — and its cards' corners (STARTING_MOLECULES). Same values,
+ * and weights its texts use — the starting text styles are bound to them
+ * (see STARTING_TEXT_STYLES) — and its cards' corners (STARTING_COMPONENTS). Same values,
  * so nothing changes until they are edited.
  */
 export const STARTING_VARIABLES: DesignVariable[] = [
@@ -74,7 +74,7 @@ export function resolvedValue(variable: DesignVariable, mode: ThemeMode, byId: M
   return target ? resolvedValue(target, mode, byId, seen) : null;
 }
 
-/** A value that may point at a variable (a variable's own, an atom's): its own, or that variable's in the theme — null when it is gone. */
+/** A value that may point at a variable (a variable's own, a text style's): its own, or that variable's in the theme — null when it is gone. */
 export function boundValue(value: VariableValue, mode: ThemeMode, byId: Map<string, DesignVariable>): string | number | null {
   if (!("alias" in value)) return value.value;
   const target = byId.get(value.alias);
@@ -127,6 +127,22 @@ export function variablesCss(variables: DesignVariable[]): string {
     if (d) dark.push(`${cssName(v)}: ${d};`);
   }
   return `[data-design-scope] { ${light.join(" ")} }\n[data-theme="dark"] [data-design-scope] { ${dark.join(" ")} }`;
+}
+
+/** A name's group ("Metin/Başlık" → "Metin") and its own part ("Başlık") — variables, text styles and components alike. */
+export function splitName(name: string): [string, string] {
+  const at = name.lastIndexOf("/");
+  return at < 0 ? ["", name] : [name.slice(0, at), name.slice(at + 1)];
+}
+
+/** Things named with paths, in their groups (by the names' paths), each group where its first one is. */
+export function byGroup<T extends { name: string }>(list: readonly T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of list) {
+    const [group] = splitName(item.name);
+    groups.set(group, [...(groups.get(group) ?? []), item]);
+  }
+  return groups;
 }
 
 /** The site's variables — the editor's working copy while editing. */

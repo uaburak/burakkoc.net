@@ -2,13 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useDndMonitor } from "@dnd-kit/core";
-import { Block, BlockType, ComponentDesign, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
-import type { MoleculeSlot } from "@/types/design";
+import { Block, BlockEntry, BlockType, GridSettings, Group, ItemTextField, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
+import type { DesignComponent, FrameLook, InstanceLayer, InstanceOverrides, TextLayer } from "@/types/design";
 import { cn } from "@/lib/utils";
-import { fi, type FigmaIconName } from "@/components/admin/figmaIcons";
+import { FigmaIcon, fi } from "@/components/admin/figmaIcons";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { PillButton } from "@/components/Button";
-import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
 import { FillHeightContext, ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
 import { absoluteProps, cellProps, gridProps, pageFrameProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
@@ -16,29 +15,28 @@ import { EditableText } from "@/components/project/Editable";
 import { DRAG_LIFT, DragActivationContext, setDragTarget } from "@/components/project/Sortable";
 import { createBlockEditApi, localizeBlock } from "@/components/project/editing";
 import { projectThemeAttrs } from "@/components/project/projectTheme";
-import { PillLabel } from "@/components/admin/FormEditor";
-import { ProjectThemeFields } from "@/components/admin/ProjectThemeFields";
+import { createCaseStudyBlockDefaults } from "@/components/admin/CaseStudyBlockEditor";
 import {
   BlockInspector,
-  ComponentLayoutGroup,
+  ComponentInspector,
+  ComponentTextInspector,
+  GridFields,
   GroupInspector,
+  InstanceGroup,
+  InstanceLayerInspector,
   ItemInspector,
-  ItemLayoutGroup,
   PageFrameInspector,
   ProjectInspector,
   SectionInspector,
+  SquareButton,
   SizeGroup,
   TextLayerInspector,
-  VariableInspector,
-  AtomInspector,
-  MoleculeInspector,
-  MoleculeProperty,
   InspectorHeader,
   LookFields,
-  DesignGlyphs,
+  Group as PanelGroup,
+  Glyphs,
+  clipOf,
   type MenuItem,
-  moleculeUse,
-  typeUse,
   type DesignUse,
   canMoveItem,
   duplicateItem,
@@ -49,15 +47,39 @@ import {
   addEntry,
   itemNoun,
 } from "@/components/admin/LiveInspector";
-import { DESIGNED_TYPES, fitsType, moleculeUses, resolveDesign, useComponentDesign } from "@/components/project/componentDesign";
-import { atomUses } from "@/components/project/designMolecules";
+import {
+  boxLook,
+  cleanOverrides,
+  componentUses,
+  fitsItems,
+  hasOverrides,
+  itemHasOverrides,
+  layerComponent,
+  layoutOverride,
+  lookOverride,
+  mainComponent,
+  pushInstance,
+  pushItem,
+  resetInstance,
+  resolveInstance,
+  resolveItem,
+  sizeOverride,
+  swapsFor,
+  textStyleUses,
+  useDesignComponents,
+  useInstance,
+  type ResolvedInstance,
+} from "@/components/project/components";
 import { DesignSystemStyle } from "@/components/project/designSystem";
 import { frameLookStyle, useFrameLook } from "@/components/project/frameLook";
-import { VariablesPanel } from "@/components/admin/VariablesPanel";
-import { AtomsPanel } from "@/components/admin/AtomsPanel";
-import { MoleculesPanel } from "@/components/admin/MoleculesPanel";
+import { VariablesModal } from "@/components/admin/VariablesModal";
+import { AssetsPanel } from "@/components/admin/AssetsPanel";
+import { PageDesignPanel, TextStylePopover } from "@/components/admin/DesignPanel";
+import { ComponentLayers, ComponentsCanvas, mainFrameSelector, mainSelector, type MainSelection } from "@/components/admin/ComponentsCanvas";
+import { CanvasToolbar } from "@/components/admin/CanvasToolbar";
+import { DropLine, Icons, LayerButton, LayerRow, SizeBadge, layerNode, type BadgeTarget } from "@/components/admin/layerTree";
 import type { DesignSystem } from "@/components/admin/useDesignSystem";
-import { BLOCK_DEFS, BLOCK_GROUPS, BLOCK_LABELS, BlockPickerDialog, GROUP_TONE, SECTION_TONE, blockTone, uid } from "@/components/admin/blockCatalog";
+import { BLOCK_LABELS, BlockPickerDialog, COMPONENT_TONE, FRAME_TONE, layerIcon, layerKind, layerTone } from "@/components/admin/blockCatalog";
 import {
   GroupBlocks,
   ProjectDndProvider,
@@ -72,33 +94,36 @@ import {
   useActiveDrag,
   useCellDrop,
   useInsertion,
-  useNewBlockDrag,
   useSortableGroup,
   useSortablePageItem,
   useTreeDrop,
-  type TreeDrop,
 } from "@/components/admin/ProjectDnd";
 import type { EditorActions } from "@/components/admin/editorActions";
 
 /**
- * Live editor ("Canlı Düzenleyici"): the project page itself, editable.
- *
- * Layout, as in Figma: icon rail → left panel → canvas → inspector.
- * - Rail / left panel: Katmanlar (the page as a Figma-like layer tree),
- *   Bileşenler (the component catalog — drag onto the page), Tema (radius /
- *   colors), Yayın (link, content status, template).
- * - Inspector (Düzenle, right): whatever is selected — the project when nothing is.
- * - Canvas: the page is Bölüm (section) › Blok (group) › Bileşen (component,
- *   `Block` in code); sections lay out their Bloks on a grid, Bloks their
- *   components. As in Figma, each click goes a level deeper: the section, its
- *   Blok, the component, a card inside it (see pressOn) — its settings open in
- *   the panel; double-click a text of the selected component to type in place.
- *   With Cmd / Ctrl held a click picks the innermost layer at once, and a
- *   double-click types in any text.
- *   Drag what is selected to reorder it; components can move between Bloks,
- *   Bloks between sections. Under the selection, a badge shows its size (SizeBadge).
- *   With Alt held, the drop leaves a copy where it was (see ProjectDnd).
- * - Links never navigate here, images never open the lightbox.
+ * Live editor ("Canlı Düzenleyici"): the project page itself, editable — laid
+ * out as Figma's (UI3):
+ * - Left: the file — the project, its pages (the project's page and the
+ *   Bileşenler page: the site's main components) and the layers of the page
+ *   shown (Dosya); the components to put on the page (Varlıklar).
+ * - Canvas: the page. It is Bölüm (section) › Blok (group) › its layers —
+ *   every Bölüm and Blok a frame with auto layout; a heading or a text is a
+ *   text layer, an image an image; everything else an instance of a component
+ *   (`Block` in code). As in Figma, each click goes a level deeper: the
+ *   section, its Blok, the layer, an item inside it (see pressOn) — its
+ *   properties open in the design panel; double-click a text of the selected
+ *   layer to type in place. With Cmd / Ctrl held a click picks the innermost
+ *   layer at once, and a double-click types in any text. Drag what is
+ *   selected to reorder it; layers move between Bloks, Bloks between
+ *   sections; with Alt held the drop leaves a copy where it was (see
+ *   ProjectDnd). Under the selection, a badge shows its size (SizeBadge). At
+ *   the bottom, the toolbar (CanvasToolbar).
+ * - Right: the design panel (Tasarım) — whatever is selected; with nothing
+ *   selected, the page's theme, the site's variables and text styles — and
+ *   the publishing details (Yayın).
+ * An instance changes only itself (its overrides — see InstanceOverrides);
+ * its main component, on the Bileşenler page, changes every instance.
+ * Links never navigate here, images never open the lightbox.
  */
 
 type Lang = "tr" | "en";
@@ -112,20 +137,20 @@ type Selection =
   | {
       kind: "block";
       blockId: string;
-      /** An item clicked inside the block (card, step, list item…) */
+      /** An item clicked inside the block (card, step, list item… — an instance, in a component drawn from its main one) */
       itemId?: string;
-      /** A text layer of that item (a component laid out by its main component — see ComponentDesign) */
+      /** A text layer of that item (see TextLayer) */
       text?: ItemTextField;
     }
   | { kind: "divider"; dividerId: string }
-  /** A design variable (see DesignVariable), picked in the Değişkenler tab */
-  | { kind: "variable"; variableId: string }
-  /** An atom (see DesignAtom), picked in the Atomlar tab or from a text layer */
-  | { kind: "atom"; atomId: string }
-  /** A molecule (see DesignMolecule), picked in the Moleküller tab or from a component's item */
-  | { kind: "molecule"; moleculeId: string };
-/** The left panel's tabs; the inspector (Düzenle) has a panel of its own, on the right. */
-type Tab = "layers" | "components" | "variables" | "atoms" | "molecules" | "theme" | "publish";
+  /** On the Bileşenler page: a main component, or one of its layers */
+  | ({ kind: "component" } & MainSelection);
+
+/** The file's pages, as Figma's: the project's, and the one holding the site's main components. */
+type Page = "project" | "components";
+/** The left panel's tabs (Figma's File / Assets) and the right one's (Design / Prototype — here, Yayın). */
+type LeftTab = "file" | "assets";
+type RightTab = "design" | "publish";
 /** Pieces of the project overview that behave like blocks. */
 type OverviewPart = "title" | "description" | "cover";
 
@@ -139,111 +164,50 @@ const sectionNumber = (index: number) => String(index + 1).padStart(2, "0");
 const sectionLabel = (index: number) => `${sectionNumber(index)} Bölüm`;
 const groupLabel = (index: number) => `Blok ${index + 1}`;
 
-/** Layer names: the one given in the layer tree, else the default ("01 Bölüm", "Blok 1", the component's type). */
+/** Layer names: the one given in the layer tree, else the default ("01 Bölüm", "Blok 1"…). */
 const sectionName = (section: PageSection, index: number) => section.name?.trim() || sectionLabel(index);
 const groupName = (group: Group, index: number) => group.name?.trim() || groupLabel(index);
-const blockName = (block: Block) => block.name?.trim() || BLOCK_LABELS[block.type];
-
-// ── Icons: Figma's own (UI3 — see figmaIcons) ───────────────────────────────
-
-const RailIcons = {
-  layers: fi("list-view"),
-  // Figma's assets: the component library.
-  components: fi("library"),
-  theme: fi("swatch.small"),
-  variables: fi("variable.small"),
-  // Atoms: Figma's text styles.
-  atoms: fi("text.library"),
-  // Molecules: main components.
-  molecules: fi("component.small"),
-  publish: fi("public.small"),
-};
 
 /**
- * The panels' action icons — 24 ones in 12px of room (their glyph; the box
- * is the button's), as the inspector's (see LiveInspector's glyph).
+ * A layer's name on the page, as Figma names them: the one given in the layer
+ * tree, else — a text — its words; an instance, its main component's name
+ * (the type's, for one the site's code draws).
  */
-const icon = (name: FigmaIconName) => fi(name, undefined, "-m-1.5 shrink-0");
+function blockName(block: Block, components?: readonly DesignComponent[]) {
+  if (block.name?.trim()) return block.name.trim();
+  if (layerKind(block.type) === "text") {
+    const words = (block.content ?? "").replace(/\*\*|\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim();
+    if (words) return words.length > 40 ? `${words.slice(0, 40)}…` : words;
+  }
+  const main = components ? mainComponent(block.type, components, block.component) : null;
+  return main?.name ?? BLOCK_LABELS[block.type];
+}
 
-const Icons = {
-  // Back to the value it had.
-  reset: icon("reset.instance.small"),
-  plus: icon("plus.small"),
-  duplicate: icon("duplicate.small"),
-  trash: icon("trash"),
-  external: icon("new.tab"),
-  arrowUp: icon("al.layout-vertical-up"),
-  arrowDown: icon("al.layout-vertical"),
-  edit: icon("pencil.small"),
-  // Figma's "Collapse layers" / "Expand layers".
-  collapseLayers: icon("collapse-layers.small"),
-  expandLayers: icon("expand"),
-  chevron: fi("16.chevron.down"),
-  copy: icon("copy.small"),
-  // A layer shown / hidden (its look's `hidden`).
-  eye: icon("eye.small"),
-  eyeOff: icon("hidden.small"),
-};
+/** A frame's icon in the layer tree, as Figma's: its auto layout — stacked, side by side (wrapping), on a grid. */
+function frameIcon(grid?: GridSettings) {
+  const flow = gridFlow(grid);
+  if (flow === "vertical") return fi("16.autolayout.vertical");
+  if (flow === "horizontal") return fi(grid?.wrap ? "16.autolayout.wrap" : "16.autolayout.horizontal");
+  return fi("16.autolayout.grid");
+}
 
 // ── Shared chrome ─────────────────────────────────────────────────────────────
 
-/** Panel card — same surface as a block row in the form editor. */
-function PanelCard({ title, actions, children, className }: {
-  title?: ReactNode;
-  actions?: ReactNode;
-  children?: ReactNode;
-  className?: string;
-}) {
+/** A tab of a panel's header, as Figma's (File / Assets, Design / Prototype): its name, bold while shown. */
+function PanelTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <div className={cn("flex flex-col gap-[10px] p-[12px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-4)]", className)}>
-      {(title || actions) && (
-        <div className="flex items-center justify-between gap-2 min-h-8">
-          {title && <PillLabel>{title}</PillLabel>}
-          {actions && <div className="flex items-center gap-1">{actions}</div>}
-        </div>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "h-7 px-2 rounded-[6px] text-[12px] transition-colors cursor-pointer",
+        active ? "font-semibold text-[var(--text-title)] bg-[var(--bg-4)]" : "font-medium text-[var(--text-subtitle)] hover:text-[var(--text-title)]"
       )}
-      {children}
-    </div>
-  );
-}
-
-function EmptyNote({ children }: { children: ReactNode }) {
-  return <p className="px-2 py-1 text-[13px] leading-5 text-[var(--text-subtitle)]">{children}</p>;
-}
-
-// ── Rail ──────────────────────────────────────────────────────────────────────
-
-/** A tab of the icon rail, Figma-like: a small rounded square, grey when active; its name shows on hover. */
-function RailButton({ icon, label, active, indicator, onClick }: {
-  icon: ReactNode;
-  label: string;
-  active: boolean;
-  indicator?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <div className="relative group/rail">
-      <button
-        type="button"
-        aria-label={label}
-        aria-pressed={active}
-        onClick={onClick}
-        className={cn(
-          "flex items-center justify-center w-8 h-8 rounded-[8px] transition-colors cursor-pointer",
-          active
-            ? "bg-[var(--bg-4)] text-[var(--text-title)]"
-            : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[color-mix(in_srgb,var(--bg-4)_60%,transparent)]"
-        )}
-      >
-        {icon}
-      </button>
-      {indicator && (
-        <span aria-hidden className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[var(--edit-accent)] ring-2 ring-[var(--bg-1)] pointer-events-none" />
-      )}
-      <span className="pointer-events-none absolute left-[calc(100%+8px)] top-1/2 -translate-y-1/2 z-50 hidden group-hover/rail:inline-flex items-center h-7 px-2.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] text-[12px] font-medium text-[var(--text-title)] shadow-[0_8px_24px_rgba(0,0,0,0.08)] whitespace-nowrap">
-        {label}
-      </span>
-    </div>
+    >
+      {label}
+    </button>
   );
 }
 
@@ -384,71 +348,14 @@ function groupOutline(selected: boolean, active: boolean) {
     // 1.25rem (20px — corners of 25px out there): not a px class, which the project theme's radius would change (globals.css).
     "rounded-[1.25rem] outline-1 outline-offset-[4px] transition-[outline-color]",
     selected
-      ? "outline-solid outline-[var(--edit-group)]"
+      ? "outline-solid outline-[var(--edit-accent)]"
       : active
-        ? "outline-dashed outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]"
+        ? "outline-dashed outline-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]"
         : cn(
-            "outline-dashed outline-transparent data-[canvas-hover]:outline-[color-mix(in_srgb,var(--edit-group)_40%,transparent)]",
+            "outline-dashed outline-transparent data-[canvas-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_40%,transparent)]",
             // Hovered in the layer tree.
-            "data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-group)_70%,transparent)]"
+            "data-[layer-hover]:outline-[color-mix(in_srgb,var(--edit-accent)_70%,transparent)]"
           )
-  );
-}
-
-/**
- * What the size badge (SizeBadge) shows: the element `selector` finds, its
- * line `below` px under its bottom (under a component's frame with `frame`),
- * `padded` for the editor's 10px around a section (SECTION_BOX), in `tone`.
- */
-type BadgeTarget = { selector: string; tone: string; below?: number; frame?: boolean; padded?: boolean };
-
-/**
- * The selection's size (W × H), as Figma's: a small badge centred 4px under its
- * line, in its level's colour — the section's blue, the Blok's green, the
- * component's kind. It follows the element each frame while selected (typing,
- * images loading, the page moving). Render it in the canvas's `main`.
- */
-function SizeBadge({ selector, tone, below = 0, frame = false, padded = false }: BadgeTarget) {
-  const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    const badge = ref.current;
-    if (!badge) return;
-    let raf = 0;
-    let shown = "";
-    const tick = () => {
-      raf = requestAnimationFrame(tick);
-      const el = document.querySelector<HTMLElement>(selector);
-      const main = badge.offsetParent;
-      if (!el || !main) {
-        badge.style.visibility = "hidden";
-        shown = "";
-        return;
-      }
-      const r = el.getBoundingClientRect();
-      const line = frame && el.firstElementChild ? el.firstElementChild.getBoundingClientRect().bottom : r.bottom + below;
-      const m = main.getBoundingClientRect();
-      const pad = padded ? 20 : 0;
-      const text = `${Math.round(r.width - pad)} × ${Math.round(r.height - pad)}`;
-      const left = Math.round(r.left + r.width / 2 - m.left);
-      const top = Math.round(line + 4 - m.top);
-      const next = `${text}|${left}|${top}`;
-      if (next === shown) return;
-      shown = next;
-      badge.textContent = text;
-      badge.style.left = `${left}px`;
-      badge.style.top = `${top}px`;
-      badge.style.visibility = "visible";
-    };
-    tick();
-    return () => cancelAnimationFrame(raf);
-  }, [selector, below, frame, padded]);
-  return (
-    <span
-      ref={ref}
-      aria-hidden
-      style={{ background: tone }}
-      className="invisible pointer-events-none absolute z-40 -translate-x-1/2 px-1 rounded-[3px] text-[11px] font-medium leading-4 text-white tabular-nums whitespace-nowrap select-none"
-    />
   );
 }
 
@@ -549,7 +456,7 @@ function SelectionFrame({ frameRef, selected, dragging = false, dashed = false }
       ref={frameRef}
       className={cn(
         "pointer-events-none absolute inset-0 z-20 border transition-colors duration-150",
-        // Full colour when selected (or dragged), a lighter one while a click would select it (--edit-tone: the component's kind).
+        // Full colour when selected (or dragged), a lighter one while a click would select it (--edit-tone: the layer's — blue for a text or an image, purple for an instance).
         selected || dragging
           ? cn("border-[var(--edit-tone,var(--edit-accent))]", dashed && !dragging && "border-dashed")
           : cn(
@@ -674,7 +581,8 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   );
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
-  const look = useFrameLook(block.look);
+  // An instance drawn from its main component draws its look on its frame (see boxLook).
+  const look = useFrameLook(boxLook(block));
   const place = cellProps(cell, gridFlow(group.grid) !== "grid" || Boolean(block.absolute));
   const size = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
   const free = absoluteProps(block.absolute);
@@ -704,8 +612,8 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
       ref={(el) => { setNodeRef(el); rootRef(el); blockEl.current = el; }}
       data-live-block
       data-block-id={block.id}
-      // --edit-tone: the colour of the component's kind — its frame, cards and hovered text.
-      style={{ ...place.style, ...size.style, ...free.style, ...look, ...sortableStyle(transform, transition), "--edit-tone": blockTone(block.type) } as CSSProperties}
+      // --edit-tone: the layer's colour (see layerTone) — its frame, cards and hovered text.
+      style={{ ...place.style, ...size.style, ...free.style, ...look, ...sortableStyle(transform, transition), "--edit-tone": layerTone(block.type) } as CSSProperties}
       {...listeners}
       // Its texts are edited in place (a double-click) while it, or an item inside it, is selected.
       data-live-selected={selected ? "" : undefined}
@@ -725,7 +633,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
               ? cn("top-0 bottom-0 w-[3px]", line.before ? "-left-[10px]" : "-right-[10px]")
               : cn("left-0 right-0 h-[3px]", line.before ? "-top-[10px]" : "-bottom-[10px]")
           )}
-          style={{ background: blockTone(line.blockType) }}
+          style={{ background: layerTone(line.blockType) }}
         />
       )}
       <FillHeightContext.Provider value={size.fillHeight}>
@@ -780,7 +688,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
       ref={setNodeRef}
       data-live-group
       data-group-id={group.id}
-      style={{ ...place.style, ...grid.style, ...size.style, ...free.style, ...look, ...sortableStyle(transform, transition), "--edit-tone": GROUP_TONE } as CSSProperties}
+      style={{ ...place.style, ...grid.style, ...size.style, ...free.style, ...look, ...sortableStyle(transform, transition), "--edit-tone": FRAME_TONE } as CSSProperties}
       {...listeners}
       // Selected on press (see pressOn); the click must not reach the canvas, which clears the selection.
       onClick={(e) => e.stopPropagation()}
@@ -1149,204 +1057,17 @@ const isPrimaryPress = (e: React.PointerEvent) => e.button === 0 && e.isPrimary;
 
 // ── Layers panel (Katmanlar) ──────────────────────────────────────────────────
 
-const LayerIcons = {
-  // Figma's frame, for the page's own (the root layer).
-  frame: fi("16.frame"),
-  page: fi("16.page"),
-  section: fi("16.section"),
-  divider: fi("16.line"),
-  // An item of a component (a card, a row…): a frame of its own — an instance, when it is its molecule's.
-  item: fi("16.frame"),
-  instance: fi("16.instance"),
-  // Figma's text layer.
-  text: fi("16.text"),
-};
-
-/** A Blok's icon, as Figma's frames: its auto layout's direction — on a grid, a frame. */
-function groupIcon(grid?: GridSettings) {
-  const flow = gridFlow(grid);
-  if (flow === "vertical") return fi("16.autolayout.vertical");
-  if (flow === "horizontal") return fi(grid?.wrap ? "16.autolayout.wrap" : "16.autolayout.horizontal");
-  return LayerIcons.frame;
-}
-
-/** A component's icon, from the catalog (16px, drawn at 14px). */
-function blockIcon(type: BlockType) {
-  return <span className="flex items-center justify-center w-3.5 h-3.5 [&_svg]:w-3.5 [&_svg]:h-3.5">{BLOCK_DEFS.find((d) => d.type === type)?.icon}</span>;
-}
-
-/**
- * Hovering a layer outlines its element on the canvas (the canvas styles
- * `data-layer-hover` like its own hover).
- */
-function hoverOnCanvas(selector: string, on: boolean) {
-  document.querySelector(`main ${selector}`)?.toggleAttribute("data-layer-hover", on);
-}
-
-/** Icon button of a layer row, as in Figma: a small rounded square, tinted on hover. */
-function LayerButton({ label, onClick, disabled = false, children }: { label: string; onClick: () => void; disabled?: boolean; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      onDoubleClick={(e) => e.stopPropagation()}
-      className="flex items-center justify-center w-6 h-6 rounded-[6px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-    >
-      {children}
-    </button>
-  );
-}
-
-/**
- * One row of the layer tree, Figma-like: indented by depth, a disclosure
- * chevron for containers, the level's icon — the only thing in colour
- * (`tone`); the rest stays in the theme's greys — and the layer's name.
- * Click selects; double-click renames (Enter / leaving the field keeps it,
- * Esc drops it, an empty name goes back to the default); the edit icon on
- * hover opens the inspector. The row is dragged with its node (listeners sit
- * on the node).
- */
-function LayerRow({ depth, tone, icon, name, selected, hidden = false, onToggleHidden, open, onToggle, hover, onSelect, onInspect, onRename, children }: {
-  depth: number;
-  tone: string;
-  icon: ReactNode;
-  name: string;
-  selected: boolean;
-  /** Not shown on the page (see FrameLook.hidden): greyed, its eye crossed out */
-  hidden?: boolean;
-  /** Layers that can be hidden: Figma's eye, at the row's end */
-  onToggleHidden?: () => void;
-  /** Containers: expanded or not (undefined: no chevron) */
-  open?: boolean;
-  onToggle?: () => void;
-  /** Its element on the canvas, outlined while the row is hovered */
-  hover?: string;
-  onSelect: () => void;
-  onInspect: () => void;
-  /** Renamable layers: the new name (undefined: back to the default) */
-  onRename?: (name: string | undefined) => void;
-  /** Hover actions before the edit icon */
-  children?: ReactNode;
-}) {
-  const [renaming, setRenaming] = useState(false);
-  // Enter, Esc and leaving the field all end the rename — only the first one counts.
-  const ended = useRef(false);
-  const startRename = () => {
-    ended.current = false;
-    setRenaming(true);
-  };
-  /** Keeps `value` as the name (undefined: Esc, the name stays). */
-  const finish = (value?: string) => {
-    if (ended.current) return;
-    ended.current = true;
-    if (value !== undefined) onRename?.(value.trim() || undefined);
-    setRenaming(false);
-  };
-
-  return (
-    <div
-      onClick={(e) => { e.stopPropagation(); onSelect(); }}
-      onDoubleClick={(e) => { e.stopPropagation(); if (onRename) startRename(); else onInspect(); }}
-      onMouseEnter={() => hover && hoverOnCanvas(hover, true)}
-      onMouseLeave={() => hover && hoverOnCanvas(hover, false)}
-      style={{ paddingLeft: 4 + depth * 16 }}
-      className={cn(
-        "group/layer flex items-center gap-1 h-8 pr-1 rounded-[8px] text-[12px] leading-4 cursor-default select-none transition-colors",
-        // Selected: the theme's #f2f2f2 (bg-4); hovered: a lighter tone of it.
-        selected ? "bg-[var(--bg-4)]" : "hover:bg-[color-mix(in_srgb,var(--bg-4)_60%,transparent)]"
-      )}
-    >
-      {open === undefined ? (
-        <span className="w-4 shrink-0" />
-      ) : (
-        <button
-          type="button"
-          aria-label={open ? "Daralt" : "Genişlet"}
-          aria-expanded={open}
-          onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          className="flex items-center justify-center w-4 h-4 shrink-0 rounded text-[var(--text-subtitle)] hover:text-[var(--text-title)] cursor-pointer"
-        >
-          <span className={cn("transition-transform duration-150", !open && "-rotate-90")}>{Icons.chevron}</span>
-        </button>
-      )}
-      <span className={cn("flex items-center justify-center w-4 h-4 shrink-0", hidden && "opacity-40")} style={{ color: tone }}>{icon}</span>
-      {renaming ? (
-        <input
-          autoFocus
-          aria-label="Katman adı"
-          defaultValue={name}
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={(e) => finish(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            // Keys stay in the field: no Backspace deleting the layer, no Escape dropping the selection.
-            e.stopPropagation();
-            if (e.key === "Enter") finish(e.currentTarget.value);
-            if (e.key === "Escape") finish();
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          className="min-w-0 flex-1 h-6 ml-0.5 px-1.5 rounded-[6px] border border-[var(--border-hover)] bg-[var(--bg-1)] text-[12px] font-medium text-[var(--text-title)] outline-none select-text"
-        />
-      ) : (
-        <span className={cn("min-w-0 truncate pl-0.5 font-medium text-[var(--text-title)]", hidden && "opacity-40")}>{name}</span>
-      )}
-      {!renaming && (
-        <div className="ml-auto flex items-center gap-0.5 shrink-0">
-          <div className="flex items-center gap-0.5 opacity-0 group-hover/layer:opacity-100 focus-within:opacity-100 transition-opacity">
-            {children}
-            <LayerButton label="Düzenle" onClick={onInspect}>{Icons.edit}</LayerButton>
-          </div>
-          {/* Figma's eye: on hover — always, crossed out, while hidden. */}
-          {onToggleHidden && (
-            <div className={cn(!hidden && "opacity-0 group-hover/layer:opacity-100 focus-within:opacity-100 transition-opacity")}>
-              <LayerButton label={hidden ? "Göster" : "Gizle"} onClick={onToggleHidden}>{hidden ? Icons.eyeOff : Icons.eye}</LayerButton>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Figma's drop line: where the dragged row lands — above or below this row's
- * node, or first inside it (below its row, one level deeper).
- */
-function DropLine({ place, depth }: { place: TreeDrop["place"] | null; depth: number }) {
-  if (!place) return null;
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "pointer-events-none absolute right-1 z-10 h-[2px] rounded-full bg-[var(--text-title)]",
-        // A ring at its start, as in Figma.
-        "before:content-[''] before:absolute before:-left-[5px] before:-top-[2px] before:w-[6px] before:h-[6px] before:rounded-full before:border-2 before:border-[var(--text-title)] before:bg-[var(--bg-1)]",
-        place === "before" ? "-top-px" : place === "after" ? "-bottom-px" : "top-[31px]"
-      )}
-      style={{ left: 24 + (place === "inside" ? depth + 1 : depth) * 16 }}
-    />
-  );
-}
-
-/** The subtree of a selected layer is tinted too (lighter), as in Figma. */
-const layerNode = (selected: boolean, dragging: boolean) =>
-  cn(
-    "relative flex flex-col rounded-[8px]",
-    selected && "bg-[color-mix(in_srgb,var(--bg-4)_50%,transparent)]",
-    // The dragged row stays where it is, dimmed — only the line moves.
-    dragging && "opacity-40"
-  );
-
 /**
  * Components and items open in the layer tree (see LayerBlock) — they start
  * closed, as in Figma; a selection inside opens them (revealLayer).
  */
 const OpenComponentsContext = createContext<{ open: ReadonlySet<string>; toggle: (id: string) => void }>({ open: new Set(), toggle: () => {} });
 
+/**
+ * A layer of a Blok: a text, an image or an instance (Figma's purple — see
+ * layerKind). An instance drawn from its main component opens on its items,
+ * each an instance of the component it repeats.
+ */
 function LayerBlock({ block, group, selection, actions, onSelect }: {
   block: Block;
   /** Its Blok */
@@ -1358,13 +1079,13 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
   const { setNodeRef, listeners, isDragging } = useSortableBlock(block, group.id);
   const inside = selection.kind === "block" && selection.blockId === block.id;
   const selected = inside && !selection.itemId;
-  const tone = blockTone(block.type);
+  const instance = useInstance(block);
+  const components = useDesignComponents();
   const select = () => onSelect({ kind: "block", blockId: block.id });
   const drop = useTreeDrop(block.id);
   const { open: opened, toggle } = useContext(OpenComponentsContext);
-  // Laid out by its main component: its items, and their text layers, are layers too.
-  const designed = DESIGNED_TYPES.has(block.type);
-  const open = designed ? opened.has(block.id) : undefined;
+  // Drawn from its main component: its items, and their text layers, are layers too.
+  const open = instance?.item ? opened.has(block.id) : undefined;
   // A component with items (cards, rows, list items…): "+" adds one at its end and selects it.
   const noun = itemNoun(block);
   const addItem = () => {
@@ -1383,9 +1104,10 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
       <DropLine place={drop} depth={2} />
       <LayerRow
         depth={2}
-        tone={tone}
-        icon={blockIcon(block.type)}
-        name={blockName(block)}
+        tone={layerTone(block.type)}
+        nameTone={layerKind(block.type) === "instance" ? COMPONENT_TONE : undefined}
+        icon={layerIcon(block.type)}
+        name={blockName(block, components)}
         selected={selected}
         open={open}
         onToggle={() => toggle(block.id)}
@@ -1400,57 +1122,59 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
           <LayerButton label={`${noun} ekle`} onClick={addItem}>{Icons.plus}</LayerButton>
         )}
       </LayerRow>
-      {open && (block.entries ?? []).map((entry) => (
-        <LayerItem key={entry.id} block={block} itemId={entry.id} selection={selection} onSelect={onSelect} />
+      {open && instance?.item && (block.entries ?? []).map((entry) => (
+        <LayerItem key={entry.id} block={block} entry={entry} instance={instance} selection={selection} onSelect={onSelect} />
       ))}
     </div>
   );
 }
 
 /**
- * An item of a component (a card, a row…) in the layer tree, with its text
- * layers. Items are reordered on the canvas: its rows don't drag.
+ * An item of an instance — an instance itself, of the component its main one
+ * repeats (a Kart) — in the layer tree, with its text layers. Items are
+ * reordered on the canvas: its rows don't drag.
  */
-function LayerItem({ block, itemId, selection, onSelect }: {
+function LayerItem({ block, entry, instance, selection, onSelect }: {
   block: Block;
-  itemId: string;
+  entry: BlockEntry;
+  instance: ResolvedInstance;
   selection: Selection;
   onSelect: SelectFromPanel;
 }) {
-  const inside = selection.kind === "block" && selection.blockId === block.id && selection.itemId === itemId;
-  const tone = blockTone(block.type);
+  const inside = selection.kind === "block" && selection.blockId === block.id && selection.itemId === entry.id;
   const { open: opened, toggle } = useContext(OpenComponentsContext);
-  // Its text layers: its molecule's slots.
-  const texts = useComponentDesign(block.type).item.molecule.slots.map((slot) => ({ field: slot.field, name: slot.name }));
-  const instance = DESIGNED_TYPES.has(block.type);
-  const open = opened.has(itemId);
-  const item = `[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`;
-  const select = () => onSelect({ kind: "block", blockId: block.id, itemId });
+  const component = instance.item!.component;
+  const texts = component.layers.filter((layer): layer is TextLayer => layer.kind === "text");
+  const open = opened.has(entry.id);
+  const item = `[data-block-id="${block.id}"] [data-entry-id="${entry.id}"]`;
+  const select = () => onSelect({ kind: "block", blockId: block.id, itemId: entry.id });
   return (
-    <div data-layer-id={itemId} data-layer-kind="item" data-no-drag className={layerNode(inside, false)}>
+    <div data-layer-id={entry.id} data-layer-kind="item" data-no-drag className={layerNode(inside, false)}>
       <LayerRow
         depth={3}
-        tone={instance ? "var(--edit-molecule)" : tone}
-        icon={instance ? LayerIcons.instance : LayerIcons.item}
-        name={itemName(block, itemId)}
+        tone={COMPONENT_TONE}
+        nameTone={COMPONENT_TONE}
+        icon={fi("16.instance")}
+        name={component.name}
         selected={inside && !selection.text}
         open={texts.length > 0 ? open : undefined}
-        onToggle={() => toggle(itemId)}
+        onToggle={() => toggle(entry.id)}
         hover={item}
         onSelect={select}
         onInspect={select}
+        hidden={Boolean(entry.overrides?.look?.hidden)}
       />
-      {open && texts.map((t) => {
-        const pick = () => onSelect({ kind: "block", blockId: block.id, itemId, text: t.field });
+      {open && texts.map((layer) => {
+        const pick = () => onSelect({ kind: "block", blockId: block.id, itemId: entry.id, text: layer.field });
         return (
-          <div key={t.field} data-layer-id={`${itemId}:${t.field}`} data-layer-kind="text" data-no-drag>
+          <div key={layer.id} data-layer-id={`${entry.id}:${layer.field}`} data-layer-kind="text" data-no-drag>
             <LayerRow
               depth={4}
-              tone={tone}
-              icon={LayerIcons.text}
-              name={t.name}
-              selected={inside && selection.text === t.field}
-              hover={`${item} [data-text-layer="${t.field}"]`}
+              tone={FRAME_TONE}
+              icon={fi("16.text")}
+              name={layer.name}
+              selected={inside && selection.text === layer.field}
+              hover={`${item} [data-text-layer="${layer.field}"]`}
               onSelect={pick}
               onInspect={pick}
             />
@@ -1488,8 +1212,8 @@ function LayerGroup({ group, index, section, selection, collapsed, onToggle, act
       <DropLine place={drop} depth={1} />
       <LayerRow
         depth={1}
-        tone={GROUP_TONE}
-        icon={groupIcon(group.grid)}
+        tone={FRAME_TONE}
+        icon={frameIcon(group.grid)}
         name={groupName(group, index)}
         selected={selected}
         open={open}
@@ -1501,7 +1225,7 @@ function LayerGroup({ group, index, section, selection, collapsed, onToggle, act
         hidden={Boolean(group.look?.hidden)}
         onToggleHidden={() => actions.updateGroup(group.id, { look: { ...group.look, hidden: group.look?.hidden ? undefined : true } })}
       >
-        <LayerButton label="Bloğa bileşen ekle" onClick={() => onAddBlock(group.id)}>{Icons.plus}</LayerButton>
+        <LayerButton label="Bloğa ekle" onClick={() => onAddBlock(group.id)}>{Icons.plus}</LayerButton>
       </LayerRow>
       {open && (
         <GroupBlocks group={group}>
@@ -1509,7 +1233,7 @@ function LayerGroup({ group, index, section, selection, collapsed, onToggle, act
             <LayerBlock key={block.id} block={block} group={group} selection={selection} actions={actions} onSelect={onSelect} />
           ))}
           {group.blocks.length === 0 && (
-            <p className="h-7 flex items-center pl-[56px] text-[12px] text-[var(--text-subtitle)] select-none">Boş — bir bileşen sürükle</p>
+            <p className="h-7 flex items-center pl-[56px] text-[12px] text-[var(--text-subtitle)] select-none">Boş — varlıklardan sürükle</p>
           )}
         </GroupBlocks>
       )}
@@ -1544,8 +1268,8 @@ function LayerSection({ section, index, selection, collapsed, onToggle, actions,
       <DropLine place={drop} depth={0} />
       <LayerRow
         depth={0}
-        tone={SECTION_TONE}
-        icon={LayerIcons.section}
+        tone={FRAME_TONE}
+        icon={frameIcon(section.grid)}
         name={sectionName(section, index)}
         selected={selected}
         open={open}
@@ -1603,8 +1327,8 @@ function LayerDivider({ divider, selected, onSelect }: {
       <DropLine place={drop} depth={0} />
       <LayerRow
         depth={0}
-        tone="var(--text-subtitle)"
-        icon={LayerIcons.divider}
+        tone={FRAME_TONE}
+        icon={fi("16.line")}
         name="Ayırıcı"
         selected={selected}
         hover={`[data-divider-id="${divider.id}"]`}
@@ -1644,8 +1368,8 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
       {/* The page's frame, named after the project — everything on the page sits in it, as in a Figma frame. */}
       <LayerRow
         depth={0}
-        tone="var(--edit-accent)"
-        icon={LayerIcons.frame}
+        tone={FRAME_TONE}
+        icon={fi("16.autolayout.vertical")}
         name={project.title?.trim() || "Sayfa"}
         selected={selection.kind === "page"}
         open={!collapsed.has(PAGE_LAYER)}
@@ -1659,8 +1383,8 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
       <div className="flex flex-col gap-px pl-4">
       <LayerRow
           depth={0}
-          tone="var(--text-subtitle)"
-          icon={LayerIcons.page}
+          tone={FRAME_TONE}
+          icon={fi("16.autolayout.vertical")}
           name="Proje bilgileri"
           selected={selection.kind === "meta"}
           hover="#live-overview"
@@ -1697,17 +1421,14 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
       </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 pt-3">
-        <PillButton size="md" onClick={() => actions.addSection()} startIcon={Icons.plus} className="justify-center">Bölüm ekle</PillButton>
-        <PillButton size="md" onClick={() => actions.addDivider()} startIcon={Icons.plus} className="justify-center">Ayırıcı ekle</PillButton>
-      </div>
     </div>
   );
 }
 
 /**
- * Katmanlar — the page as a tree, as in Figma: sections › Bloks ›
- * components, each folding open. Click to select (the canvas follows),
+ * Katmanlar — the page as a tree, as in Figma: its frame › Bölüm › Blok ›
+ * texts, images and instances (an instance › its items › their texts), each
+ * folding open. Click to select (the canvas follows),
  * double-click to edit, hover to see it on the canvas. Everything reorders by
  * drag & drop here too — in a drag context of its own, so the canvas stays as
  * it is while the tree is dragged.
@@ -1735,96 +1456,33 @@ function LayersPanel(props: Parameters<typeof LayersList>[0]) {
   );
 }
 
-// ── Components panel (Bileşenler) ─────────────────────────────────────────────
+// ── Publishing (Yayın) ────────────────────────────────────────────────────────
 
-/**
- * A component in the catalog: drag it onto the page (a line shows where it
- * goes) or click to add it where the selection is. `blockId` is the id the
- * next copy gets — a fresh one after every drag, so the editor can select it.
- */
-function CatalogTile({ type, onAdd }: { type: BlockType; onAdd: (type: BlockType) => void }) {
-  const def = BLOCK_DEFS.find((d) => d.type === type);
-  const [blockId, setBlockId] = useState(uid);
-  const renew = ({ active }: { active: { id: string | number } }) => { if (active.id === `new:${type}`) setBlockId(uid()); };
-  useDndMonitor({ onDragEnd: renew, onDragCancel: renew });
-  const { setNodeRef, listeners, attributes, isDragging } = useNewBlockDrag(type, blockId);
-  if (!def) return null;
-  // A div, not a button: the editor's sensor never starts a drag from a button.
+/** A line of the publishing panel: what it is, and whether the project has it. */
+function StatusRow({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      role="button"
-      tabIndex={0}
-      onClick={() => onAdd(type)}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onAdd(type); } }}
-      title={def.description}
-      style={{ "--edit-tone": blockTone(type) } as CSSProperties}
-      className={cn(
-        "flex flex-col items-start gap-2 p-2.5 rounded-[14px] border border-[var(--border)] bg-[var(--bg-1)] text-left cursor-grab touch-none transition-colors",
-        "hover:border-[color-mix(in_srgb,var(--edit-tone)_50%,transparent)]",
-        isDragging && "opacity-40"
-      )}
+    <div className="flex items-center justify-between h-7 text-[12px]">
+      <span className="text-[var(--text-subtitle)]">{label}</span>
+      <span className={ok ? "font-medium text-[var(--text-title)]" : "text-[var(--text-subtitle)]"}>{ok ? "Var" : "Eksik"}</span>
+    </div>
+  );
+}
+
+/** A small action of the panel, as Figma's secondary buttons. */
+function PanelButton({ icon, children, onClick }: { icon?: ReactNode; children: ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center justify-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-[var(--bg-4)] text-[12px] font-medium text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
     >
-      <span className="flex items-center justify-center w-8 h-8 rounded-[10px] bg-[color-mix(in_srgb,var(--edit-tone)_12%,transparent)] text-[var(--edit-tone)]">
-        {def.icon}
-      </span>
-      <span className="flex flex-col gap-0.5 min-w-0 w-full">
-        <span className="text-[13px] font-medium leading-4 text-[var(--text-title)] truncate">{def.label}</span>
-        <span className="text-[11px] leading-[14px] text-[var(--text-subtitle)] line-clamp-2">{def.description}</span>
-      </span>
-    </div>
+      {icon}
+      {children}
+    </button>
   );
 }
 
-/** Bileşenler — every component, by kind, to drag onto the page (or click to add). */
-function CatalogPanel({ target, onAdd }: {
-  /** Where a click adds, in words */
-  target: string;
-  onAdd: (type: BlockType) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const q = query.trim().toLocaleLowerCase("tr");
-  const matches = (type: BlockType) => {
-    const def = BLOCK_DEFS.find((d) => d.type === type);
-    return !q || Boolean(def && `${def.label} ${def.description}`.toLocaleLowerCase("tr").includes(q));
-  };
-  const kinds = BLOCK_GROUPS.map((kind) => ({ ...kind, types: kind.types.filter(matches) })).filter((kind) => kind.types.length > 0);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <Input type="search" size="md" bgContext="block" placeholder="Bileşen ara" value={query} onChange={(e) => setQuery(e.target.value)} />
-      <p className="px-1 text-[12px] leading-4 text-[var(--text-subtitle)]">
-        Sayfaya sürükleyip bırak — çizgi nereye gireceğini gösterir; boş bir hücreye de bırakabilirsin. Tıklarsan {target} eklenir.
-      </p>
-      {kinds.map((kind) => (
-        <section key={kind.label} className="flex flex-col gap-2">
-          <h3 className="flex items-center gap-2 px-1 text-[11px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">
-            <span aria-hidden className="w-2 h-2 rounded-full" style={{ background: kind.tone }} />
-            {kind.label}
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            {kind.types.map((type) => (
-              <CatalogTile key={type} type={type} onAdd={onAdd} />
-            ))}
-          </div>
-        </section>
-      ))}
-      {kinds.length === 0 && <EmptyNote>“{query}” ile eşleşen bileşen yok.</EmptyNote>}
-    </div>
-  );
-}
-
-function StatusRow({ label, ok, okText = "Var", missingText = "Eksik" }: { label: string; ok: boolean; okText?: string; missingText?: string }) {
-  return (
-    <div className="flex items-center justify-between h-10 px-4 rounded-full bg-[var(--bg-1)] text-[14px]">
-      <span className="text-[var(--text-p)]">{label}</span>
-      <span className={ok ? "font-medium text-[var(--text-title)]" : "text-[var(--text-subtitle)]"}>{ok ? okText : missingText}</span>
-    </div>
-  );
-}
-
+/** The design panel's Yayın tab: the page's address, what it holds and what it misses, and the case-study template. */
 function PublishPanel({ project, slug, onLoadTemplate }: {
   project: ProjectData;
   slug: string;
@@ -1846,72 +1504,84 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <PanelCard title="Bağlantı">
-        <Input type="text" bgContext="block" size="md" value={path} readOnly className="tabular-nums" />
+    <div className="flex flex-col">
+      <PanelGroup title="Bağlantı">
+        <div className="flex items-center h-7 px-2 rounded-[6px] bg-[var(--bg-4)] text-[12px] text-[var(--text-title)] tabular-nums truncate select-all">{path}</div>
         <div className="grid grid-cols-2 gap-2">
-          <PillButton size="md" bgContext="block" onClick={copy} startIcon={Icons.copy} className="justify-center">
-            {copied ? "Kopyalandı" : "Kopyala"}
-          </PillButton>
-          <PillButton size="md" bgContext="block" onClick={() => window.open(path, "_blank")} startIcon={Icons.external} className="justify-center">
-            Yeni sekmede aç
-          </PillButton>
+          <PanelButton icon={Icons.copy} onClick={copy}>{copied ? "Kopyalandı" : "Kopyala"}</PanelButton>
+          <PanelButton icon={Icons.external} onClick={() => window.open(path, "_blank")}>Yeni sekmede aç</PanelButton>
         </div>
-      </PanelCard>
+      </PanelGroup>
 
-      <PanelCard title="İçerik durumu">
+      <PanelGroup title="İçerik">
         <div className="grid grid-cols-4 gap-1.5">
           {[
             { value: sections.length, label: "Bölüm" },
             { value: groups, label: "Blok" },
-            { value: blocks, label: "Bileşen" },
+            { value: blocks, label: "Katman" },
             { value: dividers, label: "Ayırıcı" },
           ].map((s) => (
-            <div key={s.label} className="flex flex-col items-center gap-0.5 py-2.5 rounded-[14px] bg-[var(--bg-1)]">
-              <span className="text-[20px] font-medium leading-7 text-[var(--text-title)] tabular-nums">{s.value}</span>
-              <span className="text-[12px] leading-4 text-[var(--text-subtitle)]">{s.label}</span>
+            <div key={s.label} className="flex flex-col items-center gap-0.5 py-2 rounded-[6px] bg-[var(--bg-4)]">
+              <span className="text-[16px] font-medium leading-6 text-[var(--text-title)] tabular-nums">{s.value}</span>
+              <span className="text-[11px] leading-4 text-[var(--text-subtitle)]">{s.label}</span>
             </div>
           ))}
         </div>
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col">
           <StatusRow label="Başlık (TR)" ok={Boolean(project.title)} />
           <StatusRow label="Başlık (EN)" ok={Boolean(project.titleEn)} />
           <StatusRow label="Açıklama (TR)" ok={Boolean(project.description)} />
           <StatusRow label="Açıklama (EN)" ok={Boolean(project.descriptionEn)} />
           <StatusRow label="Kapak görseli" ok={Boolean(project.coverImage)} />
         </div>
-      </PanelCard>
+      </PanelGroup>
 
-      <PanelCard title="Şablon">
-        <p className="px-1 text-[13px] leading-5 text-[var(--text-subtitle)]">
-          Sayfanın içeriğini, bütün blokları kullanan vaka çalışması şablonuyla değiştirir.
+      <PanelGroup title="Şablon">
+        <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">
+          Sayfanın içeriğini, bütün bileşenleri kullanan vaka çalışması şablonuyla değiştirir.
         </p>
-        <PillButton
-          size="md"
-          bgContext="block"
-          className="justify-center"
+        <PanelButton
           onClick={() => {
             if (window.confirm("Sayfanın mevcut içeriği şablonla değiştirilecek. Devam edilsin mi?")) onLoadTemplate();
           }}
         >
           Şablonu yükle
-        </PillButton>
-      </PanelCard>
+        </PanelButton>
+      </PanelGroup>
     </div>
   );
 }
 
 // ── Live editor ───────────────────────────────────────────────────────────────
 
-const TAB_TITLES: Record<Tab, string> = {
-  layers: "Katmanlar",
-  components: "Bileşenler",
-  variables: "Değişkenler",
-  atoms: "Atomlar",
-  molecules: "Moleküller",
-  theme: "Tema",
-  publish: "Yayın",
+/** What a page component's main shows on the Bileşenler page when the project has no instance of it. */
+const SAMPLE_ENTRIES: Partial<Record<BlockType, Omit<BlockEntry, "id">[]>> = {
+  info: [
+    { label: "Rol", value: "Ürün tasarımcısı" },
+    { label: "Süre", value: "6 ay" },
+    { label: "Ekip", value: "4 kişi" },
+    { label: "Platform", value: "iOS · Android" },
+  ],
 };
+
+/** A page of the file in the left panel's list, as Figma's: its name, ticked while shown. */
+function PageRow({ label, icon, active, onClick }: { label: string; icon: ReactNode; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-1.5 h-7 mx-1 px-2 rounded-[6px] text-left text-[12px] transition-colors cursor-pointer",
+        active ? "bg-[var(--bg-4)] font-medium text-[var(--text-title)]" : "text-[var(--text-p)] hover:bg-[color-mix(in_srgb,var(--bg-4)_60%,transparent)]"
+      )}
+    >
+      <span className="flex w-4 shrink-0 text-[var(--text-title)]">{active && <FigmaIcon name="16.check" />}</span>
+      <span className="flex shrink-0 text-[var(--text-subtitle)]">{icon}</span>
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
+  );
+}
 
 export function LiveEditor({ project, lang, slug, companies, actions, system, onLoadTemplate }: {
   project: ProjectData;
@@ -1919,70 +1589,80 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
   slug: string;
   companies: string[];
   actions: EditorActions;
-  /** The site's design system: its variables, atoms and main components — changes go to every page */
+  /** The site's design system: its variables, text styles and components — changes go to every page */
   system: DesignSystem;
   onLoadTemplate: () => void;
 }) {
-  const { designs, variables, atoms, molecules } = system;
-  /** The text layers of a type's items: its molecule's slots — none unless laid out by its main component. */
-  const slotsOf = (type: BlockType) => (DESIGNED_TYPES.has(type) ? resolveDesign(type, designs, molecules, atoms).item.molecule.slots : []);
-  const [tab, setTab] = useState<Tab>("layers");
+  const { variables, textStyles, components } = system;
+  const [page, setPage] = useState<Page>("project");
+  const [leftTab, setLeftTab] = useState<LeftTab>("file");
+  const [rightTab, setRightTab] = useState<RightTab>("design");
   const [rawSelection, setSelection] = useState<Selection>({ kind: "none" });
-  // Where the component picker adds: a Blok, after one of its components or at its end.
+  // Where the component picker adds: a Blok, after one of its layers or at its end.
   const [picker, setPicker] = useState<PickerTarget | null>(null);
   // Sections and Bloks folded in the layer tree (kept across tab switches).
   const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(() => new Set());
-  // Components (and their items) open in the layer tree — they start closed, as in Figma.
+  // Instances (and their items) open in the layer tree — they start closed, as in Figma.
   const [openComponents, setOpenComponents] = useState<Set<string>>(() => new Set());
-  const toggleComponent = useCallback((id: string) => {
-    setOpenComponents((prev) => {
+  // Main components folded in the Bileşenler page's tree — they start open: their layers are what is there.
+  const [closedMains, setClosedMains] = useState<Set<string>>(() => new Set());
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  // The text style being edited in its popover, and where it opened.
+  const [styleEditor, setStyleEditor] = useState<{ id: string; anchor: { top: number; left: number } } | null>(null);
+  const toggleIn = (set: (update: (prev: Set<string>) => Set<string>) => void) => (id: string) =>
+    set((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }, []);
+  const toggleComponent = useCallback((id: string) => toggleIn(setOpenComponents)(id), []);
   const layerSections = sectionsOf(project.items);
   const allLayersCollapsed = layerSections.length > 0 && layerSections.every((s) => collapsedLayers.has(s.id));
   /** Folds every section (the selected one too) — or opens everything, Bloks included. */
   const toggleAllLayers = (collapse: boolean) => setCollapsedLayers(collapse ? new Set(layerSections.map((s) => s.id)) : new Set());
   const reordering = usePageReorder();
 
-  // Escape clears the selection (text fields handle their own Escape first).
+  // Escape clears the selection (text fields handle their own Escape first; a popover or window closes itself).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape" || (document.activeElement as HTMLElement | null)?.isContentEditable) return;
+      if (e.key !== "Escape" || (document.activeElement as HTMLElement | null)?.isContentEditable || styleEditor || variablesOpen) return;
       setSelection({ kind: "none" });
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [styleEditor, variablesOpen]);
 
   // A deleted (or undone) element clears the selection.
   const selectedBlock = rawSelection.kind === "block" ? findBlock(project.items, rawSelection.blockId) : null;
   const selectedGroup = rawSelection.kind === "group" ? findGroup(project.items, rawSelection.groupId) : null;
   const selectedSection = rawSelection.kind === "section" ? findSection(project.items, rawSelection.sectionId) : null;
   const selectedDivider = rawSelection.kind === "divider" && project.items.some((i) => i.id === rawSelection.dividerId);
+  const selectedMain = rawSelection.kind === "component" ? components.find((c) => c.id === rawSelection.componentId) ?? null : null;
+  const selectedMainLayer = selectedMain && rawSelection.kind === "component" && rawSelection.layerId ? selectedMain.layers.find((l) => l.id === rawSelection.layerId) ?? null : null;
   const selection: Selection =
     (rawSelection.kind === "block" && !selectedBlock) ||
     (rawSelection.kind === "group" && !selectedGroup) ||
     (rawSelection.kind === "section" && !selectedSection) ||
-    (rawSelection.kind === "divider" && !selectedDivider)
+    (rawSelection.kind === "divider" && !selectedDivider) ||
+    (rawSelection.kind === "component" && !selectedMain)
       ? { kind: "none" }
-      : rawSelection;
+      : rawSelection.kind === "component" && rawSelection.layerId && !selectedMainLayer
+        ? { kind: "component", componentId: rawSelection.componentId }
+        : rawSelection;
+  const mainSelection: MainSelection | null = selection.kind === "component" ? { componentId: selection.componentId, layerId: selection.layerId } : null;
   // An item that no longer exists (deleted, undone) falls back to its block.
   const selectedItemId =
     selection.kind === "block" && selection.itemId && selectedBlock && hasItem(selectedBlock.block, selection.itemId)
       ? selection.itemId
       : null;
-  const selectedVariable = rawSelection.kind === "variable" ? variables.find((v) => v.id === rawSelection.variableId) ?? null : null;
-  const selectedAtom = rawSelection.kind === "atom" ? atoms.find((a) => a.id === rawSelection.atomId) ?? null : null;
-  const selectedMolecule = rawSelection.kind === "molecule" ? molecules.find((m) => m.id === rawSelection.moleculeId) ?? null : null;
-  // A text layer of that item — of a component laid out by its main component.
-  const selectedText =
-    selection.kind === "block" && selectedItemId && selection.text && selectedBlock && slotsOf(selectedBlock.block.type).some((slot) => slot.field === selection.text)
-      ? selection.text
-      : null;
+  // The selected instance, drawn from its main component — null for a layer the site's code draws.
+  const instance = selectedBlock ? resolveInstance(selectedBlock.block, components, variables, textStyles) : null;
+  const selectedEntry = selectedBlock && selectedItemId ? selectedBlock.block.entries?.find((e) => e.id === selectedItemId) ?? null : null;
+  const itemTexts = instance?.item ? instance.item.component.layers.filter((layer): layer is TextLayer => layer.kind === "text") : [];
+  // A text layer of that item.
+  const selectedTextLayer = selection.kind === "block" && selectedItemId && selection.text ? itemTexts.find((layer) => layer.field === selection.text) ?? null : null;
+  const selectedText = selectedTextLayer?.field ?? null;
   // Backspace / Delete removes the selection — the layer, or the card / item picked inside a
   // component — as in Figma; never while a field (text on the page, a layer's name…) is being typed in.
   useEffect(() => {
@@ -2013,10 +1693,14 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
   const activeGroupId = selectedBlock?.group.id ?? null;
 
   /**
-   * A new selection opens the section and Blok holding it in the layer tree —
-   * once: they fold again at will (also while it stays selected).
+   * A new selection opens the layers holding it in the layer tree — once:
+   * they fold again at will (also while it stays selected).
    */
   function revealLayer(next: Selection) {
+    if (next.kind === "component") {
+      setClosedMains((prev) => (prev.has(next.componentId) ? new Set([...prev].filter((id) => id !== next.componentId)) : prev));
+      return;
+    }
     const block = next.kind === "block" ? findBlock(project.items, next.blockId) : null;
     const group = next.kind === "group" ? findGroup(project.items, next.groupId) : null;
     const ids = block ? [block.section.id, block.group.id] : group ? [group.section.id] : [];
@@ -2026,21 +1710,27 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       ids.forEach((id) => open.delete(id));
       return open;
     });
-    // An item or text layer: its component (and item) open too — they start closed.
+    // An item or text layer: its instance (and item) open too — they start closed.
     if (next.kind !== "block" || !next.itemId) return;
     const inner = next.text ? [next.blockId, next.itemId] : [next.blockId];
     setOpenComponents((prev) => (inner.every((id) => prev.has(id)) ? prev : new Set([...prev, ...inner])));
   }
 
-  /** Selecting shows the element in the inspector (right) and, with `scroll`, brings it into view on the canvas. */
+  /**
+   * Selecting shows the element in the design panel (right) — on its page,
+   * which comes up — and, with `scroll`, brings it into view on the canvas.
+   */
   function select(next: Selection, { scroll = false } = {}) {
     setSelection(next);
     revealLayer(next);
+    const on: Page | null = next.kind === "component" ? "components" : next.kind === "none" ? null : "project";
+    if (on && on !== page) setPage(on);
     if (!scroll) return;
-    // Next frame: the element may have just been added.
-    requestAnimationFrame(() => {
+    // Next frames: the element may have just been added, or its page come up.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       const target =
-        next.kind === "block" && next.text ? document.querySelector(`[data-block-id="${next.blockId}"] [data-entry-id="${next.itemId}"] [data-text-layer="${next.text}"]`)
+        next.kind === "component" ? document.querySelector(`main ${mainSelector(next, components)}`)
+        : next.kind === "block" && next.text ? document.querySelector(`[data-block-id="${next.blockId}"] [data-entry-id="${next.itemId}"] [data-text-layer="${next.text}"]`)
         : next.kind === "block" && next.itemId ? document.querySelector(`[data-block-id="${next.blockId}"] [data-entry-id="${next.itemId}"]`)
         : next.kind === "block" ? document.querySelector(`[data-block-id="${next.blockId}"]`)
         : next.kind === "group" ? document.querySelector(`[data-group-id="${next.groupId}"]`)
@@ -2049,7 +1739,20 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
         : next.kind === "meta" ? document.getElementById("live-overview")
         : null;
       target?.scrollIntoView({ behavior: "smooth", block: next.kind === "section" || next.kind === "meta" ? "start" : "center" });
-    });
+    }));
+  }
+
+  /** Figma's "Go to main component": its page, the main component (or a layer of it) selected, the layer tree showing it. */
+  function goToMain(componentId: string, layerId?: string) {
+    setLeftTab("file");
+    select({ kind: "component", componentId, layerId }, { scroll: true });
+  }
+
+  /** Another page of the file: its canvas and layers, nothing selected. */
+  function showPage(next: Page) {
+    if (next === page) return;
+    setPage(next);
+    setSelection({ kind: "none" });
   }
 
   // ── Picking on the canvas, as in Figma (see pressOn) ──
@@ -2086,26 +1789,38 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
     showHover(at?.isConnected ? hoverOn(at, pickedLayers, deep) : null);
   });
 
-  /** A catalog click adds the component where the selection is: after the selected component, into the selected Blok or section, else at the page's end. */
-  function addFromCatalog(type: BlockType) {
+  /**
+   * An asset click adds it where the selection is: after the selected layer,
+   * into the selected Blok or section, else at the page's end — an instance
+   * of `componentId`, when it is one of the site's components.
+   */
+  function addFromCatalog(type: BlockType, componentId?: string) {
+    const extras = componentId ? { component: componentId } : undefined;
     const blockId = selectedBlock
-      ? actions.addBlock(selectedBlock.group.id, type, undefined, selectedBlock.block.id)
+      ? actions.addBlock(selectedBlock.group.id, type, extras, selectedBlock.block.id)
       : selectedGroup
-        ? actions.addBlock(selectedGroup.group.id, type)
+        ? actions.addBlock(selectedGroup.group.id, type, extras)
         : selectedSection
-          ? actions.addBlockToSection(selectedSection.section.id, type)
-          : actions.addBlockToEnd(type);
+          ? actions.addBlockToSection(selectedSection.section.id, type, extras)
+          : actions.addBlockToEnd(type, extras);
     select({ kind: "block", blockId }, { scroll: true });
   }
   const catalogTarget = selectedBlock
-    ? "seçili bileşenin arkasına"
+    ? "seçili katmanın arkasına"
     : selectedGroup
       ? `${groupName(selectedGroup.group, selectedGroup.index)} içine`
       : selectedSection
         ? `${sectionName(selectedSection.section, selectedSection.index)} içine`
         : "sayfanın sonuna";
 
-  // A component dropped from the catalog becomes the selection (when it landed somewhere).
+  /** The toolbar's frame: a Blok in the selected (or selection's) Bölüm, after the selected Blok — else a new Bölüm. */
+  const frameSection = selectedBlock?.section.id ?? selectedGroup?.section.id ?? selectedSection?.section.id ?? null;
+  function addFrame() {
+    if (frameSection) select({ kind: "group", groupId: actions.addGroup(frameSection, selectedBlock?.group.id ?? selectedGroup?.group.id) }, { scroll: true });
+    else select({ kind: "section", sectionId: actions.addSection() }, { scroll: true });
+  }
+
+  // A layer dropped from the assets becomes the selection (when it landed somewhere).
   useDndMonitor({
     onDragEnd({ active }) {
       const data = active.data.current as { type?: string; blockId?: string } | undefined;
@@ -2119,8 +1834,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
 
   /**
    * The layers holding the selection, for the header's menu (Figma's "select
-   * a parent"): the page, its section, Blok, component, item — each selects
-   * that layer.
+   * a parent"): the page, its section, Blok, layer, item — each selects that layer.
    */
   function holders(at: { section?: PageSection; group?: Group; block?: Block; itemId?: string }): MenuItem[] {
     const items: MenuItem[] = [{ label: project.title?.trim() || "Sayfa", hint: "Sayfa", onSelect: () => select({ kind: "page" }, { scroll: true }) }];
@@ -2133,57 +1847,132 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
       const index = section.groups.findIndex((g) => g.id === group.id);
       items.push({ label: groupName(group, index), hint: "Blok", onSelect: () => select({ kind: "group", groupId: group.id }, { scroll: true }) });
     }
-    if (block) items.push({ label: blockName(block), hint: BLOCK_LABELS[block.type], onSelect: () => select({ kind: "block", blockId: block.id }, { scroll: true }) });
+    if (block) items.push({ label: blockName(block, components), hint: layerKind(block.type) === "instance" ? "Örnek" : BLOCK_LABELS[block.type], onSelect: () => select({ kind: "block", blockId: block.id }, { scroll: true }) });
     if (block && itemId) items.push({ label: itemName(block, itemId), hint: itemNoun(block), onSelect: () => select({ kind: "block", blockId: block.id, itemId }, { scroll: true }) });
     return items;
   }
 
-  // Left panel header: the tab's name and its actions.
-  const panelTitle = TAB_TITLES[tab];
-  let panelActions: ReactNode = null;
-  if (tab === "layers") {
-    panelActions = (
-      <LayerButton label={allLayersCollapsed ? "Katmanları aç" : "Katmanları daralt"} onClick={() => toggleAllLayers(!allLayersCollapsed)}>
-        {allLayersCollapsed ? Icons.expandLayers : Icons.collapseLayers}
-      </LayerButton>
-    );
+  // ── Overrides: what an instance, or an item of one, changes of its main component ──
+
+  /** An item's overrides, `patch` over them — null: back to its component's (it stays hidden if it was). */
+  function setItemOverrides(block: Block, itemId: string, patch: Partial<InstanceOverrides> | null) {
+    actions.updateBlock(block.id, {
+      entries: (block.entries ?? []).map((e) =>
+        e.id !== itemId ? e : { ...e, overrides: patch ? cleanOverrides({ ...e.overrides, ...patch }) : e.overrides?.look?.hidden ? { look: { hidden: true } } : undefined }
+      ),
+    });
   }
-  if (tab === "theme" && project.theme) {
-    panelActions = <PillButton size="sm" variant="ghost" onClick={() => actions.updateMeta({ theme: undefined })}>Varsayılana dön</PillButton>;
+  /** Figma's "Push changes to main component": an instance's overrides go to its main one — every instance — and it has none left. */
+  function pushBlock(block: Block, resolved: ResolvedInstance) {
+    system.setComponent(pushInstance(resolved.main, block));
+    actions.updateBlock(block.id, resetInstance(block));
+  }
+  /** The same for an item: to the component it is (its size to the layer repeating it). */
+  function pushEntry(block: Block, entry: BlockEntry, resolved: ResolvedInstance) {
+    const item = resolved.item;
+    if (!item || !entry.overrides) return;
+    system.setComponent(pushItem(item.component, entry.overrides));
+    const { size } = entry.overrides;
+    if (size) system.setComponent({ ...resolved.main, layers: resolved.main.layers.map((layer) => (layer.id === item.layer.id ? { ...layer, size } : layer)) });
+    setItemOverrides(block, entry.id, null);
   }
 
-  // The selected component's main component (see ComponentDesign), if its type has one; changes go to it — every instance.
-  const blockDesign = selectedBlock && DESIGNED_TYPES.has(selectedBlock.block.type) ? resolveDesign(selectedBlock.block.type, designs, molecules, atoms) : null;
+  // ── Uses: where a main component and a text style are ──
 
-  // Inspector header (right), as Figma's: the selection's kind — its icon, name and menu — and what can be done with it.
-  let header: { icon?: ReactNode; tone?: string; title: string; menu?: MenuItem[] } = { icon: LayerIcons.page, title: "Proje" };
+  /** Where a main component is: a page component's instances on this page; one used inside others, the components repeating it. */
+  function mainUses(component: DesignComponent): DesignUse[] {
+    if (component.type) {
+      return sectionsOf(project.items).flatMap((section, index) =>
+        sectionBlocks(section)
+          .filter((b) => b.type === component.type && mainComponent(b.type, components, b.component)?.id === component.id)
+          .map((b) => ({
+            key: b.id,
+            icon: fi("16.instance"),
+            tone: COMPONENT_TONE,
+            label: blockName(b, components),
+            detail: sectionName(section, index),
+            onSelect: () => select({ kind: "block", blockId: b.id }, { scroll: true }),
+          }))
+      );
+    }
+    return (componentUses(components).get(component.id) ?? []).map(({ component: holder, layer }) => ({
+      key: `${holder.id}:${layer.id}`,
+      icon: fi("16.component"),
+      tone: COMPONENT_TONE,
+      label: holder.name,
+      detail: layer.name,
+      onSelect: () => select({ kind: "component", componentId: holder.id, layerId: layer.id }, { scroll: true }),
+    }));
+  }
+  /** Where a text style is: the components' text layers in it — each selected on the Bileşenler page. */
+  function styleUses(styleId: string): DesignUse[] {
+    return (textStyleUses(components).get(styleId) ?? []).map(({ component, layer }) => ({
+      key: `${component.id}:${layer.id}`,
+      icon: fi("16.text"),
+      tone: FRAME_TONE,
+      label: layer.name,
+      detail: component.name,
+      onSelect: () => {
+        setStyleEditor(null);
+        goToMain(component.id, layer.id);
+      },
+    }));
+  }
+  /** Opens a text style's popover beside the design panel, at `under`'s height. */
+  function openStyle(id: string, under: Element) {
+    const top = under.getBoundingClientRect().top;
+    const left = document.querySelector("[data-design-panel]")?.getBoundingClientRect().left ?? under.getBoundingClientRect().left;
+    setStyleEditor({ id, anchor: { top, left } });
+  }
+
+  /** Items for a page component's main to show: its first instance's on this page, else samples. */
+  const sampleEntries = (type: BlockType): BlockEntry[] => {
+    const block = sectionsOf(project.items).flatMap(sectionBlocks).find((b) => b.type === type && (b.entries?.length ?? 0) > 0);
+    if (block) return localizeBlock(block, lang).entries ?? [];
+    return (SAMPLE_ENTRIES[type] ?? createCaseStudyBlockDefaults(type).entries ?? []).map((e, i) => ({ id: `sample-${i}`, ...e }));
+  };
+
+  // ── The design panel (right), as Figma's: the selection's header — its kind, name and menu — its actions and properties ──
+  let header: { icon?: ReactNode; tone?: string; title: string; menu?: MenuItem[] } | null = null;
   let inspectorActions: ReactNode = null;
-  if (selectedBlock && selectedItemId && selectedText) {
+  let content: ReactNode = null;
+
+  if (selectedBlock && selectedEntry && selectedTextLayer && instance?.item) {
+    // A text of an item of an instance.
     const { section, group, block } = selectedBlock;
-    const slot = slotsOf(block.type).find((s) => s.field === selectedText);
+    const item = instance.item;
+    const layer = selectedTextLayer;
+    const entry = selectedEntry;
+    const own = resolveItem(item, entry.overrides, instance.knownStyle);
     header = {
-      icon: LayerIcons.text,
-      tone: blockTone(block.type),
-      title: "Metin",
+      icon: fi("16.text"),
+      tone: FRAME_TONE,
+      title: layer.name,
       menu: [
-        ...holders({ section, group, block, itemId: selectedItemId }),
-        ...(blockDesign ? [{ label: "Moleküle git", hint: blockDesign.item.molecule.name, divided: true, onSelect: () => openMolecule(blockDesign.item.molecule.id) }] : []),
-        ...(slot?.atom ? [{ label: "Atoma git", hint: atoms.find((a) => a.id === slot.atom)?.name, divided: !blockDesign, onSelect: () => openAtom(slot.atom!) }] : []),
+        ...holders({ section, group, block, itemId: entry.id }),
+        { label: "Ana bileşene git", hint: item.component.name, divided: true, onSelect: () => goToMain(item.component.id, layer.id) },
       ],
     };
+    content = (
+      <TextLayerInspector
+        block={block}
+        itemId={entry.id}
+        layer={layer}
+        styleId={own.style(layer)}
+        overridden={Boolean(entry.overrides?.styles?.[layer.field])}
+        styles={textStyles}
+        variables={variables}
+        lang={lang}
+        onStyle={(id) => setItemOverrides(block, entry.id, { styles: { ...entry.overrides?.styles, [layer.field]: id === layer.style ? undefined : id } })}
+        onEditStyle={openStyle}
+        onChange={(u) => actions.updateBlock(block.id, u)}
+      />
+    );
   } else if (selectedBlock && selectedItemId) {
+    // An item of a layer (a card, a step, a list item…) — of an instance drawn from its main component, an instance itself.
     const { section, group, block } = selectedBlock;
     const itemId = selectedItemId;
     const update = (patch: Partial<Block>) => actions.updateBlock(block.id, patch);
-    header = blockDesign
-      ? {
-          // An instance of its molecule, as Figma's: the molecule's name.
-          icon: LayerIcons.instance,
-          tone: "var(--edit-molecule)",
-          title: blockDesign.item.molecule.name,
-          menu: [...holders({ section, group, block }), { label: "Moleküle git", hint: blockDesign.item.molecule.name, divided: true, onSelect: () => openMolecule(blockDesign.item.molecule.id) }],
-        }
-      : { icon: LayerIcons.item, tone: blockTone(block.type), title: itemNoun(block) ?? "Öğe", menu: holders({ section, group, block }) };
     inspectorActions = (
       <>
         <LayerButton label="Yukarı taşı" disabled={!canMoveItem(block, itemId, -1)} onClick={() => update(moveItem(block, itemId, -1))}>{Icons.arrowUp}</LayerButton>
@@ -2201,478 +1990,538 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
         <LayerButton label="Sil" onClick={() => update(removeItem(block, itemId))}>{Icons.trash}</LayerButton>
       </>
     );
+    if (instance?.item && selectedEntry) {
+      const item = instance.item;
+      const entry = selectedEntry;
+      const own = resolveItem(item, entry.overrides, instance.knownStyle);
+      const overridden = itemHasOverrides(entry);
+      const setLayout = (next: GridSettings) => setItemOverrides(block, itemId, { layout: layoutOverride(item.layout, next) });
+      const setLook = (next: FrameLook) => setItemOverrides(block, itemId, { look: lookOverride(item.look, next) });
+      header = {
+        icon: fi("16.instance"),
+        tone: COMPONENT_TONE,
+        title: item.component.name,
+        menu: [
+          ...holders({ section, group, block }),
+          { label: "Ana bileşene git", hint: item.component.name, divided: true, onSelect: () => goToMain(item.component.id) },
+          ...(overridden
+            ? [
+                { label: "Tüm değişiklikleri sıfırla", onSelect: () => setItemOverrides(block, itemId, null) },
+                { label: "Ana bileşene uygula", hint: "her örneğe", onSelect: () => pushEntry(block, entry, instance) },
+              ]
+            : []),
+        ],
+      };
+      content = (
+        <div className="flex flex-col">
+          <InstanceGroup name={item.component.name} onGoToMain={() => goToMain(item.component.id)} overridden={overridden} onReset={() => setItemOverrides(block, itemId, null)} />
+          <ItemInspector
+            block={block}
+            itemId={itemId}
+            lang={lang}
+            projectSlug={slug}
+            layout={
+              <>
+                <GridFields
+                  grid={own.layout}
+                  measure={`[data-block-id="${block.id}"] [data-entry-id="${itemId}"]`}
+                  size={own.size}
+                  onSize={(size) => setItemOverrides(block, itemId, { size: sizeOverride(item.layer.size, size) })}
+                  cells={layoutCells(itemTexts.map(() => ({})), gridColumns(own.layout).length, gridRows(own.layout))}
+                  onAlign={(justify, align) => setLayout({ ...own.layout, justify, align })}
+                  onChange={setLayout}
+                  clip={clipOf(own.look, setLook)}
+                />
+                <LookFields look={own.look} variables={variables} canHide onChange={setLook} />
+              </>
+            }
+            onChange={update}
+          />
+        </div>
+      );
+    } else {
+      header = { icon: fi("16.frame"), tone: layerTone(block.type), title: itemNoun(block) ?? "Öğe", menu: holders({ section, group, block }) };
+      content = <ItemInspector block={block} itemId={itemId} lang={lang} projectSlug={slug} onChange={update} />;
+    }
   } else if (selectedBlock) {
+    // A layer: a text, an image or an instance.
     const { section, group, block } = selectedBlock;
-    header = { icon: blockIcon(block.type), tone: blockTone(block.type), title: BLOCK_LABELS[block.type], menu: holders({ section, group }) };
+    const kind = layerKind(block.type);
+    const update = (patch: Partial<Block>) => actions.updateBlock(block.id, patch);
+    const overridden = instance ? hasOverrides(block) : false;
+    const reset = () => update(resetInstance(block));
+    header = {
+      icon: layerIcon(block.type),
+      tone: layerTone(block.type),
+      title: instance ? instance.main.name : kind === "text" ? "Metin" : kind === "image" ? "Görsel" : BLOCK_LABELS[block.type],
+      menu: [
+        ...holders({ section, group }),
+        ...(instance
+          ? [
+              { label: "Ana bileşene git", hint: instance.main.name, divided: true, onSelect: () => goToMain(instance.main.id) },
+              ...(overridden
+                ? [
+                    { label: "Tüm değişiklikleri sıfırla", onSelect: reset },
+                    { label: "Ana bileşene uygula", hint: "her örneğe", onSelect: () => pushBlock(block, instance) },
+                  ]
+                : []),
+            ]
+          : []),
+      ],
+    };
     inspectorActions = (
       <>
+        {instance && <LayerButton label="Ana bileşene git" onClick={() => goToMain(instance.main.id)}>{Icons.goTo}</LayerButton>}
         <LayerButton label="Çoğalt" onClick={() => select({ kind: "block", blockId: actions.duplicateBlock(block) })}>{Icons.duplicate}</LayerButton>
         <LayerButton label="Sil" onClick={() => actions.deleteBlock(block.id)}>{Icons.trash}</LayerButton>
       </>
     );
+    const setLayout = (next: GridSettings) => instance && update({ layout: layoutOverride(instance.base.layout, next) });
+    const setLook = (next: FrameLook) => instance && update({ look: lookOverride(instance.base.look, next) });
+    content = (
+      <div className="flex flex-col">
+        {kind === "instance" &&
+          (instance ? (
+            <InstanceGroup
+              name={instance.main.name}
+              swaps={swapsFor(block.type, components).map((c) => ({ id: c.id, name: c.name }))}
+              current={instance.main.id}
+              onSwap={(id) => update({ component: id })}
+              onGoToMain={() => goToMain(instance.main.id)}
+              overridden={overridden}
+              onReset={reset}
+            />
+          ) : (
+            <InstanceGroup name={BLOCK_LABELS[block.type]} note="Sitenin kodunun çizdiği bir bileşen: bir kütüphanenin gibi, ana bileşeni burada açılmaz." />
+          ))}
+        <BlockInspector
+          block={block}
+          lang={lang}
+          projectSlug={slug}
+          onChange={update}
+          onSelectEntry={(itemId) => select({ kind: "block", blockId: block.id, itemId }, { scroll: true })}
+        />
+        {instance ? (
+          <GridFields
+            grid={instance.layout}
+            measure={`[data-block-id="${block.id}"] [data-component-frame]`}
+            size={block.size}
+            onSize={(size) => update({ size })}
+            cells={layoutCells((block.entries ?? []).map(() => ({})), gridColumns(instance.layout).length, gridRows(instance.layout))}
+            onAlign={(justify, align) => setLayout({ ...instance.layout, justify, align })}
+            onChange={setLayout}
+            clip={clipOf(instance.look, setLook)}
+          />
+        ) : (
+          <SizeGroup
+            size={block.size}
+            measure={`[data-block-id="${block.id}"]`}
+            onChange={(size) => update({ size })}
+            clip={{ checked: Boolean(block.look?.clip), onChange: (clip) => update({ look: { ...block.look, clip: clip || undefined } }) }}
+          />
+        )}
+        <LookFields look={instance ? instance.look : block.look} variables={variables} canHide onChange={instance ? setLook : (look) => update({ look })} />
+      </div>
+    );
   } else if (selectedGroup) {
     const { group, section } = selectedGroup;
-    header = { icon: groupIcon(group.grid), tone: GROUP_TONE, title: "Blok", menu: holders({ section }) };
+    header = { icon: frameIcon(group.grid), tone: FRAME_TONE, title: "Blok", menu: holders({ section }) };
     inspectorActions = (
       <>
-        <LayerButton label="Bileşen ekle" onClick={() => setPicker({ groupId: group.id })}>{Icons.plus}</LayerButton>
+        <LayerButton label="Bloğa ekle" onClick={() => setPicker({ groupId: group.id })}>{Icons.plus}</LayerButton>
         <LayerButton label="Bloğu çoğalt" onClick={() => select({ kind: "group", groupId: actions.duplicateGroup(group.id) })}>{Icons.duplicate}</LayerButton>
         <LayerButton label="Bloğu sil" onClick={() => actions.deleteGroup(group.id)}>{Icons.trash}</LayerButton>
       </>
     );
+    content = (
+      <GroupInspector
+        group={group}
+        variables={variables}
+        onChange={(patch) => actions.updateGroup(group.id, patch)}
+        onAlign={(justify, align) => actions.alignGroup(group.id, justify, align)}
+      />
+    );
   } else if (selectedSection) {
     const { section } = selectedSection;
-    header = { icon: LayerIcons.section, tone: SECTION_TONE, title: "Bölüm", menu: holders({}) };
+    header = { icon: frameIcon(section.grid), tone: FRAME_TONE, title: "Bölüm", menu: holders({}) };
     inspectorActions = (
       <>
         <LayerButton label="Blok ekle" onClick={() => select({ kind: "group", groupId: actions.addGroup(section.id) })}>{Icons.plus}</LayerButton>
         <LayerButton label="Bölümü sil" onClick={() => actions.deleteItem(section.id)}>{Icons.trash}</LayerButton>
       </>
     );
+    content = (
+      <SectionInspector
+        section={section}
+        variables={variables}
+        onChange={(patch) => actions.updateSection(section.id, patch)}
+        onAlign={(justify, align) => actions.alignSection(section.id, justify, align)}
+      />
+    );
   } else if (selection.kind === "page") {
-    header = { icon: LayerIcons.frame, tone: SECTION_TONE, title: "Sayfa" };
+    header = { icon: fi("16.autolayout.vertical"), tone: FRAME_TONE, title: "Sayfa" };
+    content = <PageFrameInspector project={project} variables={variables} onChange={(frame) => actions.updateMeta({ frame })} />;
   } else if (selection.kind === "meta") {
-    header = { icon: LayerIcons.page, tone: SECTION_TONE, title: "Proje bilgileri", menu: holders({}) };
+    header = { icon: fi("16.autolayout.vertical"), tone: FRAME_TONE, title: "Proje bilgileri", menu: holders({}) };
+    content = <ProjectInspector project={project} lang={lang} slug={slug} companies={companies} onChange={actions.updateMeta} />;
   } else if (selection.kind === "divider") {
     const dividerId = selection.dividerId;
-    header = { icon: LayerIcons.divider, tone: SECTION_TONE, title: "Ayırıcı", menu: holders({}) };
+    header = { icon: fi("16.line"), tone: FRAME_TONE, title: "Ayırıcı", menu: holders({}) };
     inspectorActions = <LayerButton label="Ayırıcıyı sil" onClick={() => actions.deleteItem(dividerId)}>{Icons.trash}</LayerButton>;
-  } else if (selectedVariable) {
-    const { id } = selectedVariable;
-    header = { icon: DesignGlyphs.variable, title: selectedVariable.name };
-    inspectorActions = system.isStartingVariable(id)
-      ? <LayerButton label="Sitenin değerine dön" onClick={() => system.removeVariable(id)}>{Icons.reset}</LayerButton>
-      : <LayerButton label="Değişkeni sil" onClick={() => { system.removeVariable(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
-  } else if (selectedAtom) {
-    const { id } = selectedAtom;
-    header = { icon: DesignGlyphs.atom, tone: "var(--edit-accent)", title: selectedAtom.name };
-    inspectorActions = system.isStartingAtom(id)
-      ? <LayerButton label="Sitenin görünüşüne dön" onClick={() => system.removeAtom(id)}>{Icons.reset}</LayerButton>
-      : <LayerButton label="Atomu sil" onClick={() => { system.removeAtom(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>;
-  } else if (selectedMolecule) {
-    const { id } = selectedMolecule;
-    // The main one, as Figma's main component.
-    header = { icon: DesignGlyphs.mainComponent, tone: "var(--edit-molecule)", title: selectedMolecule.name };
+    content = <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Seçip sürükleyerek taşıyabilirsin.</p>;
+  } else if (selectedMain && selectedMainLayer?.kind === "text") {
+    // On the Bileşenler page: a text of a main component.
+    const main = selectedMain;
+    const layer = selectedMainLayer;
+    header = { icon: fi("16.text"), tone: FRAME_TONE, title: layer.name, menu: [{ label: main.name, hint: "Ana bileşen", onSelect: () => select({ kind: "component", componentId: main.id }) }] };
+    content = (
+      <ComponentTextInspector
+        layer={layer}
+        measure={mainSelector({ componentId: main.id, layerId: layer.id }, components)}
+        styles={textStyles}
+        variables={variables}
+        onChange={(next) => system.setComponent({ ...main, layers: main.layers.map((l) => (l.id === next.id ? next : l)) })}
+        onEditStyle={openStyle}
+      />
+    );
+  } else if (selectedMain && selectedMainLayer?.kind === "instance") {
+    // …the instances one repeats.
+    const main = selectedMain;
+    const layer: InstanceLayer = selectedMainLayer;
+    const repeated = layerComponent(layer, components);
+    header = {
+      icon: fi("16.instance"),
+      tone: COMPONENT_TONE,
+      title: layer.name,
+      menu: [
+        { label: main.name, hint: "Ana bileşen", onSelect: () => select({ kind: "component", componentId: main.id }) },
+        { label: "Ana bileşene git", hint: repeated.name, divided: true, onSelect: () => goToMain(repeated.id) },
+      ],
+    };
+    inspectorActions = <LayerButton label="Ana bileşene git" onClick={() => goToMain(repeated.id)}>{Icons.goTo}</LayerButton>;
+    content = (
+      <InstanceLayerInspector
+        layer={layer}
+        component={repeated}
+        swaps={components.filter((c) => (main.type ? fitsItems(c, main.type) : !c.type && c.id !== main.id))}
+        measure={mainSelector({ componentId: main.id, layerId: layer.id }, components)}
+        onChange={(next) => system.setComponent({ ...main, layers: main.layers.map((l) => (l.id === next.id ? next : l)) })}
+        onGoToMain={goToMain}
+      />
+    );
+  } else if (selectedMain) {
+    // …a main component.
+    const main = selectedMain;
+    header = { icon: fi("16.component"), tone: COMPONENT_TONE, title: main.name };
     inspectorActions = (
       <>
-        <LayerButton label="Çoğalt" onClick={() => select({ kind: "molecule", moleculeId: system.copyMolecule(id) })}>{Icons.duplicate}</LayerButton>
-        {system.isStartingMolecule(id)
-          ? <LayerButton label="Sitenin görünüşüne dön" onClick={() => system.removeMolecule(id)}>{Icons.reset}</LayerButton>
-          : <LayerButton label="Molekülü sil" onClick={() => { system.removeMolecule(id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>}
+        <LayerButton label="Çoğalt" onClick={() => select({ kind: "component", componentId: system.copyComponent(main.id) }, { scroll: true })}>{Icons.duplicate}</LayerButton>
+        {system.isStartingComponent(main.id) ? (
+          <LayerButton label="Sitenin görünüşüne dön" onClick={() => system.removeComponent(main.id)}>{Icons.reset}</LayerButton>
+        ) : (
+          <LayerButton label="Bileşeni sil" onClick={() => { system.removeComponent(main.id); setSelection({ kind: "none" }); }}>{Icons.trash}</LayerButton>
+        )}
       </>
+    );
+    content = (
+      <ComponentInspector
+        component={main}
+        variables={variables}
+        measure={mainFrameSelector(main)}
+        kind={main.type ? "Sayfa bileşeni" : "İç bileşen — başka bileşenlerin öğesi"}
+        uses={mainUses(main)}
+        onChange={system.setComponent}
+      />
+    );
+  } else {
+    // Nothing selected: what the page is made with, as Figma's design panel shows it.
+    content = (
+      <PageDesignPanel
+        project={project}
+        slug={slug}
+        companies={companies}
+        variables={variables}
+        textStyles={textStyles}
+        onMeta={actions.updateMeta}
+        onOpenVariables={() => setVariablesOpen(true)}
+        onAddTextStyle={() => {
+          const id = system.addTextStyle();
+          const panel = document.querySelector("[data-design-panel]")?.getBoundingClientRect();
+          setStyleEditor({ id, anchor: { top: 120, left: panel?.left ?? window.innerWidth - 300 } });
+        }}
+        onEditTextStyle={openStyle}
+      />
     );
   }
 
-  const setMain = (patch: ComponentDesign) => {
-    if (selectedBlock) system.setDesign(selectedBlock.block.type, { ...designs[selectedBlock.block.type], ...patch });
-  };
-  /** Changes a slot of the selected component's molecule — in every instance of it. */
-  const setSlot = (slot: MoleculeSlot) => {
-    if (!blockDesign) return;
-    const { molecule } = blockDesign.item;
-    system.setMolecule({ ...molecule, slots: molecule.slots.map((s) => (s.field === slot.field ? slot : s)) });
-  };
-  /** Opens an atom — from a text layer using it — in its tab and the inspector. */
-  const openAtom = (atomId: string) => {
-    setTab("atoms");
-    select({ kind: "atom", atomId });
-  };
-  /** Opens a molecule — from a component or an item — in its tab and the inspector. */
-  const openMolecule = (moleculeId: string) => {
-    setTab("molecules");
-    select({ kind: "molecule", moleculeId });
-  };
-  /** The first instance on this page of a component type with an item: its first item. */
-  const firstItemOf = (type: BlockType) => {
-    const block = sectionsOf(project.items).flatMap(sectionBlocks).find((b) => b.type === type && (b.entries?.length ?? 0) > 0);
-    const itemId = block?.entries?.[0]?.id;
-    return block && itemId ? { blockId: block.id, itemId } : null;
-  };
-  /**
-   * Where the selected atom is used: the molecules' slots holding it — each
-   * selecting that text on this page, in the first component made of the
-   * molecule (the molecule itself when the page has none).
-   */
-  const uses = moleculeUses(designs, molecules);
-  const selectedAtomUses: DesignUse[] = selectedAtom
-    ? (atomUses(molecules).get(selectedAtom.id) ?? []).map(({ molecule, slot }) => {
-        const at = (uses.get(molecule.id) ?? []).map(firstItemOf).find(Boolean);
-        return {
-          key: `${molecule.id}:${slot.field}`,
-          ...moleculeUse(molecule.name),
-          detail: slot.name,
-          onSelect: at ? () => select({ kind: "block", ...at, text: slot.field }, { scroll: true }) : () => openMolecule(molecule.id),
-        };
-      })
-    : [];
-  /** Where the selected molecule is used: the components made of it — each selecting its first item on this page (when it has one). */
-  const selectedMoleculeUses: DesignUse[] = selectedMolecule
-    ? (uses.get(selectedMolecule.id) ?? []).map((type) => {
-        const at = firstItemOf(type);
-        return {
-          key: type,
-          ...typeUse(type),
-          detail: at ? undefined : "bu sayfada yok",
-          onSelect: () => { if (at) select({ kind: "block", ...at }, { scroll: true }); },
-        };
-      })
-    : [];
-
-  // The selection's size under its line (SizeBadge), in its level's colour — not while the page is the compact list.
+  // The selection's size under its line (SizeBadge), in its layer's colour — not while the page is the compact list.
   let badge: BadgeTarget | null = null;
-  if (reordering) badge = null;
+  if (reordering || page !== "project") badge = null;
   else if (selectedBlock) {
     const { id, type } = selectedBlock.block;
     const item = `[data-block-id="${id}"] [data-entry-id="${selectedItemId}"]`;
     badge = selectedItemId
-      ? { selector: selectedText ? `${item} [data-text-layer="${selectedText}"]` : item, tone: blockTone(type) }
-      : { selector: `[data-block-id="${id}"]`, tone: blockTone(type), frame: true };
-  } else if (selectedGroup) badge = { selector: `[data-group-id="${selectedGroup.group.id}"]`, tone: GROUP_TONE, below: 5 };
-  else if (selectedSection) badge = { selector: `[data-section-id="${selectedSection.section.id}"]`, tone: SECTION_TONE, padded: true };
+      ? { selector: selectedText ? `${item} [data-text-layer="${selectedText}"]` : item, tone: selectedText ? FRAME_TONE : instance ? COMPONENT_TONE : layerTone(type) }
+      : { selector: `[data-block-id="${id}"]`, tone: layerTone(type), frame: true };
+  } else if (selectedGroup) badge = { selector: `[data-group-id="${selectedGroup.group.id}"]`, tone: FRAME_TONE, below: 5 };
+  else if (selectedSection) badge = { selector: `[data-section-id="${selectedSection.section.id}"]`, tone: FRAME_TONE, padded: true };
   else if (selection.kind === "meta") {
     badge = selection.part
-      ? { selector: `[data-overview-part="${selection.part}"]`, tone: SECTION_TONE, frame: true }
-      : { selector: "#live-overview", tone: SECTION_TONE, padded: true };
-  } else if (selection.kind === "divider") badge = { selector: `[data-divider-id="${selection.dividerId}"]`, tone: SECTION_TONE, below: 5 };
-  else if (selection.kind === "page") badge = { selector: "[data-page-frame]", tone: SECTION_TONE, below: 5 };
+      ? { selector: `[data-overview-part="${selection.part}"]`, tone: FRAME_TONE, frame: true }
+      : { selector: "#live-overview", tone: FRAME_TONE, padded: true };
+  } else if (selection.kind === "divider") badge = { selector: `[data-divider-id="${selection.dividerId}"]`, tone: FRAME_TONE, below: 5 };
+  else if (selection.kind === "page") badge = { selector: "[data-page-frame]", tone: FRAME_TONE, below: 5 };
 
+  const editedStyle = styleEditor ? textStyles.find((s) => s.id === styleEditor.id) ?? null : null;
   let sectionIndex = 0;
-
   const pageFrame = pageFrameProps(project.frame);
+
   return (
     // Drags start as soon as the pointer moves (no press-and-hold wait) — for the
-    // cards inside blocks and the sections panel too.
+    // cards inside blocks and the layer tree too.
     <DragActivationContext.Provider value="press">
       <div className="flex h-full min-h-0">
-        {/* ── Icon rail ── */}
-        <nav aria-label="Editör araçları" className="w-12 shrink-0 h-full flex flex-col items-center gap-1 py-2 border-r border-[var(--border)] bg-[var(--bg-1)] z-20 select-none">
-          <RailButton icon={RailIcons.layers} label="Katmanlar" active={tab === "layers"} onClick={() => setTab("layers")} />
-          <RailButton icon={RailIcons.components} label="Bileşenler" active={tab === "components"} onClick={() => setTab("components")} />
-          <RailButton icon={RailIcons.theme} label="Tema" active={tab === "theme"} onClick={() => setTab("theme")} />
-          <RailButton icon={RailIcons.variables} label="Değişkenler" active={tab === "variables"} onClick={() => setTab("variables")} />
-          <RailButton icon={RailIcons.atoms} label="Atomlar" active={tab === "atoms"} onClick={() => setTab("atoms")} />
-          <RailButton icon={RailIcons.molecules} label="Moleküller" active={tab === "molecules"} onClick={() => setTab("molecules")} />
-          <RailButton icon={RailIcons.publish} label="Yayın" active={tab === "publish"} onClick={() => setTab("publish")} />
-        </nav>
-
-        {/* ── Left panel: layers, components, theme, publish ── */}
-        <aside className="w-[280px] shrink-0 h-full flex flex-col border-r border-[var(--border)] bg-[var(--bg-1)] z-10">
-          <div className="shrink-0 flex items-center justify-between gap-2 h-11 pl-4 pr-2 border-b border-[var(--border)]">
-            <h2 className="min-w-0 truncate text-[13px] font-semibold leading-4 text-[var(--text-title)] select-none">{panelTitle}</h2>
-            <div className="flex items-center gap-0.5 shrink-0">{panelActions}</div>
+        {/* ── Left: the file — its pages and layers (Dosya), the components to put on the page (Varlıklar) ── */}
+        <aside aria-label="Dosya" className="w-[260px] shrink-0 h-full flex flex-col border-r border-[var(--border)] bg-[var(--bg-1)] z-10">
+          <div className="shrink-0 flex items-center gap-2 h-12 px-3 border-b border-[var(--border)]">
+            <span className="flex shrink-0 text-[var(--text-subtitle)]">{fi("16.page")}</span>
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-[13px] font-semibold leading-4 text-[var(--text-title)]">{project.title?.trim() || slug}</span>
+              <span className="text-[11px] leading-4 text-[var(--text-subtitle)]">Proje · /{slug}</span>
+            </div>
+          </div>
+          <div role="tablist" aria-label="Sol panel" className="shrink-0 flex items-center gap-1 h-10 px-2 border-b border-[var(--border)]">
+            <PanelTab label="Dosya" active={leftTab === "file"} onClick={() => setLeftTab("file")} />
+            <PanelTab label="Varlıklar" active={leftTab === "assets"} onClick={() => setLeftTab("assets")} />
           </div>
 
-          {/* The site's own scrollbar; the layer tree runs almost edge to edge (4px), as in Figma. */}
-          <ScrollArea
-            className="flex-1 min-h-0"
-            viewportClassName={cn("h-full overflow-x-hidden flex flex-col gap-3", tab === "layers" ? "px-1 py-4" : "p-4")}
-            inset={8}
-            edge={2}
-          >
-            {tab === "layers" && (
-              <OpenComponentsContext.Provider value={{ open: openComponents, toggle: toggleComponent }}>
-              <LayersPanel
-                project={project}
-                selection={selection}
-                collapsed={collapsedLayers}
-                onToggle={(id) =>
-                  setCollapsedLayers((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
-                }
-                actions={actions}
-                onSelect={(next, { scroll = true } = {}) => select(next, { scroll })}
-                onAddBlock={(groupId) => setPicker({ groupId })}
-              />
-              </OpenComponentsContext.Provider>
-            )}
-
-            {tab === "components" && <CatalogPanel target={catalogTarget} onAdd={addFromCatalog} />}
-
-            {tab === "theme" && (
-              <ProjectThemeFields header={false} theme={project.theme} onChange={(theme) => actions.updateMeta({ theme })} />
-            )}
-
-            {tab === "variables" && (
-              <VariablesPanel
-                variables={variables}
-                selectedId={selection.kind === "variable" ? selection.variableId : null}
-                onSelect={(variableId) => select({ kind: "variable", variableId })}
-                onAdd={(kind) => select({ kind: "variable", variableId: system.addVariable(kind) })}
-              />
-            )}
-
-            {tab === "atoms" && (
-              <AtomsPanel
-                atoms={atoms}
-                variables={variables}
-                selectedId={selection.kind === "atom" ? selection.atomId : null}
-                onSelect={(atomId) => select({ kind: "atom", atomId })}
-                onAdd={(kind) => select({ kind: "atom", atomId: system.addAtom(kind) })}
-              />
-            )}
-
-            {tab === "molecules" && (
-              <MoleculesPanel
-                molecules={molecules}
-                variables={variables}
-                selectedId={selection.kind === "molecule" ? selection.moleculeId : null}
-                onSelect={(moleculeId) => select({ kind: "molecule", moleculeId })}
-              />
-            )}
-
-            {tab === "publish" && <PublishPanel project={project} slug={slug} onLoadTemplate={onLoadTemplate} />}
-
-          </ScrollArea>
+          {leftTab === "file" ? (
+            <>
+              <section aria-label="Sayfalar" className="shrink-0 flex flex-col pb-2 border-b border-[var(--border)]">
+                <h3 className="h-9 flex items-center px-3 text-[12px] font-semibold text-[var(--text-title)] select-none">Sayfalar</h3>
+                <PageRow label="Proje sayfası" icon={fi("16.page")} active={page === "project"} onClick={() => showPage("project")} />
+                <PageRow label="Bileşenler" icon={fi("16.component")} active={page === "components"} onClick={() => showPage("components")} />
+              </section>
+              <div className="shrink-0 flex items-center justify-between h-9 pl-3 pr-1">
+                <h3 className="text-[12px] font-semibold text-[var(--text-title)] select-none">Katmanlar</h3>
+                {page === "project" && (
+                  <LayerButton label={allLayersCollapsed ? "Katmanları aç" : "Katmanları daralt"} onClick={() => toggleAllLayers(!allLayersCollapsed)}>
+                    {allLayersCollapsed ? Icons.expandLayers : Icons.collapseLayers}
+                  </LayerButton>
+                )}
+              </div>
+              {/* The site's own scrollbar; the layer tree runs almost edge to edge (4px), as in Figma. */}
+              <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col gap-3 px-1 pb-4" inset={8} edge={2}>
+                {page === "project" ? (
+                  <OpenComponentsContext.Provider value={{ open: openComponents, toggle: toggleComponent }}>
+                    <LayersPanel
+                      project={project}
+                      selection={selection}
+                      collapsed={collapsedLayers}
+                      onToggle={toggleIn(setCollapsedLayers)}
+                      actions={actions}
+                      onSelect={(next, { scroll = true } = {}) => select(next, { scroll })}
+                      onAddBlock={(groupId) => setPicker({ groupId })}
+                    />
+                  </OpenComponentsContext.Provider>
+                ) : (
+                  <ComponentLayers
+                    components={components}
+                    selection={mainSelection}
+                    open={new Set(components.map((c) => c.id).filter((id) => !closedMains.has(id)))}
+                    onToggle={toggleIn(setClosedMains)}
+                    onSelect={(next) => select({ kind: "component", ...next }, { scroll: true })}
+                    onRename={(componentId, layerId, name) => {
+                      const main = components.find((c) => c.id === componentId);
+                      if (!main) return;
+                      if (!layerId) {
+                        if (name) system.setComponent({ ...main, name });
+                        return;
+                      }
+                      system.setComponent({
+                        ...main,
+                        layers: main.layers.map((l) => (l.id !== layerId ? l : { ...l, name: name ?? (l.kind === "instance" ? layerComponent(l, components).name : l.field) })),
+                      });
+                    }}
+                  />
+                )}
+              </ScrollArea>
+            </>
+          ) : (
+            <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col px-1 py-3" inset={8} edge={2}>
+              <AssetsPanel components={components} target={catalogTarget} onAdd={addFromCatalog} onGoToMain={(id) => goToMain(id)} />
+            </ScrollArea>
+          )}
         </aside>
 
         {/* ── Canvas ── */}
-        <div
-          {...projectThemeAttrs(project.theme)}
-          // The site's design variables apply inside it (DesignVariablesStyle), as on the project page.
-          data-design-scope=""
-          // No press-and-drag text selection on the canvas (it fights with hold-to-drag);
-          // the field being edited opts back in. The settings panel stays selectable.
-          className="flex-1 min-w-0 h-full overflow-y-auto bg-[var(--bg-1)] transition-colors duration-200 select-none"
-          onClick={() => setSelection({ kind: "none" })}
-          // Links stay put while editing; the click still reaches the text underneath.
-          onClickCapture={(e) => { if ((e.target as Element).closest("a[href]")) e.preventDefault(); }}
-          // No native image / link dragging — reordering is done with dnd-kit.
-          onDragStart={(e) => e.preventDefault()}
-        >
-          <DesignSystemStyle />
-          {/* `relative`: the size badge (SizeBadge) is placed in it; `isolate`: the canvas's layers stay above its background. */}
-          <main
-            className={cn("relative isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40", reordering && REORDER_ROOM)}
-            // A press selects a layer beside the selection at once, so whatever gets dragged is the selection
-            // (capture phase: before the draggables under the pointer see it); inside it, the click goes a level down.
-            onPointerDownCapture={(e) => {
-              if (!isPrimaryPress(e)) return;
-              const found = pressOn(e.target as Element, pickedLayers, deepSelect(e));
-              press.current = { drill: found?.drill?.selection ?? null, armed: found?.armed ?? false, armedBefore: press.current.armed };
-              if (!found) return;
-              setDragTarget(e.nativeEvent, found.layer.el);
-              if (!found.drill) select(found.layer.selection);
-            }}
-            // (No click follows a drag: dnd-kit swallows it.)
-            onClickCapture={(e) => {
-              const { drill, armed } = press.current;
-              press.current.drill = null;
-              if (drill && layerKey(drill) !== layerKey(picked)) select(drill);
-              // A click that picks a component (or a layer above it) stops there: its texts, checkboxes,
-              // "add item" buttons… answer the next one.
-              const target = e.target as Element;
-              if (!armed && target.closest("[data-live-block], [data-overview-part]") && !target.closest("[data-no-drag]")) e.stopPropagation();
-            }}
-            // A double-click edits a text only in the component selected before it — not in one its clicks just
-            // picked — or straight away with Cmd / Ctrl held (deep select).
-            onDoubleClickCapture={(e) => { if (!press.current.armedBefore && !deepSelect(e)) e.stopPropagation(); }}
-            onPointerOver={(e) => {
-              pointerOn.current = e.target as Element;
-              if (deepSelect(e) !== deep) setDeep(deepSelect(e));
-              showHover(hoverOn(e.target as Element, pickedLayers, deepSelect(e)));
-            }}
-            // Ctrl-click is the Mac's right click: on the canvas it deep-selects instead of opening the menu.
-            onContextMenu={(e) => { if (e.ctrlKey) e.preventDefault(); }}
-            onPointerLeave={() => {
-              pointerOn.current = null;
-              showHover(null);
-            }}
+        <div className="relative flex-1 min-w-0 h-full">
+          <div
+            {...(page === "project" ? projectThemeAttrs(project.theme) : {})}
+            // The site's design variables apply inside it (DesignSystemStyle), as on the project page.
+            data-design-scope=""
+            // No press-and-drag text selection on the canvas (it fights with hold-to-drag);
+            // the field being edited opts back in. The design panel stays selectable.
+            className="h-full overflow-y-auto bg-[var(--bg-1)] transition-colors duration-200 select-none"
+            onClick={() => setSelection({ kind: "none" })}
+            // Links stay put while editing; the click still reaches the text underneath.
+            onClickCapture={(e) => { if ((e.target as Element).closest("a[href]")) e.preventDefault(); }}
+            // No native image / link dragging — reordering is done with dnd-kit.
+            onDragStart={(e) => e.preventDefault()}
           >
-            {/*
-              While reordering, the rows are as wide as the section outlines (10px into
-              the gutter, like SECTION_BOX) and the list box sits another 14px outside them.
-            */}
-            {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set — the plain list while reordering. */}
-            <div
-              data-page-frame={reordering ? undefined : ""}
-              className={
-                reordering
-                  ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]")
-                  : cn(pageFrame.className, PAGE_LINE, selection.kind === "page" ? "before:border-[var(--edit-accent)]" : PAGE_LINE_HOVER)
-              }
-              style={reordering ? undefined : { ...pageFrame.style, ...frameLookStyle(project.frame?.look, variables) }}
-            >
-              {/* While a section is dragged the page is just the compact list of sections. */}
-              {!reordering && (
-                <LiveOverview
-                  project={project}
-                  lang={lang}
-                  actions={actions}
-                  selection={selection}
+            <DesignSystemStyle />
+            {page === "components" ? (
+              <main className="relative isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40">
+                <ComponentsCanvas
+                  components={components}
+                  sampleEntries={sampleEntries}
+                  selection={mainSelection}
+                  onSelect={(next) => (next ? select({ kind: "component", ...next }) : setSelection({ kind: "none" }))}
                 />
-              )}
-              {project.items.map((item) =>
-                item.kind === "divider" ? (
-                  <LiveDivider
-                    key={item.id}
-                    divider={item}
-                    selected={selection.kind === "divider" && selection.dividerId === item.id}
-                  />
-                ) : (
-                  <LiveSection
-                    key={item.id}
-                    section={item}
-                    index={sectionIndex++}
-                    lang={lang}
-                    actions={actions}
-                    selected={selection.kind === "section" && selection.sectionId === item.id}
-                    active={activeSectionId === item.id}
-                    selectedGroupId={selection.kind === "group" ? selection.groupId : null}
-                    activeGroupId={activeGroupId}
-                    selectedBlockId={selectedBlock?.block.id ?? null}
-                    selectedItemId={selectedItemId}
-                    selectedText={selectedText}
-                    onSelect={(next) => select(next)}
-                    onInsert={setPicker}
-                  />
-                )
-              )}
-            </div>
-
-            {/* An empty page: under its header. */}
-            {project.items.length === 0 && (
-              <div className="flex flex-col items-center gap-3 w-full mt-10 py-12 rounded-[28px] border border-dashed border-[var(--border-hover)] text-center">
-                <p className="text-sm text-[var(--text-subtitle)] select-none">Sayfa henüz boş</p>
-                <div className="flex items-center gap-2">
-                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); onLoadTemplate(); }}>Şablondan başla</PillButton>
-                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>Bölüm ekle</PillButton>
+              </main>
+            ) : (
+              // `relative`: the size badge (SizeBadge) is placed in it; `isolate`: the canvas's layers stay above its background.
+              <main
+                className={cn("relative isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40", reordering && REORDER_ROOM)}
+                // A press selects a layer beside the selection at once, so whatever gets dragged is the selection
+                // (capture phase: before the draggables under the pointer see it); inside it, the click goes a level down.
+                onPointerDownCapture={(e) => {
+                  if (!isPrimaryPress(e)) return;
+                  const found = pressOn(e.target as Element, pickedLayers, deepSelect(e));
+                  press.current = { drill: found?.drill?.selection ?? null, armed: found?.armed ?? false, armedBefore: press.current.armed };
+                  if (!found) return;
+                  setDragTarget(e.nativeEvent, found.layer.el);
+                  if (!found.drill) select(found.layer.selection);
+                }}
+                // (No click follows a drag: dnd-kit swallows it.)
+                onClickCapture={(e) => {
+                  const { drill, armed } = press.current;
+                  press.current.drill = null;
+                  if (drill && layerKey(drill) !== layerKey(picked)) select(drill);
+                  // A click that picks a layer (or one above it) stops there: its texts, checkboxes,
+                  // "add item" buttons… answer the next one.
+                  const target = e.target as Element;
+                  if (!armed && target.closest("[data-live-block], [data-overview-part]") && !target.closest("[data-no-drag]")) e.stopPropagation();
+                }}
+                // A double-click edits a text only in the layer selected before it — not in one its clicks just
+                // picked — or straight away with Cmd / Ctrl held (deep select).
+                onDoubleClickCapture={(e) => { if (!press.current.armedBefore && !deepSelect(e)) e.stopPropagation(); }}
+                onPointerOver={(e) => {
+                  pointerOn.current = e.target as Element;
+                  if (deepSelect(e) !== deep) setDeep(deepSelect(e));
+                  showHover(hoverOn(e.target as Element, pickedLayers, deepSelect(e)));
+                }}
+                // Ctrl-click is the Mac's right click: on the canvas it deep-selects instead of opening the menu.
+                onContextMenu={(e) => { if (e.ctrlKey) e.preventDefault(); }}
+                onPointerLeave={() => {
+                  pointerOn.current = null;
+                  showHover(null);
+                }}
+              >
+                {/*
+                  While reordering, the rows are as wide as the section outlines (10px into
+                  the gutter, like SECTION_BOX) and the list box sits another 14px outside them.
+                */}
+                {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set — the plain list while reordering. */}
+                <div
+                  data-page-frame={reordering ? undefined : ""}
+                  className={
+                    reordering
+                      ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]")
+                      : cn(pageFrame.className, PAGE_LINE, selection.kind === "page" ? "before:border-[var(--edit-accent)]" : PAGE_LINE_HOVER)
+                  }
+                  style={reordering ? undefined : { ...pageFrame.style, ...frameLookStyle(project.frame?.look, variables) }}
+                >
+                  {/* While a section is dragged the page is just the compact list of sections. */}
+                  {!reordering && (
+                    <LiveOverview
+                      project={project}
+                      lang={lang}
+                      actions={actions}
+                      selection={selection}
+                    />
+                  )}
+                  {project.items.map((item) =>
+                    item.kind === "divider" ? (
+                      <LiveDivider
+                        key={item.id}
+                        divider={item}
+                        selected={selection.kind === "divider" && selection.dividerId === item.id}
+                      />
+                    ) : (
+                      <LiveSection
+                        key={item.id}
+                        section={item}
+                        index={sectionIndex++}
+                        lang={lang}
+                        actions={actions}
+                        selected={selection.kind === "section" && selection.sectionId === item.id}
+                        active={activeSectionId === item.id}
+                        selectedGroupId={selection.kind === "group" ? selection.groupId : null}
+                        activeGroupId={activeGroupId}
+                        selectedBlockId={selectedBlock?.block.id ?? null}
+                        selectedItemId={selectedItemId}
+                        selectedText={selectedText}
+                        onSelect={(next) => select(next)}
+                        onInsert={setPicker}
+                      />
+                    )
+                  )}
                 </div>
-              </div>
-            )}
 
-            {project.items.length > 0 && !reordering && (
-              <div className="flex items-center justify-center gap-2 w-full mt-16">
-                <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>
-                  Bölüm ekle
-                </PillButton>
-                <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addDivider(); }}>
-                  Ayırıcı ekle
-                </PillButton>
-              </div>
-            )}
+                {/* An empty page: under its header. */}
+                {project.items.length === 0 && (
+                  <div className="flex flex-col items-center gap-3 w-full mt-10 py-12 rounded-[28px] border border-dashed border-[var(--border-hover)] text-center">
+                    <p className="text-sm text-[var(--text-subtitle)] select-none">Sayfa henüz boş</p>
+                    <div className="flex items-center gap-2">
+                      <PillButton size="md" onClick={(e) => { e.stopPropagation(); onLoadTemplate(); }}>Şablondan başla</PillButton>
+                      <PillButton size="md" onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>Bölüm ekle</PillButton>
+                    </div>
+                  </div>
+                )}
 
-            {badge && <SizeBadge {...badge} />}
-          </main>
+                {project.items.length > 0 && !reordering && (
+                  <div className="flex items-center justify-center gap-2 w-full mt-16">
+                    <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>
+                      Bölüm ekle
+                    </PillButton>
+                    <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addDivider(); }}>
+                      Ayırıcı ekle
+                    </PillButton>
+                  </div>
+                )}
+
+                {badge && <SizeBadge {...badge} />}
+              </main>
+            )}
+          </div>
+
+          {!reordering && (
+            <CanvasToolbar
+              onPage={page === "project"}
+              frameLabel={frameSection ? "Çerçeve — bölüme blok ekle" : "Çerçeve — yeni bölüm"}
+              onFrame={addFrame}
+              onText={() => addFromCatalog("text")}
+              onImage={() => addFromCatalog("image")}
+              onLine={() => actions.addDivider(frameSection ?? undefined)}
+              onAssets={() => setLeftTab("assets")}
+            />
+          )}
         </div>
 
-        {/* ── Inspector (Düzenle): whatever is selected, the project when nothing is — as Figma's right panel ── */}
-        <aside aria-label="Düzenle" className="w-[300px] shrink-0 h-full flex flex-col border-l border-[var(--border)] bg-[var(--bg-1)] z-10">
-          <InspectorHeader {...header} actions={inspectorActions} />
+        {/* ── Right: the design panel (Tasarım) — whatever is selected; with nothing selected, the page's styles — and Yayın ── */}
+        <aside data-design-panel="" aria-label="Tasarım" className="w-[300px] shrink-0 h-full flex flex-col border-l border-[var(--border)] bg-[var(--bg-1)] z-10">
+          <div role="tablist" aria-label="Sağ panel" className="shrink-0 flex items-center gap-1 h-10 px-2 border-b border-[var(--border)]">
+            <PanelTab label="Tasarım" active={rightTab === "design"} onClick={() => setRightTab("design")} />
+            <PanelTab label="Yayın" active={rightTab === "publish"} onClick={() => setRightTab("publish")} />
+          </div>
+          {rightTab === "design" && header && <InspectorHeader {...header} actions={inspectorActions} />}
           {/*
-            Figma's sections, in its order, full width: a component's (an instance's) properties first,
+            Figma's sections, in its order, full width: an instance's first (the component it is, its properties),
             then its Yerleşim (auto layout, W / H), Görünüş, Dolgu, Kenar çizgisi — every frame has them.
           */}
           <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col" inset={8} edge={2}>
-            {selectedBlock ? (
-              selectedItemId && selectedText && blockDesign ? (
-                <TextLayerInspector
-                  block={selectedBlock.block}
-                  itemId={selectedItemId}
-                  slot={blockDesign.item.molecule.slots.find((slot) => slot.field === selectedText)!}
-                  atoms={atoms}
-                  variables={variables}
-                  lang={lang}
-                  onSlot={setSlot}
-                  onAtom={system.setAtom}
-                  onOpenAtom={openAtom}
-                  onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
-                />
-              ) : selectedItemId ? (
-                <ItemInspector
-                  block={selectedBlock.block}
-                  itemId={selectedItemId}
-                  lang={lang}
-                  projectSlug={slug}
-                  layout={blockDesign && (
-                    <ItemLayoutGroup
-                      block={selectedBlock.block}
-                      itemId={selectedItemId}
-                      design={blockDesign}
-                      variables={variables}
-                      onSize={(size) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, size } })}
-                      onMolecule={system.setMolecule}
-                    />
-                  )}
-                  onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
-                />
-              ) : (
-                <div className="flex flex-col">
-                  <BlockInspector
-                    block={selectedBlock.block}
-                    lang={lang}
-                    projectSlug={slug}
-                    properties={blockDesign && (
-                      <MoleculeProperty
-                        molecule={blockDesign.item.molecule}
-                        molecules={molecules.filter((m) => fitsType(m, selectedBlock.block.type))}
-                        onMolecule={(molecule) => setMain({ item: { ...designs[selectedBlock.block.type]?.item, molecule } })}
-                        onOpenMolecule={openMolecule}
-                      />
-                    )}
-                    onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}
-                    onSelectEntry={(itemId) => select({ kind: "block", blockId: selectedBlock.block.id, itemId }, { scroll: true })}
-                  />
-                  {blockDesign ? (
-                    <ComponentLayoutGroup
-                      block={selectedBlock.block}
-                      design={blockDesign}
-                      onChange={(layout) => setMain({ layout })}
-                      onSize={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
-                      onLook={(look) => actions.updateBlock(selectedBlock.block.id, { look })}
-                    />
-                  ) : (
-                    <SizeGroup
-                      size={selectedBlock.block.size}
-                      measure={`[data-block-id="${selectedBlock.block.id}"]`}
-                      onChange={(size) => actions.updateBlock(selectedBlock.block.id, { size })}
-                      clip={{
-                        checked: Boolean(selectedBlock.block.look?.clip),
-                        onChange: (clip) => actions.updateBlock(selectedBlock.block.id, { look: { ...selectedBlock.block.look, clip: clip || undefined } }),
-                      }}
-                    />
-                  )}
-                  <LookFields look={selectedBlock.block.look} variables={variables} canHide onChange={(look) => actions.updateBlock(selectedBlock.block.id, { look })} />
-                </div>
-              )
-            ) : selectedGroup ? (
-              <GroupInspector
-                group={selectedGroup.group}
-                variables={variables}
-                onChange={(patch) => actions.updateGroup(selectedGroup.group.id, patch)}
-                onAlign={(justify, align) => actions.alignGroup(selectedGroup.group.id, justify, align)}
-              />
-            ) : selectedSection ? (
-              <SectionInspector
-                section={selectedSection.section}
-                variables={variables}
-                onChange={(patch) => actions.updateSection(selectedSection.section.id, patch)}
-                onAlign={(justify, align) => actions.alignSection(selectedSection.section.id, justify, align)}
-              />
-            ) : selection.kind === "page" ? (
-              <PageFrameInspector project={project} variables={variables} onChange={(frame) => actions.updateMeta({ frame })} />
-            ) : selection.kind === "divider" ? (
-              <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)]">Bölümler arasındaki çizgi. Seçip sürükleyerek taşıyabilirsin.</p>
-            ) : selectedVariable ? (
-              <VariableInspector variable={selectedVariable} variables={variables} onChange={system.setVariable} />
-            ) : selectedAtom ? (
-              <AtomInspector atom={selectedAtom} variables={variables} uses={selectedAtomUses} onChange={system.setAtom} />
-            ) : selectedMolecule ? (
-              <MoleculeInspector
-                molecule={selectedMolecule}
-                variables={variables}
-                atoms={atoms}
-                uses={selectedMoleculeUses}
-                onChange={system.setMolecule}
-                onOpenAtom={openAtom}
-              />
-            ) : (
-              // Nothing selected: the inspector is never empty — it shows the project settings.
-              <ProjectInspector project={project} lang={lang} slug={slug} companies={companies} onChange={actions.updateMeta} />
-            )}
+            {rightTab === "design" ? content : <PublishPanel project={project} slug={slug} onLoadTemplate={onLoadTemplate} />}
           </ScrollArea>
         </aside>
 
@@ -2684,6 +2533,35 @@ export function LiveEditor({ project, lang, slug, companies, actions, system, on
               select({ kind: "block", blockId });
             }}
             onClose={() => setPicker(null)}
+          />
+        )}
+
+        {variablesOpen && (
+          <VariablesModal
+            variables={variables}
+            isStarting={system.isStartingVariable}
+            onChange={system.setVariable}
+            onAdd={system.addVariable}
+            onRemove={system.removeVariable}
+            onClose={() => setVariablesOpen(false)}
+          />
+        )}
+
+        {styleEditor && editedStyle && (
+          <TextStylePopover
+            style={editedStyle}
+            variables={variables}
+            uses={styleUses(editedStyle.id)}
+            anchor={styleEditor.anchor}
+            actions={
+              system.isStartingTextStyle(editedStyle.id) ? (
+                <SquareButton label="Sitenin görünüşüne dön" onClick={() => system.removeTextStyle(editedStyle.id)}>{Glyphs.reset}</SquareButton>
+              ) : (
+                <SquareButton label="Metin stilini sil" onClick={() => { system.removeTextStyle(editedStyle.id); setStyleEditor(null); }}>{Glyphs.trash}</SquareButton>
+              )
+            }
+            onChange={system.setTextStyle}
+            onClose={() => setStyleEditor(null)}
           />
         )}
       </div>

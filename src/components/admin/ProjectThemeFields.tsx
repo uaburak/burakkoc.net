@@ -11,7 +11,7 @@ import { Segmented } from "@/components/Segmented";
  * site default" — nothing is stored for them.
  */
 
-const RADIUS_OPTIONS: { value?: string; label: string }[] = [
+export const RADIUS_OPTIONS: { value?: string; label: string }[] = [
   { value: undefined, label: "Varsayılan" },
   { value: "0px", label: "0" },
   { value: "8px", label: "8" },
@@ -21,12 +21,12 @@ const RADIUS_OPTIONS: { value?: string; label: string }[] = [
   { value: "9999px", label: "Pill" },
 ];
 
-const ACCENT_PRESETS = ["#1a1a1a", "#2f6bff", "#ff5722", "#10b981", "#8b5cf6", "#f43f5e", "#eab308", "#06b6d4"];
+export const ACCENT_PRESETS = ["#1a1a1a", "#2f6bff", "#ff5722", "#10b981", "#8b5cf6", "#f43f5e", "#eab308", "#06b6d4"];
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
 /** Drops empty keys; an empty theme is removed entirely. */
-function cleanTheme(theme: ProjectTheme): ProjectTheme | undefined {
+export function cleanTheme(theme: ProjectTheme): ProjectTheme | undefined {
   const entries = Object.entries(theme).filter(([, v]) => typeof v === "string" && v.trim() !== "");
   return entries.length ? (Object.fromEntries(entries) as ProjectTheme) : undefined;
 }

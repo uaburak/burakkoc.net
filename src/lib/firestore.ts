@@ -9,8 +9,9 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { ComponentDesigns, ProjectData } from "@/types/project";
-import type { DesignAtom, DesignMolecule, DesignVariable } from "@/types/design";
+import { ProjectData } from "@/types/project";
+import type { DesignComponent, DesignVariable, TextStyle } from "@/types/design";
+import { componentsFromLegacy, type LegacyDesigns, type LegacyMolecule } from "@/components/project/legacyDesign";
 import { normalizeItems } from "@/lib/projectLayout";
 
 import { CVData } from "@/types/cv";
@@ -178,28 +179,9 @@ export async function listProjects(): Promise<ProjectData[]> {
   return snap.docs.map((d) => normalizeProjectData(d.data() as Record<string, unknown>));
 }
 
-// ── Main components (site-wide, see ComponentDesign) ──────────────────────────
+// ── The site's design system (see SiteDesign) ────────────────────────────────
 
 const DESIGN_COLLECTION = "design";
-const DESIGN_DOC_ID = "components";
-
-/** The site's main components — none set (every type's built-in look) when there are none yet or they can't be read. */
-export async function loadComponentDesigns(): Promise<ComponentDesigns> {
-  try {
-    const snap = await getDoc(doc(db, DESIGN_COLLECTION, DESIGN_DOC_ID));
-    if (!snap.exists()) return {};
-    const data = snap.data();
-    delete data.updatedAt;
-    return data as ComponentDesigns;
-  } catch (err) {
-    console.warn("Main components could not be loaded — using the built-in look:", err);
-    return {};
-  }
-}
-
-export async function saveComponentDesigns(designs: ComponentDesigns): Promise<void> {
-  await setDoc(doc(db, DESIGN_COLLECTION, DESIGN_DOC_ID), { ...stripUndefined(designs), updatedAt: serverTimestamp() });
-}
 
 // ── Design variables (site-wide, see DesignVariable) ──────────────────────────
 
@@ -221,44 +203,72 @@ export async function saveDesignVariables(variables: DesignVariable[]): Promise<
   await setDoc(doc(db, DESIGN_COLLECTION, VARIABLES_DOC_ID), { variables: stripUndefined({ list: variables }).list, updatedAt: serverTimestamp() });
 }
 
-// ── Atoms (site-wide, see DesignAtom) ─────────────────────────────────────────
+// ── Text styles (site-wide, see TextStyle) ────────────────────────────────────
 
-const ATOMS_DOC_ID = "atoms";
+/** Stored as the atoms were, in the same shape — both branches read and write it. */
+const TEXT_STYLES_DOC_ID = "atoms";
 
-/** The atoms stored for the site (the starting ones are added by withStartingAtoms) — none when they can't be read. */
-export async function loadDesignAtoms(): Promise<DesignAtom[]> {
+/** The text styles stored for the site (the starting ones are added by withStartingTextStyles) — none when they can't be read. */
+export async function loadTextStyles(): Promise<TextStyle[]> {
   try {
-    const snap = await getDoc(doc(db, DESIGN_COLLECTION, ATOMS_DOC_ID));
+    const snap = await getDoc(doc(db, DESIGN_COLLECTION, TEXT_STYLES_DOC_ID));
     const list = snap.exists() ? snap.data().atoms : undefined;
-    return Array.isArray(list) ? (list as DesignAtom[]) : [];
+    return Array.isArray(list) ? (list as TextStyle[]) : [];
   } catch (err) {
-    console.warn("Atoms could not be loaded — using the starting ones:", err);
+    console.warn("Text styles could not be loaded — using the starting ones:", err);
     return [];
   }
 }
 
-export async function saveDesignAtoms(atoms: DesignAtom[]): Promise<void> {
-  await setDoc(doc(db, DESIGN_COLLECTION, ATOMS_DOC_ID), { atoms: stripUndefined({ list: atoms }).list, updatedAt: serverTimestamp() });
+export async function saveTextStyles(styles: TextStyle[]): Promise<void> {
+  // Each as an atom of text, as the atomic-design branch reads them.
+  const atoms = styles.map((style) => ({ ...style, kind: "text" }));
+  await setDoc(doc(db, DESIGN_COLLECTION, TEXT_STYLES_DOC_ID), { atoms: stripUndefined({ list: atoms }).list, updatedAt: serverTimestamp() });
 }
 
-// ── Molecules (site-wide, see DesignMolecule) ─────────────────────────────────
+// ── Components (site-wide, see DesignComponent) ───────────────────────────────
 
-const MOLECULES_DOC_ID = "molecules";
+/**
+ * Stored apart from the molecules and main components of before (the
+ * atomic-design branch's `molecules` / `components`), which are only read:
+ * the first time, as what the components start from.
+ */
+const COMPONENTS_DOC_ID = "figmaComponents";
 
-/** The molecules stored for the site (the starting ones are added by withStartingMolecules) — none when they can't be read. */
-export async function loadDesignMolecules(): Promise<DesignMolecule[]> {
+async function readList<T>(docId: string, field: string): Promise<T[]> {
+  const snap = await getDoc(doc(db, DESIGN_COLLECTION, docId));
+  const list = snap.exists() ? snap.data()[field] : undefined;
+  return Array.isArray(list) ? (list as T[]) : [];
+}
+
+/**
+ * The components stored for the site (the starting ones are added by
+ * withStartingComponents). Before any was stored: the ones the legacy
+ * designs amount to (componentsFromLegacy) — `fromLegacy`, so that saving
+ * stores them. None when they can't be read.
+ */
+export async function loadDesignComponents(): Promise<{ components: DesignComponent[]; fromLegacy: boolean }> {
   try {
-    const snap = await getDoc(doc(db, DESIGN_COLLECTION, MOLECULES_DOC_ID));
-    const list = snap.exists() ? snap.data().molecules : undefined;
-    return Array.isArray(list) ? (list as DesignMolecule[]) : [];
+    const snap = await getDoc(doc(db, DESIGN_COLLECTION, COMPONENTS_DOC_ID));
+    if (snap.exists()) {
+      const list = snap.data().components;
+      return { components: Array.isArray(list) ? (list as DesignComponent[]) : [], fromLegacy: false };
+    }
+    const [designs, molecules] = await Promise.all([
+      getDoc(doc(db, DESIGN_COLLECTION, "components")).then((d) => (d.exists() ? (d.data() as LegacyDesigns) : {})),
+      readList<LegacyMolecule>("molecules", "molecules"),
+    ]);
+    delete (designs as Record<string, unknown>).updatedAt;
+    const components = componentsFromLegacy(designs, molecules);
+    return { components, fromLegacy: components.length > 0 };
   } catch (err) {
-    console.warn("Molecules could not be loaded — using the starting ones:", err);
-    return [];
+    console.warn("Components could not be loaded — using the starting ones:", err);
+    return { components: [], fromLegacy: false };
   }
 }
 
-export async function saveDesignMolecules(molecules: DesignMolecule[]): Promise<void> {
-  await setDoc(doc(db, DESIGN_COLLECTION, MOLECULES_DOC_ID), { molecules: stripUndefined({ list: molecules }).list, updatedAt: serverTimestamp() });
+export async function saveDesignComponents(components: DesignComponent[]): Promise<void> {
+  await setDoc(doc(db, DESIGN_COLLECTION, COMPONENTS_DOC_ID), { components: stripUndefined({ list: components }).list, updatedAt: serverTimestamp() });
 }
 
 // ── Delete project ────────────────────────────────────────────────────────────

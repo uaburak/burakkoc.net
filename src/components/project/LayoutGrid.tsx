@@ -6,6 +6,7 @@ import { FillHeightContext, ProjectBlock } from "@/components/project/CoreBlocks
 import type { FrameLook } from "@/types/design";
 import { useDesignVariables } from "@/components/project/designVariables";
 import { frameLookStyle } from "@/components/project/frameLook";
+import { boxLook } from "@/components/project/components";
 
 /**
  * The layouts of the page, as Figma's auto layout: a section lays out its
@@ -214,7 +215,7 @@ export function sizeProps(size: Sizing | undefined, stretchChild: boolean, align
   };
 }
 
-// ── Inside a component (its main component, see ComponentDesign) ──────────────
+// ── Inside a component (drawn from its main component, see DesignComponent) ───
 //
 // The same auto layout as above, but at every width — a component's items keep
 // their layout on a phone too — so as plain styles, not breakpoint classes.
@@ -376,7 +377,7 @@ export function SectionContent({ section, animate = false }: { section: PageSect
               const s = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
               const f = absoluteProps(block.absolute);
               return (
-                <div key={block.id} className={cn("w-full", c.className, s.className, f.className)} style={{ ...c.style, ...s.style, ...f.style, ...look(block) }}>
+                <div key={block.id} className={cn("w-full", c.className, s.className, f.className)} style={{ ...c.style, ...s.style, ...f.style, ...look({ look: boxLook(block) }) }}>
                   <FillHeightContext.Provider value={s.fillHeight}>
                     <ProjectBlock block={block} animate={animate} />
                   </FillHeightContext.Provider>

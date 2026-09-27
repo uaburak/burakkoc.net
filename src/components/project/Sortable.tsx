@@ -249,21 +249,21 @@ interface SortableItemProps {
   as?: ElementType;
   className?: string;
   style?: CSSProperties;
-  /** The molecule it is an instance of (see DesignMolecule), as `data-molecule` */
-  molecule?: string;
+  /** The component it is an instance of (see DesignComponent), as `data-component` */
+  component?: string;
   children: ReactNode;
   /** Live-editor hover outline */
   outline?: boolean;
 }
 
-export function SortableItem({ id, as: Tag = "div", className, style, molecule, children, outline = true }: SortableItemProps) {
+export function SortableItem({ id, as: Tag = "div", className, style, component, children, outline = true }: SortableItemProps) {
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id });
   return (
     <Tag
       ref={setNodeRef}
       // The live editor finds the clicked item by it (and marks it `data-selected`).
       data-entry-id={id}
-      data-molecule={molecule}
+      data-component={component}
       {...listeners}
       style={{ ...style, transform: CSS.Translate.toString(transform), transition }}
       className={cn(

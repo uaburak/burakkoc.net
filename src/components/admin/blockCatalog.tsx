@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Block, BlockType, Group, ListStyle, PageDivider, PageItem, PageSection } from "@/types/project";
 import { createCaseStudyBlockDefaults } from "@/components/admin/CaseStudyBlockEditor";
 import { cn } from "@/lib/utils";
+import { FigmaIcon, type FigmaIconName } from "@/components/admin/figmaIcons";
 
 /**
  * Component catalog shared by the form and the live editor: factories for
@@ -24,14 +25,14 @@ export function makeBlock(type: BlockType, extras?: Partial<Block>): Block {
   return { id: uid(), type, ...createCaseStudyBlockDefaults(type), ...extras };
 }
 
-/** A Blok: one full-width column of components. */
+/** A Blok: a frame with a vertical auto layout — its components stacked, as Figma's new auto layout frames. */
 export function makeGroup(blocks: Block[] = []): Group {
-  return { id: uid(), blocks };
+  return { id: uid(), grid: { flow: "vertical" }, blocks };
 }
 
-/** New sections come with an empty Blok, ready for components. */
+/** New sections are vertical auto layout frames too, with an empty Blok ready for components. */
 export function makeSection(blocks: Block[] = []): PageSection {
-  return { id: uid(), kind: "section", groups: [makeGroup(blocks)] };
+  return { id: uid(), kind: "section", grid: { flow: "vertical" }, groups: [makeGroup(blocks)] };
 }
 
 export function makeDivider(): PageDivider {
@@ -370,9 +371,37 @@ export const BLOCK_GROUPS: { label: string; tone: string; types: BlockType[] }[]
   { label: "Araştırma & Tasarım", tone: "var(--edit-research)", types: ["persona", "team", "palette"] },
 ];
 
-/** Colours of the page's levels in the live editor. */
+/** Colours of the page's levels in the form editor. */
 export const SECTION_TONE = "var(--edit-accent)";
 export const GROUP_TONE = "var(--edit-group)";
+
+// ── Layers, as Figma draws them (the live editor) ─────────────────────────────
+//
+// Frames (the page, a Bölüm, a Blok), texts and images are Figma's blue;
+// components and their instances its purple.
+
+export const FRAME_TONE = "var(--edit-accent)";
+export const COMPONENT_TONE = "var(--edit-component)";
+
+/**
+ * What a component on the page is as a Figma layer: a heading or a text is a
+ * text layer, an image an image; everything else is an instance of a
+ * component — drawn by the site's code, or from a main component.
+ */
+export type LayerKind = "text" | "image" | "instance";
+
+export function layerKind(type: BlockType): LayerKind {
+  if (type === "heading" || type === "subheading" || type === "text") return "text";
+  return type === "image" ? "image" : "instance";
+}
+
+/** A layer's colour: blue for texts and images, purple for instances. */
+export const layerTone = (type: BlockType) => (layerKind(type) === "instance" ? COMPONENT_TONE : FRAME_TONE);
+
+const LAYER_ICON: Record<LayerKind, FigmaIconName> = { text: "16.text", image: "16.image", instance: "16.instance" };
+
+/** A layer's icon, as Figma's layer tree draws it (16px). */
+export const layerIcon = (type: BlockType) => <FigmaIcon name={LAYER_ICON[layerKind(type)]} />;
 
 /** The colour of a component's kind. */
 export function blockTone(type: BlockType) {

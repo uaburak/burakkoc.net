@@ -17,7 +17,7 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy, rectSortingS
 import { CSS, getEventCoordinates, type Transform } from "@dnd-kit/utilities";
 import { Block, BlockType, GridSettings, Group, PageItem, PageSection } from "@/types/project";
 import { DragHandle, DragScrollFix, altDrag, useEditorSensors, type DragActivation } from "@/components/project/Sortable";
-import { BLOCK_DEFS, BLOCK_LABELS, blockTone, cloneBlock, cloneGroup, cloneItem, makeBlock, uid } from "@/components/admin/blockCatalog";
+import { BLOCK_LABELS, cloneBlock, cloneGroup, cloneItem, layerIcon, layerTone, makeBlock, uid } from "@/components/admin/blockCatalog";
 import {
   findBlock,
   findGroup,
@@ -76,8 +76,12 @@ type GroupData = { type: "group"; groupId: string; sectionId: string };
 type BlockData = { type: "block"; blockId: string; groupId: string };
 /** A free cell of a section's grid (for Bloks and components) or a Blok's (for components). */
 type CellData = { type: "cell"; level: "section" | "group"; containerId: string; row: number; col: number };
-/** A component from the catalog, not on the page yet — `blockId` is the id it gets there. */
-type NewData = { type: "new"; blockType: BlockType; blockId: string };
+/**
+ * A component from the assets, not on the page yet — `blockId` is the id it
+ * gets there; `component`: an instance of that main component (one of the
+ * site's components of its type), with its name.
+ */
+type NewData = { type: "new"; blockType: BlockType; blockId: string; component?: { id: string; name: string } };
 type DndData = ItemData | GroupData | BlockData | CellData | NewData;
 
 /** Where a catalog component would go: before or after a component (side by side on a grid of more than one column). */
@@ -407,16 +411,15 @@ function dropOnPage(d: DndData | undefined, o: DndData | undefined): ((list: Pag
   return null;
 }
 
-/** The chip that follows the pointer while a catalog component is dragged. */
-function NewBlockChip({ type }: { type: BlockType }) {
-  const def = BLOCK_DEFS.find((d) => d.type === type);
+/** The chip that follows the pointer while a component from the assets is dragged: its icon and name. */
+function NewBlockChip({ type, component }: { type: BlockType; component?: { id: string; name: string } }) {
   return (
     <span
       className="inline-flex items-center gap-2 h-9 pl-2 pr-3 rounded-full border border-[var(--border)] bg-[var(--bg-1)] text-[13px] font-medium text-[var(--text-title)] shadow-[0_18px_40px_rgba(0,0,0,0.18)] cursor-grabbing whitespace-nowrap"
-      style={{ color: blockTone(type) }}
+      style={{ color: layerTone(type) }}
     >
-      {def?.icon}
-      <span className="text-[var(--text-title)]">{BLOCK_LABELS[type]}</span>
+      {layerIcon(type)}
+      <span className="text-[var(--text-title)]">{component?.name ?? BLOCK_LABELS[type]}</span>
     </span>
   );
 }
@@ -529,7 +532,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
   const itemsAtStart = useRef<PageItem[] | null>(null);
   const dropTop = useRef<number | null>(null);
   // A catalog component being dragged, and where it would go.
-  const [newType, setNewType] = useState<BlockType | null>(null);
+  const [newType, setNewType] = useState<Pick<NewData, "blockType" | "component"> | null>(null);
   const [insertion, setInsertion] = useState<Insertion | null>(null);
   const tree = variant === "tree";
   const [treeDrop, setTreeDrop] = useState<TreeDrop | null>(null);
@@ -549,7 +552,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
         itemsAtStart.current = items;
         const d = dataOf(a);
         setReordering(!tree && d?.type === "item");
-        setNewType(d?.type === "new" ? d.blockType : null);
+        setNewType(d?.type === "new" ? { blockType: d.blockType, component: d.component } : null);
       }}
       onDragMove={({ active: a, over, activatorEvent, delta }) => {
         const d = dataOf(a);
@@ -628,7 +631,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
         setTreeDrop(null);
         if (d?.type === "new") {
           if (!o) return;
-          const block = makeBlock(d.blockType, { id: d.blockId });
+          const block = makeBlock(d.blockType, { id: d.blockId, ...(d.component ? { component: d.component.id } : {}) });
           onItemsChange((list) => dropNewBlock(list, block, o, lastInsertion));
           return;
         }
@@ -656,7 +659,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
           </InsertionContext.Provider>
         </PageReorderContext.Provider>
       </DropTopContext.Provider>
-      <DragOverlay dropAnimation={null}>{newType ? <NewBlockChip type={newType} /> : null}</DragOverlay>
+      <DragOverlay dropAnimation={null}>{newType ? <NewBlockChip type={newType.blockType} component={newType.component} /> : null}</DragOverlay>
     </DndContext>
   );
 }
@@ -710,10 +713,13 @@ export function useSortableBlock(block: Block, groupId: string) {
   return useSortable({ id: blockDndId(block.id), data: { type: "block", blockId: block.id, groupId } satisfies BlockData });
 }
 
-/** A catalog component (Bileşenler) as something to drag onto the page; `blockId` is the id it will get. */
-export function useNewBlockDrag(blockType: BlockType, blockId: string) {
-  return useDraggable({ id: `new:${blockType}`, data: { type: "new", blockType, blockId } satisfies NewData });
+/** A component from the assets (Varlıklar) as something to drag onto the page; `blockId` is the id it will get. */
+export function useNewBlockDrag(blockType: BlockType, blockId: string, component?: { id: string; name: string }) {
+  return useDraggable({ id: newDragId(blockType, component?.id), data: { type: "new", blockType, blockId, component } satisfies NewData });
 }
+
+/** The drag id of a component from the assets: its type — and, for one of the site's components, its id. */
+export const newDragId = (blockType: BlockType, componentId?: string) => (componentId ? `new:${blockType}:${componentId}` : `new:${blockType}`);
 
 /** A free cell of a section's or Blok's grid as a drop target (see the collision detection). */
 export function useCellDrop(cell: Omit<CellData, "type">) {
