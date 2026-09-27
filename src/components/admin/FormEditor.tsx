@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Block, BlockType, GridAlign, GridGap, GridSettings, Group, PageDivider, PageSection, ProjectData } from "@/types/project";
+import { Block, BlockType, GridGap, GridSettings, Group, PageDivider, PageSection, ProjectData } from "@/types/project";
 import { uploadFile, coverStoragePath } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 import { PillButton } from "@/components/Button";
@@ -318,11 +318,10 @@ export function ProjectMetaFields({ project, lang, slug, companies, onChange }: 
 // ── Grid settings (sections and Bloks) ───────────────────────────────────────
 
 const GAP_LABELS: Record<GridGap, string> = { sm: "Az", md: "Orta", lg: "Geniş" };
-const ALIGN_LABELS: Record<GridAlign, string> = { start: "Üst", center: "Orta", end: "Alt" };
 const keyOf = <K extends string>(labels: Record<K, string>, label: string) =>
   (Object.keys(labels) as K[]).find((k) => labels[k] === label);
 
-/** One line of grid settings: columns, a preset layout, gap and alignment. */
+/** One line of grid settings: columns, a preset layout and gap. */
 function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: GridSettings) => void }) {
   const columns = gridColumns(grid);
   const count = columns.length;
@@ -337,7 +336,7 @@ function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: Gri
         bgContext="block"
         options={counts}
         value={String(count)}
-        onChange={(v) => onChange(Number(v) <= 1 ? { ...grid, columns: undefined, align: undefined } : withColumnCount(grid, Number(v)))}
+        onChange={(v) => onChange(Number(v) <= 1 ? { ...grid, columns: undefined } : withColumnCount(grid, Number(v)))}
         className="w-[72px]"
       />
       {count > 1 && presets.length > 0 && (
@@ -357,14 +356,6 @@ function GridBar({ grid, onChange }: { grid?: GridSettings; onChange: (grid: Gri
         value={GAP_LABELS[grid?.gap ?? "md"]}
         onChange={(label) => onChange({ ...grid, gap: keyOf(GAP_LABELS, label) })}
       />
-      {count > 1 && (
-        <Segmented
-          size="sm"
-          options={Object.values(ALIGN_LABELS)}
-          value={ALIGN_LABELS[grid?.align ?? "start"]}
-          onChange={(label) => onChange({ ...grid, align: keyOf(ALIGN_LABELS, label) })}
-        />
-      )}
     </div>
   );
 }

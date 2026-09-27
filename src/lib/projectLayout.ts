@@ -1,4 +1,4 @@
-import type { Block, GridSettings, Group, PageItem, PageSection } from "@/types/project";
+import type { Block, BlockType, CellFit, CellSizing, GridSettings, Group, PageItem, PageSection } from "@/types/project";
 
 /**
  * Page structure helpers: Bölüm (section) › Blok (group) › Bileşen (block).
@@ -67,6 +67,45 @@ export function clampSpan(span: number | undefined, columnCount: number, col = 1
 
 /** "4·8" — a layout's name. */
 export const layoutName = (columns: number[]) => columns.join("·");
+
+/** A grid's padding, in px: 0 up to MAX_PADDING. */
+export const MAX_PADDING = 96;
+export function gridPadding(grid?: GridSettings) {
+  const p = Number(grid?.padding);
+  return Number.isFinite(p) ? Math.min(MAX_PADDING, Math.max(0, Math.round(p))) : 0;
+}
+
+// ── Inside the cell ───────────────────────────────────────────────────────────
+
+/**
+ * Components that are as wide as their text, so they can hug it. The others
+ * (images, videos, grids of cards…) take their width from the cell — hugging
+ * would squeeze them to nothing — so they fill it or get a fixed width.
+ */
+const HUGGABLE = new Set<BlockType>(["heading", "subheading", "text", "list", "tags", "links", "quote", "callout", "info"]);
+
+/** Can this component — or Blok, when all its components can — hug its content? */
+export function canHug(item: Pick<Block, "type"> | Pick<Group, "blocks">): boolean {
+  return "blocks" in item ? item.blocks.length > 0 && item.blocks.every(canHug) : HUGGABLE.has(item.type);
+}
+
+/** Fixed widths, in px. */
+export const MIN_WIDTH = 16;
+export const MAX_WIDTH = 1440;
+/** A fixed width to start from, when there is none yet. */
+export const DEFAULT_WIDTH = 320;
+
+/** How wide it is in its cell — "hug" only where it can (see canHug). */
+export function cellSizing(item: CellFit & (Pick<Block, "type"> | Pick<Group, "blocks">)): CellSizing {
+  if (item.sizing === "fixed") return "fixed";
+  return item.sizing === "hug" && canHug(item) ? "hug" : "fill";
+}
+
+/** Its fixed width in px, within MIN_WIDTH … MAX_WIDTH. */
+export function cellWidth(fit: CellFit) {
+  const w = Number(fit.width);
+  return Number.isFinite(w) && w > 0 ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.round(w))) : DEFAULT_WIDTH;
+}
 
 // ── Cells ─────────────────────────────────────────────────────────────────────
 
@@ -318,6 +357,18 @@ function flattenLegacyBlocks(blocks: any[]): Block[] {
 }
 
 /**
+ * A grid saved when alignment was set on the grid (`align`, for all of its
+ * children at once): the grid without it, and the children with it as their
+ * own `alignY` (unless they have one).
+ */
+function liftGridAlign<T extends CellFit>(grid: any, children: T[]): { grid: any; children: T[] } {
+  if (!grid || typeof grid !== "object" || !("align" in grid)) return { grid, children };
+  const { align, ...rest } = grid;
+  const alignY = align === "center" || align === "end" ? align : undefined;
+  return { grid: rest, children: alignY ? children.map((c) => (c.alignY ? c : { ...c, alignY })) : children };
+}
+
+/**
  * A stored section in the current shape. Sections saved before groups existed
  * hold their components directly (`blocks`): they become one full-width group,
  * which looks exactly like before on the page.
@@ -325,17 +376,17 @@ function flattenLegacyBlocks(blocks: any[]): Block[] {
 export function normalizeSection(raw: any): PageSection {
   const id = String(raw?.id || Math.random().toString(36).slice(2, 10));
   const groups: Group[] = Array.isArray(raw?.groups)
-    ? raw.groups.map((g: any, i: number) => ({
-        ...g,
-        id: String(g?.id || `${id}-g${i + 1}`),
-        blocks: Array.isArray(g?.blocks) ? g.blocks : [],
-      }))
+    ? raw.groups.map((g: any, i: number) => {
+        const { grid, children: blocks } = liftGridAlign(g?.grid, Array.isArray(g?.blocks) ? (g.blocks as Block[]) : []);
+        return { ...g, id: String(g?.id || `${id}-g${i + 1}`), ...(grid ? { grid } : {}), blocks };
+      })
     : Array.isArray(raw?.blocks)
       ? [{ id: `${id}-g1`, blocks: flattenLegacyBlocks(raw.blocks) }]
       : [];
   const { blocks: _legacy, ...rest } = raw ?? {};
   void _legacy;
-  return { ...rest, id, kind: "section", groups };
+  const lifted = liftGridAlign(rest.grid, groups);
+  return { ...rest, ...(lifted.grid ? { grid: lifted.grid } : {}), id, kind: "section", groups: lifted.children };
 }
 
 /** Page items in the current shape (anything that isn't a divider is a section). */

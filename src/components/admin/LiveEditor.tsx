@@ -756,7 +756,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   const addItemLabel = ADD_ITEM_LABEL[block.type];
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
-  const place = cellProps(cell);
+  const place = cellProps(cell, block);
   // A catalog component dragged over it: the line shows on which side it goes.
   const insertion = useInsertion();
   const line = insertion?.blockId === block.id ? insertion : null;
@@ -786,7 +786,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
         onSelect(item && e.currentTarget.contains(item) ? item.getAttribute("data-entry-id") ?? undefined : undefined);
       }}
       // Dragged: lifted above the page (a stacking context, so the frame's card sits right behind it).
-      className={cn("group/block relative w-full", place.className, HOVER_RING_BLOCK, isDragging && "z-30 cursor-grabbing")}
+      className={cn("group/block relative", place.className, HOVER_RING_BLOCK, isDragging && "z-30 cursor-grabbing")}
     >
       <SelectionFrame frameRef={frameRef} selected={selected} dragging={isDragging} dashed={Boolean(selectedItemId)}>
         <ChromeBar
@@ -853,7 +853,7 @@ function LiveGroup({ group, index, section, cell, lang, actions, selected, activ
   onInsert: (at?: { afterBlockId?: string; cell?: { row: number; col: number } }) => void;
 }) {
   const { setNodeRef, setActivatorNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
-  const place = cellProps(cell);
+  const place = cellProps(cell, group);
   const grid = gridProps(group.grid);
   const columns = gridColumns(group.grid);
   const count = columns.length;
@@ -1016,7 +1016,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
       </ChromeBar>
 
       {(!empty || showCells) && (
-        <div className={grid.className} style={grid.style}>
+        <div className={cn("w-full", grid.className)} style={grid.style}>
           <SectionGroups section={section}>
             {section.groups.map((group, i) => (
               <LiveGroup
@@ -2250,6 +2250,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                     projectSlug={slug}
                     placement={
                       <PlacementGroup
+                        item={selectedBlock.block}
                         index={selectedBlock.index}
                         siblings={selectedBlock.group.blocks}
                         labels={selectedBlock.group.blocks.map(blockName)}
@@ -2257,6 +2258,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                         tone={blockTone(selectedBlock.block.type)}
                         onPlace={(row, col) => actions.placeBlock(selectedBlock.block.id, selectedBlock.group.id, row, col)}
                         onSpan={(span) => actions.updateBlock(selectedBlock.block.id, { span })}
+                        onFit={(fit) => actions.updateBlock(selectedBlock.block.id, fit)}
                       />
                     }
                     onChange={(u) => actions.updateBlock(selectedBlock.block.id, u)}

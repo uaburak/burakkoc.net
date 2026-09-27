@@ -106,7 +106,6 @@ export interface BadgeItem {
 // components is a `Group` — the editor calls them Bileşen and Blok.
 
 export type GridGap = "sm" | "md" | "lg";
-export type GridAlign = "start" | "center" | "end";
 
 /** How a section lays out its groups, or a group its components. */
 export interface GridSettings {
@@ -118,13 +117,32 @@ export interface GridSettings {
   columns?: number[];
   /** Space between the children (default "md", 16px) */
   gap?: GridGap;
-  /** Vertical alignment of children sharing a line (default "start") */
-  align?: GridAlign;
+  /** Space around the children, inside the edges, in px (default 0) */
+  padding?: number;
+}
+
+export type CellAlign = "start" | "center" | "end";
+/** fill: as wide as its cell · hug: as wide as its content · fixed: `width` px */
+export type CellSizing = "fill" | "hug" | "fixed";
+
+/**
+ * How a Blok or component sits inside its cell — the editor's Konum, with its
+ * row / column / span: where in the cell, and how wide.
+ */
+export interface CellFit {
+  /** Left, centre or right of its cell (default "start") — shows when it is narrower than the cell */
+  alignX?: CellAlign;
+  /** Top, middle or bottom of its cell (default "start") — shows when a neighbour on its row is taller */
+  alignY?: CellAlign;
+  /** Default "fill" */
+  sizing?: CellSizing;
+  /** Its width in px, when `sizing` is "fixed" (never wider than its cell) */
+  width?: number;
 }
 
 // ── Block ─────────────────────────────────────────────────────────────────────
 
-export interface Block {
+export interface Block extends CellFit {
   id: string;
   type: BlockType;
   /** Its name in the editor's layer tree (Katmanlar) — its type's name when unset */
@@ -184,7 +202,7 @@ export interface Block {
 // ── Section ───────────────────────────────────────────────────────────────────
 
 /** "Blok" in the editor: a box on its section's grid, laying out components on its own grid. */
-export interface Group {
+export interface Group extends CellFit {
   id: string;
   /** Its name in the editor's layer tree — "Blok 1", "Blok 2"… when unset */
   name?: string;
