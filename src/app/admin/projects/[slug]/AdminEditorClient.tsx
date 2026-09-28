@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ProjectData } from "@/types/project";
@@ -127,11 +127,32 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }, [slug]);
 
   // ── Mirror to localStorage for offline / fast-reload ──
+  // Debounced: serialising the whole project on every keystroke is wasted work
+  // while typing; the pending write is flushed when the page is left.
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(project);
+  useEffect(() => { latest.current = project; }, [project]);
   useEffect(() => {
-    if (!loadingFromDB) {
-      localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(project));
-    }
+    if (loadingFromDB) return;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      draftTimer.current = null;
+      try { localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(latest.current)); } catch { /* quota / private mode */ }
+    }, 400);
   }, [project, slug, loadingFromDB]);
+  useEffect(() => {
+    const flush = () => {
+      if (!draftTimer.current) return;
+      clearTimeout(draftTimer.current);
+      draftTimer.current = null;
+      try { localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(latest.current)); } catch { /* ignore */ }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [slug]);
 
   /** Fills an empty project with the case-study template; keeps meta the user already entered. */
   function loadTemplate() {
@@ -149,7 +170,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
 
   async function handleSave() {
     // Always use the URL slug as the canonical ID — guards against stale localStorage data
-    const dataToSave = { ...project, slug };
+    const dataToSave = { ...latest.current, slug };
     setSaveStatus("saving");
     try {
       await saveProject(dataToSave);
@@ -165,11 +186,14 @@ export function AdminEditorClient({ slug }: { slug: string }) {
     }
   }
 
-  // Register save handler with the context so EditorNavControls can call it
+  // Register the save handler with the context once, so EditorNavControls can call it.
+  // It reads the latest project through a ref: re-registering on every edit would
+  // re-render the whole editor tree through the context on each keystroke.
+  const saveRef = useRef(handleSave);
+  useEffect(() => { saveRef.current = handleSave; });
   useEffect(() => {
-    registerSave(handleSave);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, slug]);
+    registerSave(() => saveRef.current());
+  }, [registerSave]);
 
   if (loadingFromDB) {
     return (

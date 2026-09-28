@@ -22,13 +22,22 @@
   /* Admin live editor: text being edited (red), and one colour per level of
      the page — hover / selection frames, toolbars, the sections panel:
      Bölüm (blue), Blok (green), Bileşen by its kind (text, media, data, research). */
-  --edit-accent: #2f6bff;
+  --edit-accent: #0d99ff;   /* Figma's selection blue */
   --edit-active: #e5484d;
   --edit-group: #16a34a;
   --edit-text: #7c4dff;
   --edit-media: #ea580c;
   --edit-data: #db2777;
   --edit-research: #a16207;
+
+  /* Admin live editor chrome, as Figma's: the grey canvas the page sits on,
+     panel edges a shade firmer than the site's borders, hovered and selected
+     rows in the layer tree (the selection's subtree a lighter tint). */
+  --editor-canvas: #f5f5f5;
+  --editor-border: #e6e6e6;
+  --editor-hover: #f5f5f5;
+  --editor-selected: #e5f4ff;
+  --editor-selected-soft: #f3f9ff;
 
   /* Progress Bar */
   --progress-track: #e6e6e6;
@@ -60,13 +69,19 @@
   --border:       #1e1e1e;   /* Background/4 Dark: rgba(30,30,30,1)  */
   --border-hover: #343434;   /* Background/5 Dark: rgba(52,52,52,1)  */
 
-  --edit-accent: #6b95ff;
+  --edit-accent: #4da3ff;
   --edit-active: #ff6369;
   --edit-group: #3fbf6f;
   --edit-text: #a384ff;
   --edit-media: #ff8a3d;
   --edit-data: #f0619e;
   --edit-research: #d69e2e;
+
+  --editor-canvas: #141414;
+  --editor-border: #2a2a2a;
+  --editor-hover: #1e1e1e;
+  --editor-selected: #0f2a44;
+  --editor-selected-soft: #0b1a29;
 
   /* Progress Bar */
   --progress-track: #1e1e1e;

@@ -109,7 +109,7 @@ function ColorField({ label, value, onChange, presets }: {
 export function ProjectThemeFields({ theme, onChange, header = true }: {
   theme?: ProjectTheme;
   onChange: (theme: ProjectTheme | undefined) => void;
-  /** Title + reset row; off when the host already shows them (live editor panel) */
+  /** Title + reset row and the card around it; off when the host already shows them (the live editor's panel, which is narrow and flat) */
   header?: boolean;
 }) {
   const current = theme ?? {};
@@ -117,7 +117,7 @@ export function ProjectThemeFields({ theme, onChange, header = true }: {
   const radiusLabel = RADIUS_OPTIONS.find((o) => o.value === current.radius)?.label ?? "Varsayılan";
 
   return (
-    <div className="flex flex-col gap-3 p-[12px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-4)]">
+    <div className={cn("flex flex-col gap-3", header && "p-[12px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-4)]")}>
       {header && (
         <div className="flex items-center justify-between gap-2">
           <span className="inline-flex items-center px-[6px] text-[16px] font-medium text-[var(--text-title)] select-none">Tema</span>
@@ -135,8 +135,8 @@ export function ProjectThemeFields({ theme, onChange, header = true }: {
           options={RADIUS_OPTIONS.map((o) => o.label)}
           value={radiusLabel}
           onChange={(label) => set("radius", RADIUS_OPTIONS.find((o) => o.label === label)?.value)}
-          size="sm"
-          className="self-start"
+          size={header ? "sm" : "xs"}
+          className="self-start max-w-full"
         />
       </div>
 
@@ -145,7 +145,7 @@ export function ProjectThemeFields({ theme, onChange, header = true }: {
       <ColorField label="Kart arka planı" value={current.cardBgColor} onChange={(v) => set("cardBgColor", v)} />
       <ColorField label="Başlık rengi" value={current.textColor} onChange={(v) => set("textColor", v)} />
 
-      <p className="px-1 text-[12px] leading-5 text-[var(--text-subtitle)]">
+      <p className={cn("px-1 text-[var(--text-subtitle)]", header ? "text-[12px] leading-5" : "text-[11px] leading-4")}>
         Vurgu rengi grafik çubuklarında, not ikonlarında, işaretli listelerde ve bağlantılarda görünür.
         Arka plan ve başlık renkleri açık ve koyu temada aynı kalır.
       </p>

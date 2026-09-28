@@ -33,15 +33,15 @@ type Lang = "tr" | "en";
 // ── Primitives ────────────────────────────────────────────────────────────────
 //
 // Figma's properties panel, in the layer tree's language: full-width sections
-// divided by thin rules; small grey (bg-4) fields, 28px tall, gently rounded;
-// only icons carry a colour.
+// divided by thin rules; 11px type throughout; small grey (bg-4) fields, 28px
+// tall, gently rounded; only icons carry a colour.
 
 /** A section of the panel: its title (actions on the right, e.g. "+") over its controls, a rule under it. */
 function Group({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-2 px-4 pt-3 pb-4 border-b border-[var(--border)]">
+    <section className="flex flex-col gap-2 px-4 pt-3 pb-4 border-b border-[var(--editor-border)]">
       <div className="flex items-center justify-between gap-2 h-6">
-        <h3 className="text-[12px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</h3>
+        <h3 className="text-[11px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</h3>
         {actions && <div className="flex items-center gap-0.5 -mr-1">{actions}</div>}
       </div>
       {children}
@@ -53,7 +53,7 @@ function Group({ title, actions, children }: { title: string; actions?: ReactNod
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center gap-2 min-h-7">
-      <span className="w-[72px] shrink-0 text-[12px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
+      <span className="w-[72px] shrink-0 text-[11px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
       <div className="flex flex-1 min-w-0 items-center">{children}</div>
     </div>
   );
@@ -181,7 +181,7 @@ function NumberField({ label, prefix, value, min, max, suffix, placeholder, fall
             setDraft(null);
           }
         }}
-        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none tabular-nums"
+        className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none tabular-nums"
       />
       {suffix && <span className="shrink-0 text-[11px] text-[var(--text-subtitle)] tabular-nums select-none">{suffix}</span>}
     </div>
@@ -206,7 +206,7 @@ function TextField({ label, value, onChange, placeholder, type = "text", prefix 
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
+        className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
       />
     </div>
   );
@@ -226,7 +226,7 @@ function SelectField({ label, value, options, placeholder, onChange }: {
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full h-full pl-2 pr-6 appearance-none bg-transparent text-[12px] text-[var(--text-title)] outline-none cursor-pointer"
+        className="w-full h-full pl-2 pr-6 appearance-none bg-transparent text-[11px] text-[var(--text-title)] outline-none cursor-pointer"
       >
         {placeholder !== undefined && <option value="">{placeholder}</option>}
         {options.map((o) => (
@@ -279,7 +279,7 @@ function ToggleButton({ label, pressed, disabled = false, onClick, children }: {
 
 /** A quiet note at the top of a panel. */
 function Hint({ children }: { children: ReactNode }) {
-  return <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)] border-b border-[var(--border)]">{children}</p>;
+  return <p className="px-4 py-3 text-[11px] leading-4 text-[var(--text-subtitle)] border-b border-[var(--editor-border)]">{children}</p>;
 }
 
 const Glyphs = {
@@ -1349,7 +1349,7 @@ function FieldMenu({ label, items, children }: {
           const r = e.currentTarget.getBoundingClientRect();
           setAt(at ? null : { top: r.bottom + 6, left: Math.min(Math.max(8, r.right - MENU_WIDTH), window.innerWidth - MENU_WIDTH - 8) });
         }}
-        className="flex items-center gap-1 h-6 pl-1.5 pr-1 -mr-1 rounded-[4px] text-[12px] text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
+        className="flex items-center gap-1 h-6 pl-1.5 pr-1 -mr-1 rounded-[4px] text-[11px] text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
       >
         {children}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden className="text-[var(--text-subtitle)]">
@@ -1382,7 +1382,7 @@ function FieldMenu({ label, items, children }: {
                   </svg>
                 )}
               </span>
-              <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{item.label}</span>
+              <span className="shrink-0 text-[11px] font-medium text-[var(--text-title)]">{item.label}</span>
               {item.hint && <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)]">{item.hint}</span>}
             </button>
             </div>
@@ -1572,7 +1572,7 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
       className="group/item flex items-center gap-2 w-[calc(100%+16px)] h-8 -mx-2 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
     >
       <span className="flex items-center justify-center w-4 h-4 shrink-0 [&_svg]:w-3.5 [&_svg]:h-3.5" style={{ color: tone }}>{icon}</span>
-      <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{label}</span>
+      <span className="shrink-0 text-[11px] font-medium text-[var(--text-title)]">{label}</span>
       <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-subtitle)]">{detail}</span>
       <span className="shrink-0 text-[var(--text-subtitle)] opacity-0 group-hover/item:opacity-100 transition-opacity">{Glyphs.chevron}</span>
     </button>
@@ -1757,7 +1757,7 @@ export function ProjectInspector({ project, slug, companies, onChange }: {
           />
         </Row>
         <Row label="Adres">
-          <span className="min-w-0 truncate text-[12px] text-[var(--text-subtitle)] tabular-nums">/projects/{slug}</span>
+          <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)] tabular-nums">/projects/{slug}</span>
         </Row>
       </Group>
     </div>
@@ -1917,7 +1917,7 @@ function ItemList({ block, lang, onSelect }: { block: Block; lang: Lang; onSelec
             ) : (
               <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded-[4px] bg-[var(--bg-4)] text-[10px] font-medium text-[var(--text-subtitle)] tabular-nums">{i + 1}</span>
             )}
-            <span className={cn("min-w-0 flex-1 truncate text-[12px]", preview ? "text-[var(--text-title)]" : "text-[var(--text-subtitle)]")}>
+            <span className={cn("min-w-0 flex-1 truncate text-[11px]", preview ? "text-[var(--text-title)]" : "text-[var(--text-subtitle)]")}>
               {preview || `${spec?.noun ?? "Öğe"} ${i + 1}`}
             </span>
             <span className="shrink-0 text-[var(--text-subtitle)] opacity-0 group-hover/item:opacity-100 transition-opacity">{Glyphs.chevron}</span>
@@ -1946,7 +1946,7 @@ function AutoTextarea({ label, value, onChange, placeholder }: { label: string; 
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
       rows={Math.min(8, Math.max(2, value.split("\n").length))}
-      className="w-full resize-none rounded-[6px] border border-transparent bg-[var(--bg-4)] px-2 py-1.5 text-[12px] leading-[18px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] hover:border-[var(--border-hover)] focus:outline-none focus:border-[var(--text-subtitle)] transition-colors"
+      className="w-full resize-none rounded-[6px] border border-transparent bg-[var(--bg-4)] px-2 py-1.5 text-[11px] leading-[18px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] hover:border-[var(--border-hover)] focus:outline-none focus:border-[var(--text-subtitle)] transition-colors"
     />
   );
 }

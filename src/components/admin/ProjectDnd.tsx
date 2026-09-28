@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -222,6 +222,17 @@ function leaveCopy(start: PageItem[], moved: PageItem[], d: DndData): PageItem[]
     return mapSection(moved, from.section.id, (s) => ({ ...s, groups: putBack(s.groups, from.section.groups, groupIndex, cloneGroup(from.group), s.grid) }));
   }
   return moved;
+}
+
+/**
+ * The same array as long as the ids are the same. SortableContext puts its
+ * `items` in its context value: a fresh array on every render would re-render
+ * every sortable under it on each keystroke, memoised or not.
+ */
+function useStableIds(ids: string[]): string[] {
+  const key = ids.join("\u0000");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => ids, [key]);
 }
 
 const itemDndId = (id: string) => `item:${id}`;
@@ -508,6 +519,18 @@ function ReorderAligner({ reordering }: { reordering: boolean }) {
   return null;
 }
 
+/*
+ * DndContext puts these in its context value: passed inline they would be new
+ * objects on every render, and every consumer on the page would re-render
+ * with each keystroke.
+ */
+const PAGE_MODIFIERS: Modifier[] = [verticalOnly, centerRowOnPointer];
+const TREE_MODIFIERS: Modifier[] = [verticalOnly];
+// The layout changes as the page collapses: keep measuring drop targets.
+const MEASURING = { droppable: { strategy: MeasuringStrategy.Always } };
+// ReorderAligner does this for the collapse (dnd-kit's own would undo it).
+const AUTO_SCROLL = { layoutShiftCompensation: false };
+
 export function ProjectDndProvider({ items, onItemsChange, activation, variant = "page", children }: {
   items: PageItem[];
   /** Functional update — always applied to the latest items */
@@ -533,16 +556,15 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
   const [insertion, setInsertion] = useState<Insertion | null>(null);
   const tree = variant === "tree";
   const [treeDrop, setTreeDrop] = useState<TreeDrop | null>(null);
+  const itemIds = useStableIds(items.map((i) => itemDndId(i.id)));
 
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={collisionDetection}
-      modifiers={tree ? [verticalOnly] : [verticalOnly, centerRowOnPointer]}
-      // The layout changes as the page collapses: keep measuring drop targets.
-      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-      // ReorderAligner does this for the collapse (dnd-kit's own would undo it).
-      autoScroll={{ layoutShiftCompensation: false }}
+      modifiers={tree ? TREE_MODIFIERS : PAGE_MODIFIERS}
+      measuring={MEASURING}
+      autoScroll={AUTO_SCROLL}
       // Set in the same update as the drag start, so the collapse is part of it.
       onDragStart={({ active: a }) => {
         altDrag.begin();
@@ -648,7 +670,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
           <InsertionContext.Provider value={insertion}>
             <TreeContext.Provider value={tree}>
               <TreeDropContext.Provider value={treeDrop}>
-                <SortableContext items={items.map((i) => itemDndId(i.id))} strategy={tree ? stayPut : verticalListSortingStrategy}>
+                <SortableContext items={itemIds} strategy={tree ? stayPut : verticalListSortingStrategy}>
                   {children}
                 </SortableContext>
               </TreeDropContext.Provider>
@@ -679,8 +701,9 @@ function strategyFor(grid: GridSettings | undefined, children: { row?: number; c
 /** The groups (Blok) of one section as a sortable list. */
 export function SectionGroups({ section, children }: { section: PageSection; children: ReactNode }) {
   const tree = useContext(TreeContext);
+  const ids = useStableIds(section.groups.map((g) => groupDndId(g.id)));
   return (
-    <SortableContext items={section.groups.map((g) => groupDndId(g.id))} strategy={tree ? stayPut : strategyFor(section.grid, section.groups)}>
+    <SortableContext items={ids} strategy={tree ? stayPut : strategyFor(section.grid, section.groups)}>
       {children}
     </SortableContext>
   );
@@ -689,8 +712,9 @@ export function SectionGroups({ section, children }: { section: PageSection; chi
 /** The components (Bileşen) of one group as a sortable list. */
 export function GroupBlocks({ group, children }: { group: Group; children: ReactNode }) {
   const tree = useContext(TreeContext);
+  const ids = useStableIds(group.blocks.map((b) => blockDndId(b.id)));
   return (
-    <SortableContext items={group.blocks.map((b) => blockDndId(b.id))} strategy={tree ? stayPut : strategyFor(group.grid, group.blocks)}>
+    <SortableContext items={ids} strategy={tree ? stayPut : strategyFor(group.grid, group.blocks)}>
       {children}
     </SortableContext>
   );

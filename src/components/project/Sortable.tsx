@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, type ElementType, type ReactNode, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createContext, useContext, useEffect, useMemo, type ElementType, type ReactNode, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -152,15 +152,19 @@ const ACTIVATION = {
   press: { distance: 4 },
 } as const;
 
+/**
+ * The sensor options must keep their identity: dnd-kit puts the sensors in its
+ * context, so new option objects on every render would re-render every
+ * draggable on the page with each keystroke.
+ */
+const bypassActivationConstraint = ({ event }: { event: Event }) => onHandle(event);
+const KEYBOARD_OPTIONS = { coordinateGetter: sortableKeyboardCoordinates };
+
 export function useEditorSensors(activation?: DragActivation) {
   const fromContext = useContext(DragActivationContext);
-  return useSensors(
-    useSensor(EditorPointerSensor, {
-      activationConstraint: ACTIVATION[activation ?? fromContext],
-      bypassActivationConstraint: ({ event }) => onHandle(event),
-    }),
-    useSensor(HandleKeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
+  const mode = activation ?? fromContext;
+  const pointerOptions = useMemo(() => ({ activationConstraint: ACTIVATION[mode], bypassActivationConstraint }), [mode]);
+  return useSensors(useSensor(EditorPointerSensor, pointerOptions), useSensor(HandleKeyboardSensor, KEYBOARD_OPTIONS));
 }
 
 /**

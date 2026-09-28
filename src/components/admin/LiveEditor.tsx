@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useDndMonitor } from "@dnd-kit/core";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useDndContext, useDndMonitor } from "@dnd-kit/core";
 import { Block, BlockType, GridSettings, Group, PageDivider, PageItem, PageSection, ProjectData } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { findBlock, findGroup, freeCells, gridColumns, gridFlow, gridRows, layoutCells, rowCount, sectionBlocks, sectionsOf, type Cell } from "@/lib/projectLayout";
 import { PillButton } from "@/components/Button";
-import { Input } from "@/components/Input";
 import { ScrollArea } from "@/components/ScrollArea";
 import { FillHeightContext, ProjectBlock, ProjectDivider } from "@/components/project/CoreBlocks";
 import { absoluteProps, cellProps, gridProps, pageFrameProps, sectionFrameProps, sizeProps } from "@/components/project/LayoutGrid";
@@ -14,7 +13,6 @@ import { EditableText } from "@/components/project/Editable";
 import { DRAG_LIFT, DragActivationContext, setDragTarget } from "@/components/project/Sortable";
 import { createBlockEditApi, localizeBlock } from "@/components/project/editing";
 import { projectThemeAttrs } from "@/components/project/projectTheme";
-import { PillLabel } from "@/components/admin/FormEditor";
 import { ProjectThemeFields } from "@/components/admin/ProjectThemeFields";
 import {
   BlockInspector,
@@ -60,12 +58,14 @@ import type { EditorActions } from "@/components/admin/editorActions";
 /**
  * Live editor ("Canlı Düzenleyici"): the project page itself, editable.
  *
- * Layout, as in Figma: icon rail → left panel → canvas → inspector.
- * - Rail / left panel: Katmanlar (the page as a Figma-like layer tree),
- *   Bileşenler (the component catalog — drag onto the page), Tema (radius /
- *   colors), Yayın (link, content status, template).
- * - Inspector (Düzenle, right): whatever is selected — the project when nothing is.
- * - Canvas: the page is Bölüm (section) › Blok (group) › Bileşen (component,
+ * Layout, as in Figma: left panel → canvas → right panel.
+ * - Left panel, tabs as Figma's File / Assets: Katmanlar (the page as a layer
+ *   tree), Bileşenler (the component catalog — drag onto the page).
+ * - Right panel, tabs as Figma's Design panel: Tasarım (whatever is selected —
+ *   the project when nothing is), Tema (radius / colors), Yayın (link, content
+ *   status, template).
+ * - Canvas: Figma's grey, the page on it as a white frame with its name above
+ *   its corner. The page is Bölüm (section) › Blok (group) › Bileşen (component,
  *   `Block` in code); sections lay out their Bloks on a grid, Bloks their
  *   components. As in Figma, each click goes a level deeper: the section, its
  *   Blok, the component, a card inside it (see pressOn) — its settings open in
@@ -88,8 +88,9 @@ type Selection =
   | { kind: "group"; groupId: string }
   | { kind: "block"; blockId: string; /** An item clicked inside the block (card, step, list item…) */ itemId?: string }
   | { kind: "divider"; dividerId: string };
-/** The left panel's tabs; the inspector (Düzenle) has a panel of its own, on the right. */
-type Tab = "layers" | "components" | "theme" | "publish";
+/** The left panel's tabs (Figma's File / Assets) and the right panel's (its Design panel). */
+type Tab = "layers" | "components";
+type InspectorTab = "design" | "theme" | "publish";
 /** Pieces of the project overview that behave like blocks. */
 type OverviewPart = "title" | "description" | "cover";
 
@@ -108,36 +109,7 @@ const sectionName = (section: PageSection, index: number) => section.name?.trim(
 const groupName = (group: Group, index: number) => group.name?.trim() || groupLabel(index);
 const blockName = (block: Block) => block.name?.trim() || BLOCK_LABELS[block.type];
 
-// ── Icons (20px rail / 14px panel, 1.5 stroke like the rest of the site) ───────
-
-const RailIcons = {
-  // Figma's assets: the component catalog.
-  components: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path d="M10 2.75l2.75 2.75L10 8.25 7.25 5.5 10 2.75zM5.5 7.25L8.25 10 5.5 12.75 2.75 10 5.5 7.25zM14.5 7.25L17.25 10l-2.75 2.75L11.75 10l2.75-2.75zM10 11.75l2.75 2.75L10 17.25l-2.75-2.75L10 11.75z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-    </svg>
-  ),
-  layers: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path d="M10 3l7 3.5-7 3.5-7-3.5L10 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M3 10l7 3.5 7-3.5M3 13.5L10 17l7-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  theme: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <path d="M10 3a7 7 0 100 14c1.1 0 1.6-.8 1.3-1.7-.3-.9.2-1.8 1.2-1.8H14a3 3 0 003-3A7 7 0 0010 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <circle cx="6.75" cy="9.5" r="1" fill="currentColor" />
-      <circle cx="9" cy="6.5" r="1" fill="currentColor" />
-      <circle cx="12.75" cy="7" r="1" fill="currentColor" />
-    </svg>
-  ),
-  publish: (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M3 10h14M10 3c1.8 1.9 2.7 4.2 2.7 7s-.9 5.1-2.7 7c-1.8-1.9-2.7-4.2-2.7-7S8.2 4.9 10 3z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-    </svg>
-  ),
-};
+// ── Icons (14px, 1.5 stroke like the rest of the site) ────────────────────────
 
 const Icons = {
   plus: (
@@ -209,7 +181,7 @@ const Icons = {
 
 // ── Shared chrome ─────────────────────────────────────────────────────────────
 
-/** Panel card — same surface as a block row in the form editor. */
+/** A section of a panel, as Figma's properties panel: its title over its controls, a rule under it. */
 function PanelCard({ title, actions, children, className }: {
   title?: ReactNode;
   actions?: ReactNode;
@@ -217,54 +189,51 @@ function PanelCard({ title, actions, children, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col gap-[10px] p-[12px] rounded-[18px] border border-[var(--border)] bg-[var(--bg-4)]", className)}>
+    <section className={cn("flex flex-col gap-2 px-4 pt-3 pb-4 border-b border-[var(--editor-border)]", className)}>
       {(title || actions) && (
-        <div className="flex items-center justify-between gap-2 min-h-8">
-          {title && <PillLabel>{title}</PillLabel>}
-          {actions && <div className="flex items-center gap-1">{actions}</div>}
+        <div className="flex items-center justify-between gap-2 h-6">
+          {title && <h3 className="text-[11px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</h3>}
+          {actions && <div className="flex items-center gap-0.5 -mr-1">{actions}</div>}
         </div>
       )}
       {children}
-    </div>
+    </section>
   );
 }
 
+/** The grey field of the panels (a search box, a read-only value), as the inspector's. */
+const PANEL_FIELD = "h-7 rounded-[6px] bg-[var(--bg-4)] border border-transparent hover:border-[var(--border-hover)] focus-within:border-[var(--text-subtitle)] text-[11px] text-[var(--text-title)] transition-colors";
+
 function EmptyNote({ children }: { children: ReactNode }) {
-  return <p className="px-2 py-1 text-[13px] leading-5 text-[var(--text-subtitle)]">{children}</p>;
+  return <p className="px-1 py-1 text-[11px] leading-4 text-[var(--text-subtitle)]">{children}</p>;
 }
 
-// ── Rail ──────────────────────────────────────────────────────────────────────
+// ── Panel header ──────────────────────────────────────────────────────────────
 
-/** A tab of the icon rail, Figma-like: a small rounded square, grey when active; its name shows on hover. */
-function RailButton({ icon, label, active, indicator, onClick }: {
-  icon: ReactNode;
-  label: string;
-  active: boolean;
-  indicator?: boolean;
-  onClick: () => void;
-}) {
+/** A tab of a panel header, as Figma's (File · Assets, Design · Prototype): the active one in the title colour. */
+function PanelTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <div className="relative group/rail">
-      <button
-        type="button"
-        aria-label={label}
-        aria-pressed={active}
-        onClick={onClick}
-        className={cn(
-          "flex items-center justify-center w-8 h-8 rounded-[8px] transition-colors cursor-pointer [&_svg]:w-4 [&_svg]:h-4",
-          active
-            ? "bg-[var(--bg-4)] text-[var(--text-title)]"
-            : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[color-mix(in_srgb,var(--bg-4)_60%,transparent)]"
-        )}
-      >
-        {icon}
-      </button>
-      {indicator && (
-        <span aria-hidden className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[var(--edit-accent)] ring-2 ring-[var(--bg-1)] pointer-events-none" />
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "h-full px-1 text-[11px] leading-4 font-semibold whitespace-nowrap transition-colors cursor-pointer select-none",
+        active ? "text-[var(--text-title)]" : "text-[var(--text-subtitle)] hover:text-[var(--text-title)]"
       )}
-      <span className="pointer-events-none absolute left-[calc(100%+8px)] top-1/2 -translate-y-1/2 z-50 hidden group-hover/rail:inline-flex items-center h-7 px-2.5 rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] text-[12px] font-medium text-[var(--text-title)] shadow-[0_8px_24px_rgba(0,0,0,0.08)] whitespace-nowrap">
-        {label}
-      </span>
+    >
+      {label}
+    </button>
+  );
+}
+
+/** The 40px header of a panel: its tabs on the left, actions on the right. */
+function PanelHeader({ tabs, actions }: { tabs: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="shrink-0 flex items-center justify-between gap-2 h-10 pl-3 pr-2 border-b border-[var(--editor-border)]">
+      <div role="tablist" className="flex items-center gap-3 h-full min-w-0">{tabs}</div>
+      <div className="flex items-center gap-0.5 shrink-0">{actions}</div>
     </div>
   );
 }
@@ -427,43 +396,60 @@ type BadgeTarget = { selector: string; tone: string; below?: number; frame?: boo
 /**
  * The selection's size (W × H), as Figma's: a small badge centred 4px under its
  * line, in its level's colour — the section's blue, the Blok's green, the
- * component's kind. It follows the element each frame while selected (typing,
- * images loading, the page moving). Render it in the canvas's `main`.
+ * component's kind. Measured again after every edit (`revision`), whenever the
+ * element or the page changes size (typing, images loading) and on every move
+ * while something is dragged — not on every frame. Render it in the canvas's
+ * `main`.
  */
-function SizeBadge({ selector, tone, below = 0, frame = false, padded = false }: BadgeTarget) {
+function SizeBadge({ selector, tone, below = 0, frame = false, padded = false, revision }: BadgeTarget & {
+  /** Anything that changes when the page does (the project): a new value measures again */
+  revision: unknown;
+}) {
   const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
+  // dnd-kit renders on every move of a drag: the selection may be what moves.
+  const { active } = useDndContext();
+  const measure = useCallback(() => {
     const badge = ref.current;
     if (!badge) return;
-    let raf = 0;
-    let shown = "";
-    const tick = () => {
-      raf = requestAnimationFrame(tick);
-      const el = document.querySelector<HTMLElement>(selector);
-      const main = badge.offsetParent;
-      if (!el || !main) {
-        badge.style.visibility = "hidden";
-        shown = "";
-        return;
-      }
-      const r = el.getBoundingClientRect();
-      const line = frame && el.firstElementChild ? el.firstElementChild.getBoundingClientRect().bottom : r.bottom + below;
-      const m = main.getBoundingClientRect();
-      const pad = padded ? 20 : 0;
-      const text = `${Math.round(r.width - pad)} × ${Math.round(r.height - pad)}`;
-      const left = Math.round(r.left + r.width / 2 - m.left);
-      const top = Math.round(line + 4 - m.top);
-      const next = `${text}|${left}|${top}`;
-      if (next === shown) return;
-      shown = next;
-      badge.textContent = text;
-      badge.style.left = `${left}px`;
-      badge.style.top = `${top}px`;
-      badge.style.visibility = "visible";
-    };
-    tick();
-    return () => cancelAnimationFrame(raf);
+    const el = document.querySelector<HTMLElement>(selector);
+    const main = badge.offsetParent;
+    if (!el || !main) {
+      badge.style.visibility = "hidden";
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    const line = frame && el.firstElementChild ? el.firstElementChild.getBoundingClientRect().bottom : r.bottom + below;
+    const m = main.getBoundingClientRect();
+    const pad = padded ? 20 : 0;
+    badge.textContent = `${Math.round(r.width - pad)} × ${Math.round(r.height - pad)}`;
+    badge.style.left = `${Math.round(r.left + r.width / 2 - m.left)}px`;
+    badge.style.top = `${Math.round(line + 4 - m.top)}px`;
+    badge.style.visibility = "visible";
   }, [selector, below, frame, padded]);
+  // After each edit, and once the selection changes.
+  useLayoutEffect(measure, [measure, revision]);
+  // On every render of a drag (the element follows the pointer with a transform).
+  useLayoutEffect(() => {
+    if (active) measure();
+  });
+  // In between: the element or the page changing size on its own (images, embeds, the window).
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>(selector);
+    const main = ref.current?.offsetParent;
+    if (!el || !main) return;
+    let raf = 0;
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; measure(); });
+    };
+    const resize = new ResizeObserver(schedule);
+    resize.observe(el);
+    resize.observe(main);
+    if (frame && el.firstElementChild) resize.observe(el.firstElementChild);
+    return () => {
+      resize.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, [selector, frame, measure]);
   return (
     <span
       ref={ref}
@@ -673,10 +659,28 @@ function LiveOverview({ project, lang, actions, selection }: {
 
 // ── Canvas: component (Bileşen) ───────────────────────────────────────────────
 
-function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId }: {
+/**
+ * The canvas is memoised level by level: an edit re-renders the section, Blok
+ * and component it touches, not the whole page (the tree helpers keep the
+ * untouched objects — see mapSection). A child's `cell` is a fresh object each
+ * time its parent lays out, so it is compared by value.
+ */
+const sameCell = (a: Cell, b: Cell) => a.row === b.row && a.col === b.col && a.span === b.span;
+function sameProps<T extends object>(a: T, b: T): boolean {
+  const keys = Object.keys(a) as (keyof T)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((k) => (k === "cell" ? sameCell(a[k] as Cell, b[k] as Cell) : Object.is(a[k], b[k])));
+}
+
+/** A component's content re-renders only when the component itself (or the language) changes. */
+const BlockContent = memo(ProjectBlock);
+
+const LiveBlock = memo(function LiveBlock({ block, groupId, groupGrid, cell, lang, actions, selected, selectedItemId }: {
   block: Block;
   /** Its Blok: where it sits for drag & drop */
-  group: Group;
+  groupId: string;
+  /** The Blok's layout: how the cell is used */
+  groupGrid: GridSettings | undefined;
   /** Its cell of the Blok's grid */
   cell: Cell;
   lang: Lang;
@@ -686,7 +690,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   /** Item selected inside this block */
   selectedItemId: string | null;
 }) {
-  const { setNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, group.id);
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortableBlock(block, groupId);
   const display = useMemo(() => localizeBlock(block, lang), [block, lang]);
   const edit = useMemo(
     () => createBlockEditApi(block, lang, (patch) => actions.updateBlock(block.id, patch)),
@@ -694,14 +698,15 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
   );
   const [rootRef, frameRef, fitFrame] = useSelectionFrame(selected);
   const blockEl = useRef<HTMLDivElement | null>(null);
-  const place = cellProps(cell, gridFlow(group.grid) !== "grid" || Boolean(block.absolute));
-  const size = sizeProps(block.size, true, block.cellAlign, gridFlow(group.grid));
+  const place = cellProps(cell, gridFlow(groupGrid) !== "grid" || Boolean(block.absolute));
+  const size = sizeProps(block.size, true, block.cellAlign, gridFlow(groupGrid));
   const free = absoluteProps(block.absolute);
   // A catalog component dragged over it: the line shows on which side it goes.
   const insertion = useInsertion();
   const line = insertion?.blockId === block.id ? insertion : null;
 
-  // Mark the selected item (SortableItem draws an outline in the block's colour for `data-selected`).
+  // Mark the selected item (SortableItem draws an outline in the block's colour for `data-selected`) —
+  // again when the block's items change (the marked element may be a new one).
   useLayoutEffect(() => {
     const root = blockEl.current;
     if (!root) return;
@@ -709,7 +714,7 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
       if (el.getAttribute("data-entry-id") !== selectedItemId) el.removeAttribute("data-selected");
     });
     if (selectedItemId) root.querySelector(`[data-entry-id="${selectedItemId}"]`)?.setAttribute("data-selected", "");
-  });
+  }, [selectedItemId, block]);
 
   return (
     <div
@@ -741,11 +746,11 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
         />
       )}
       <FillHeightContext.Provider value={size.fillHeight}>
-        <ProjectBlock block={display} edit={edit} lang={lang} />
+        <BlockContent block={display} edit={edit} lang={lang} />
       </FillHeightContext.Provider>
     </div>
   );
-}
+}, sameProps);
 
 // ── Canvas: Blok (group) ──────────────────────────────────────────────────────
 
@@ -754,9 +759,12 @@ function LiveBlock({ block, group, cell, lang, actions, selected, selectedItemId
  * own. A click in its selected section selects it (see pressOn); drag it once
  * it is selected.
  */
-function LiveGroup({ group, section, cell, lang, actions, selected, active, selectedBlockId, selectedItemId, onInsert }: {
+const LiveGroup = memo(function LiveGroup({ group, sectionId, sectionGrid, cell, lang, actions, selected, active, selectedBlockId, selectedItemId, onInsert }: {
   group: Group;
-  section: PageSection;
+  /** Its section: where it sits for drag & drop */
+  sectionId: string;
+  /** The section's layout: how the cell is used */
+  sectionGrid: GridSettings | undefined;
   /** Its cell of the section's grid */
   cell: Cell;
   lang: Lang;
@@ -766,12 +774,12 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
   active: boolean;
   selectedBlockId: string | null;
   selectedItemId: string | null;
-  /** Opens the component picker for this Blok: in a free cell, else at its end */
-  onInsert: (at?: { cell?: { row: number; col: number } }) => void;
+  /** Opens the component picker for a Blok: in a free cell, else at its end */
+  onInsert: (target: PickerTarget) => void;
 }) {
-  const { setNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, section.id);
-  const place = cellProps(cell, gridFlow(section.grid) !== "grid" || Boolean(group.absolute));
-  const size = sizeProps(group.size, false, group.cellAlign, gridFlow(section.grid));
+  const { setNodeRef, listeners, transform, transition, isDragging } = useSortableGroup(group, sectionId);
+  const place = cellProps(cell, gridFlow(sectionGrid) !== "grid" || Boolean(group.absolute));
+  const size = sizeProps(group.size, false, group.cellAlign, gridFlow(sectionGrid));
   const free = absoluteProps(group.absolute);
   const grid = gridProps(group.grid);
   const columns = gridColumns(group.grid);
@@ -809,7 +817,8 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
           <LiveBlock
             key={block.id}
             block={block}
-            group={group}
+            groupId={group.id}
+            groupGrid={group.grid}
             cell={blockCells[i]}
             lang={lang}
             actions={actions}
@@ -830,7 +839,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
           // Not with its content in the middle / at the bottom: the row would sit under it and look like part of it.
           newRow={!rows && !lowered(group.grid) && (selected || empty || (dragged && drag?.overGroupId === group.id))}
           noun="bileşen"
-          onAdd={(row, col) => onInsert({ cell: { row, col } })}
+          onAdd={(row, col) => onInsert({ groupId: group.id, cell: { row, col } })}
         />
       )}
 
@@ -839,7 +848,7 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
         <button
           type="button"
           data-no-drag
-          onClick={(e) => { e.stopPropagation(); onInsert(); }}
+          onClick={(e) => { e.stopPropagation(); onInsert({ groupId: group.id }); }}
           className="col-span-full flex items-center justify-center gap-1.5 w-full h-16 rounded-[14px] border border-dashed border-[var(--border-hover)] text-[13px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:border-[color-mix(in_srgb,var(--edit-group)_40%,transparent)] transition-colors cursor-pointer"
         >
           {Icons.plus}
@@ -848,11 +857,11 @@ function LiveGroup({ group, section, cell, lang, actions, selected, active, sele
       )}
     </div>
   );
-}
+}, sameProps);
 
 // ── Canvas: section & divider ─────────────────────────────────────────────────
 
-function LiveSection({ section, index, lang, actions, selected, active, selectedGroupId, activeGroupId, selectedBlockId, selectedItemId, onSelect, onInsert }: {
+const LiveSection = memo(function LiveSection({ section, index, lang, actions, selected, active, selectedGroupId, activeGroupId, selectedBlockId, selectedItemId, onSelect, onInsert }: {
   section: PageSection;
   index: number;
   lang: Lang;
@@ -931,7 +940,8 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
               <LiveGroup
                 key={group.id}
                 group={group}
-                section={section}
+                sectionId={section.id}
+                sectionGrid={section.grid}
                 cell={groupCells[i]}
                 lang={lang}
                 actions={actions}
@@ -939,7 +949,7 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
                 active={activeGroupId === group.id}
                 selectedBlockId={selectedBlockId}
                 selectedItemId={selectedItemId}
-                onInsert={(at) => onInsert({ groupId: group.id, ...at })}
+                onInsert={onInsert}
               />
             ))}
           </SectionGroups>
@@ -972,9 +982,9 @@ function LiveSection({ section, index, lang, actions, selected, active, selected
       )}
     </section>
   );
-}
+});
 
-function LiveDivider({ divider, selected }: {
+const LiveDivider = memo(function LiveDivider({ divider, selected }: {
   divider: PageDivider;
   selected: boolean;
 }) {
@@ -1011,12 +1021,15 @@ function LiveDivider({ divider, selected }: {
       <ProjectDivider />
     </div>
   );
-}
+});
 
 // ── Panels ────────────────────────────────────────────────────────────────────
 
+/** A step of the trail over the inspector: its name, a preview, and the layer it selects. */
+type Crumb = { label: string; detail?: string; target: Selection };
+
 /** Where the selection lives ("02 Bölüm / Blok 1 / Kartlar"): a thin bar over the inspector; each step selects that level. */
-function Crumbs({ items }: { items: { label: string; detail?: string; onClick: () => void }[] }) {
+function Crumbs({ items, onSelect }: { items: Crumb[]; onSelect: (target: Selection) => void }) {
   return (
     <nav aria-label="Konum" className="flex items-center gap-0.5 min-h-9 px-3 py-1 flex-wrap border-b border-[var(--border)]">
       {items.map((item, i) => (
@@ -1024,7 +1037,7 @@ function Crumbs({ items }: { items: { label: string; detail?: string; onClick: (
           {i > 0 && <span className="text-[11px] text-[var(--text-subtitle)] select-none">/</span>}
           <button
             type="button"
-            onClick={item.onClick}
+            onClick={() => onSelect(item.target)}
             className="flex items-center gap-1 min-w-0 h-6 px-1.5 rounded-[4px] text-[11px] leading-4 text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
           >
             <span className="shrink-0 font-medium text-[var(--text-title)]">{item.label}</span>
@@ -1287,11 +1300,11 @@ function LayerRow({ depth, tone, icon, name, selected, open, onToggle, hover, on
       onDoubleClick={(e) => { e.stopPropagation(); if (onRename) startRename(); else onInspect(); }}
       onMouseEnter={() => hover && hoverOnCanvas(hover, true)}
       onMouseLeave={() => hover && hoverOnCanvas(hover, false)}
-      style={{ paddingLeft: 4 + depth * 16 }}
+      style={{ paddingLeft: 8 + depth * 16 }}
       className={cn(
-        "group/layer flex items-center gap-1 h-8 pr-1 rounded-[8px] text-[12px] leading-4 cursor-default select-none transition-colors",
-        // Selected: the theme's #f2f2f2 (bg-4); hovered: a lighter tone of it.
-        selected ? "bg-[var(--bg-4)]" : "hover:bg-[color-mix(in_srgb,var(--bg-4)_60%,transparent)]"
+        "group/layer flex items-center gap-1 h-8 pr-1 text-[11px] leading-4 cursor-default select-none transition-colors",
+        // Selected: Figma's blue tint, edge to edge; hovered: the panel's grey.
+        selected ? "bg-[var(--editor-selected)]" : "hover:bg-[var(--editor-hover)]"
       )}
     >
       {open === undefined ? (
@@ -1324,10 +1337,10 @@ function LayerRow({ depth, tone, icon, name, selected, open, onToggle, hover, on
           }}
           onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
-          className="min-w-0 flex-1 h-6 ml-0.5 px-1.5 rounded-[6px] border border-[var(--border-hover)] bg-[var(--bg-1)] text-[12px] font-medium text-[var(--text-title)] outline-none select-text"
+          className="min-w-0 flex-1 h-6 ml-0.5 px-1.5 rounded-[4px] border border-[var(--edit-accent)] bg-[var(--bg-1)] text-[11px] text-[var(--text-title)] outline-none select-text"
         />
       ) : (
-        <span className="min-w-0 truncate pl-0.5 font-medium text-[var(--text-title)]">{name}</span>
+        <span className="min-w-0 truncate pl-0.5 text-[var(--text-title)]">{name}</span>
       )}
       {!renaming && (
         <div className="ml-auto flex items-center gap-0.5 shrink-0 opacity-0 group-hover/layer:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -1354,7 +1367,7 @@ function DropLine({ place, depth }: { place: TreeDrop["place"] | null; depth: nu
         "before:content-[''] before:absolute before:-left-[5px] before:-top-[2px] before:w-[6px] before:h-[6px] before:rounded-full before:border-2 before:border-[var(--text-title)] before:bg-[var(--bg-1)]",
         place === "before" ? "-top-px" : place === "after" ? "-bottom-px" : "top-[31px]"
       )}
-      style={{ left: 24 + (place === "inside" ? depth + 1 : depth) * 16 }}
+      style={{ left: 28 + (place === "inside" ? depth + 1 : depth) * 16 }}
     />
   );
 }
@@ -1362,21 +1375,21 @@ function DropLine({ place, depth }: { place: TreeDrop["place"] | null; depth: nu
 /** The subtree of a selected layer is tinted too (lighter), as in Figma. */
 const layerNode = (selected: boolean, dragging: boolean) =>
   cn(
-    "relative flex flex-col rounded-[8px]",
-    selected && "bg-[color-mix(in_srgb,var(--bg-4)_50%,transparent)]",
+    "relative flex flex-col",
+    selected && "bg-[var(--editor-selected-soft)]",
     // The dragged row stays where it is, dimmed — only the line moves.
     dragging && "opacity-40"
   );
 
-function LayerBlock({ block, group, selection, actions, onSelect }: {
+const LayerBlock = memo(function LayerBlock({ block, groupId, selection, actions, onSelect }: {
   block: Block;
   /** Its Blok */
-  group: Group;
+  groupId: string;
   selection: Selection;
   actions: EditorActions;
   onSelect: SelectFromPanel;
 }) {
-  const { setNodeRef, listeners, isDragging } = useSortableBlock(block, group.id);
+  const { setNodeRef, listeners, isDragging } = useSortableBlock(block, groupId);
   const selected = selection.kind === "block" && selection.blockId === block.id;
   const tone = blockTone(block.type);
   const select = () => onSelect({ kind: "block", blockId: block.id });
@@ -1387,7 +1400,7 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
       data-layer-id={block.id}
       data-layer-kind="block"
       {...listeners}
-      className={cn("relative rounded-[8px]", isDragging && "opacity-40")}
+      className={cn("relative", isDragging && "opacity-40")}
     >
       <DropLine place={drop} depth={2} />
       <LayerRow
@@ -1403,12 +1416,12 @@ function LayerBlock({ block, group, selection, actions, onSelect }: {
       />
     </div>
   );
-}
+});
 
-function LayerGroup({ group, index, section, selection, collapsed, onToggle, actions, onSelect, onAddBlock }: {
+const LayerGroup = memo(function LayerGroup({ group, index, sectionId, selection, collapsed, onToggle, actions, onSelect, onAddBlock }: {
   group: Group;
   index: number;
-  section: PageSection;
+  sectionId: string;
   selection: Selection;
   collapsed: Set<string>;
   onToggle: (id: string) => void;
@@ -1416,7 +1429,7 @@ function LayerGroup({ group, index, section, selection, collapsed, onToggle, act
   onSelect: SelectFromPanel;
   onAddBlock: (groupId: string) => void;
 }) {
-  const { setNodeRef, listeners, isDragging } = useSortableGroup(group, section.id);
+  const { setNodeRef, listeners, isDragging } = useSortableGroup(group, sectionId);
   const selected = selection.kind === "group" && selection.groupId === group.id;
   const open = !collapsed.has(group.id);
   const select = () => onSelect({ kind: "group", groupId: group.id });
@@ -1448,18 +1461,18 @@ function LayerGroup({ group, index, section, selection, collapsed, onToggle, act
       {open && (
         <GroupBlocks group={group}>
           {group.blocks.map((block) => (
-            <LayerBlock key={block.id} block={block} group={group} selection={selection} actions={actions} onSelect={onSelect} />
+            <LayerBlock key={block.id} block={block} groupId={group.id} selection={selection} actions={actions} onSelect={onSelect} />
           ))}
           {group.blocks.length === 0 && (
-            <p className="h-7 flex items-center pl-[56px] text-[12px] text-[var(--text-subtitle)] select-none">Boş — bir bileşen sürükle</p>
+            <p className="h-7 flex items-center pl-[60px] text-[11px] text-[var(--text-subtitle)] select-none">Boş — bir bileşen sürükle</p>
           )}
         </GroupBlocks>
       )}
     </div>
   );
-}
+});
 
-function LayerSection({ section, index, selection, collapsed, onToggle, actions, onSelect, onAddBlock }: {
+const LayerSection = memo(function LayerSection({ section, index, selection, collapsed, onToggle, actions, onSelect, onAddBlock }: {
   section: PageSection;
   index: number;
   selection: Selection;
@@ -1506,7 +1519,7 @@ function LayerSection({ section, index, selection, collapsed, onToggle, actions,
               key={group.id}
               group={group}
               index={i}
-              section={section}
+              sectionId={section.id}
               selection={selection}
               collapsed={collapsed}
               onToggle={onToggle}
@@ -1516,15 +1529,15 @@ function LayerSection({ section, index, selection, collapsed, onToggle, actions,
             />
           ))}
           {section.groups.length === 0 && (
-            <p className="h-7 flex items-center pl-[40px] text-[12px] text-[var(--text-subtitle)] select-none">Boş — bir blok sürükle ya da ekle</p>
+            <p className="h-7 flex items-center pl-[44px] text-[11px] text-[var(--text-subtitle)] select-none">Boş — bir blok sürükle ya da ekle</p>
           )}
         </SectionGroups>
       )}
     </div>
   );
-}
+});
 
-function LayerDivider({ divider, selected, onSelect }: {
+const LayerDivider = memo(function LayerDivider({ divider, selected, onSelect }: {
   divider: PageDivider;
   selected: boolean;
   onSelect: SelectFromPanel;
@@ -1553,7 +1566,7 @@ function LayerDivider({ divider, selected, onSelect }: {
       />
     </div>
   );
-}
+});
 
 /** The root layer's key in the folded set (see LayersList). */
 const PAGE_LAYER = "page";
@@ -1574,7 +1587,7 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
 
   return (
     <div
-      className="flex flex-col gap-px"
+      className="flex flex-col"
       // Whatever gets pressed (and maybe dragged) is selected at once; capture phase, so drag handling is untouched.
       onPointerDownCapture={(e) => {
         const next = isPrimaryPress(e) && !(e.target as Element).closest("button") ? layerPressTarget(e.target as Element) : null;
@@ -1596,7 +1609,7 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
       />
 
       {!collapsed.has(PAGE_LAYER) && (
-      <div className="flex flex-col gap-px pl-4">
+      <div className="flex flex-col pl-4">
       <LayerRow
           depth={0}
           tone="var(--text-subtitle)"
@@ -1632,14 +1645,14 @@ function LayersList({ project, selection, collapsed, onToggle, actions, onSelect
       )}
 
       {project.items.length === 0 && (
-        <p className="px-2 py-4 text-[13px] text-center text-[var(--text-subtitle)]">Sayfada henüz bölüm yok.</p>
+        <p className="px-2 py-4 text-[11px] text-center text-[var(--text-subtitle)]">Sayfada henüz bölüm yok.</p>
       )}
       </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 pt-3">
-        <PillButton size="md" onClick={() => actions.addSection()} startIcon={Icons.plus} className="justify-center">Bölüm ekle</PillButton>
-        <PillButton size="md" onClick={() => actions.addDivider()} startIcon={Icons.plus} className="justify-center">Ayırıcı ekle</PillButton>
+      <div className="grid grid-cols-2 gap-2 px-3 pt-3">
+        <PillButton size="xs" onClick={() => actions.addSection()} startIcon={Icons.plus} className="justify-center">Bölüm ekle</PillButton>
+        <PillButton size="xs" onClick={() => actions.addDivider()} startIcon={Icons.plus} className="justify-center">Ayırıcı ekle</PillButton>
       </div>
     </div>
   );
@@ -1702,17 +1715,17 @@ function CatalogTile({ type, onAdd }: { type: BlockType; onAdd: (type: BlockType
       title={def.description}
       style={{ "--edit-tone": blockTone(type) } as CSSProperties}
       className={cn(
-        "flex flex-col items-start gap-2 p-2.5 rounded-[14px] border border-[var(--border)] bg-[var(--bg-1)] text-left cursor-grab touch-none transition-colors",
-        "hover:border-[color-mix(in_srgb,var(--edit-tone)_50%,transparent)]",
+        "flex flex-col items-start gap-2 p-2 rounded-[8px] border border-[var(--editor-border)] bg-[var(--bg-1)] text-left cursor-grab touch-none transition-colors",
+        "hover:border-[var(--edit-tone)]",
         isDragging && "opacity-40"
       )}
     >
-      <span className="flex items-center justify-center w-8 h-8 rounded-[10px] bg-[color-mix(in_srgb,var(--edit-tone)_12%,transparent)] text-[var(--edit-tone)]">
+      <span className="flex items-center justify-center w-7 h-7 rounded-[6px] bg-[color-mix(in_srgb,var(--edit-tone)_12%,transparent)] text-[var(--edit-tone)] [&_svg]:w-4 [&_svg]:h-4">
         {def.icon}
       </span>
       <span className="flex flex-col gap-0.5 min-w-0 w-full">
-        <span className="text-[13px] font-medium leading-4 text-[var(--text-title)] truncate">{def.label}</span>
-        <span className="text-[11px] leading-[14px] text-[var(--text-subtitle)] line-clamp-2">{def.description}</span>
+        <span className="text-[11px] font-medium leading-4 text-[var(--text-title)] truncate">{def.label}</span>
+        <span className="text-[11px] leading-4 text-[var(--text-subtitle)] line-clamp-2">{def.description}</span>
       </span>
     </div>
   );
@@ -1734,13 +1747,26 @@ function CatalogPanel({ target, onAdd }: {
 
   return (
     <div className="flex flex-col gap-4">
-      <Input type="search" size="md" bgContext="block" placeholder="Bileşen ara" value={query} onChange={(e) => setQuery(e.target.value)} />
-      <p className="px-1 text-[12px] leading-4 text-[var(--text-subtitle)]">
+      <div className={cn("flex items-center gap-1.5 px-2", PANEL_FIELD)}>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden className="shrink-0 text-[var(--text-subtitle)]">
+          <circle cx="5.25" cy="5.25" r="3.5" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M8 8l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+        <input
+          type="search"
+          aria-label="Bileşen ara"
+          placeholder="Bileşen ara"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
+        />
+      </div>
+      <p className="px-1 text-[11px] leading-4 text-[var(--text-subtitle)]">
         Sayfaya sürükleyip bırak — çizgi nereye gireceğini gösterir; boş bir hücreye de bırakabilirsin. Tıklarsan {target} eklenir.
       </p>
       {kinds.map((kind) => (
         <section key={kind.label} className="flex flex-col gap-2">
-          <h3 className="flex items-center gap-2 px-1 text-[11px] font-medium uppercase tracking-widest text-[var(--text-subtitle)] select-none">
+          <h3 className="flex items-center gap-2 px-1 text-[11px] font-semibold leading-4 text-[var(--text-title)] select-none">
             <span aria-hidden className="w-2 h-2 rounded-full" style={{ background: kind.tone }} />
             {kind.label}
           </h3>
@@ -1758,7 +1784,7 @@ function CatalogPanel({ target, onAdd }: {
 
 function StatusRow({ label, ok, okText = "Var", missingText = "Eksik" }: { label: string; ok: boolean; okText?: string; missingText?: string }) {
   return (
-    <div className="flex items-center justify-between h-10 px-4 rounded-full bg-[var(--bg-1)] text-[14px]">
+    <div className="flex items-center justify-between h-7 px-2 rounded-[6px] bg-[var(--bg-4)] text-[11px]">
       <span className="text-[var(--text-p)]">{label}</span>
       <span className={ok ? "font-medium text-[var(--text-title)]" : "text-[var(--text-subtitle)]"}>{ok ? okText : missingText}</span>
     </div>
@@ -1786,14 +1812,14 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col">
       <PanelCard title="Bağlantı">
-        <Input type="text" bgContext="block" size="md" value={path} readOnly className="tabular-nums" />
+        <div className={cn("flex items-center px-2 tabular-nums truncate", PANEL_FIELD)} title={path}>{path}</div>
         <div className="grid grid-cols-2 gap-2">
-          <PillButton size="md" bgContext="block" onClick={copy} startIcon={Icons.copy} className="justify-center">
+          <PillButton size="xs" onClick={copy} startIcon={Icons.copy} className="justify-center">
             {copied ? "Kopyalandı" : "Kopyala"}
           </PillButton>
-          <PillButton size="md" bgContext="block" onClick={() => window.open(path, "_blank")} startIcon={Icons.external} className="justify-center">
+          <PillButton size="xs" onClick={() => window.open(path, "_blank")} startIcon={Icons.external} className="justify-center">
             Yeni sekmede aç
           </PillButton>
         </div>
@@ -1807,9 +1833,9 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
             { value: blocks, label: "Bileşen" },
             { value: dividers, label: "Ayırıcı" },
           ].map((s) => (
-            <div key={s.label} className="flex flex-col items-center gap-0.5 py-2.5 rounded-[14px] bg-[var(--bg-1)]">
-              <span className="text-[20px] font-medium leading-7 text-[var(--text-title)] tabular-nums">{s.value}</span>
-              <span className="text-[12px] leading-4 text-[var(--text-subtitle)]">{s.label}</span>
+            <div key={s.label} className="flex flex-col items-center gap-0.5 py-2 rounded-[6px] bg-[var(--bg-4)]">
+              <span className="text-[15px] font-medium leading-5 text-[var(--text-title)] tabular-nums">{s.value}</span>
+              <span className="text-[11px] leading-4 text-[var(--text-subtitle)]">{s.label}</span>
             </div>
           ))}
         </div>
@@ -1823,12 +1849,12 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
       </PanelCard>
 
       <PanelCard title="Şablon">
-        <p className="px-1 text-[13px] leading-5 text-[var(--text-subtitle)]">
+        <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">
           Sayfanın içeriğini, bütün blokları kullanan vaka çalışması şablonuyla değiştirir.
         </p>
         <PillButton
-          size="md"
-          bgContext="block"
+          size="xs"
+         
           className="justify-center"
           onClick={() => {
             if (window.confirm("Sayfanın mevcut içeriği şablonla değiştirilecek. Devam edilsin mi?")) onLoadTemplate();
@@ -1843,12 +1869,8 @@ function PublishPanel({ project, slug, onLoadTemplate }: {
 
 // ── Live editor ───────────────────────────────────────────────────────────────
 
-const TAB_TITLES: Record<Tab, string> = {
-  layers: "Katmanlar",
-  components: "Bileşenler",
-  theme: "Tema",
-  publish: "Yayın",
-};
+/** The page on the canvas, as a Figma frame: white on the grey, a soft shadow (a hairline in the dark theme). */
+const ARTBOARD = "bg-[var(--bg-1)] shadow-[0_1px_2px_rgba(0,0,0,0.06),0_12px_32px_rgba(0,0,0,0.07)] [[data-theme=dark]_&]:shadow-none [[data-theme=dark]_&]:ring-1 [[data-theme=dark]_&]:ring-[var(--editor-border)]";
 
 export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemplate }: {
   project: ProjectData;
@@ -1859,7 +1881,12 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
   onLoadTemplate: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("layers");
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("design");
   const [rawSelection, setSelection] = useState<Selection>({ kind: "none" });
+  // The page as of the last render, for callbacks that must stay the same function
+  // between renders (the memoised canvas and layer tree depend on it).
+  const itemsRef = useRef(project.items);
+  useEffect(() => { itemsRef.current = project.items; }, [project.items]);
   // Where the component picker adds: a Blok, after one of its components or at its end.
   const [picker, setPicker] = useState<PickerTarget | null>(null);
   // Sections and Bloks folded in the layer tree (kept across tab switches).
@@ -1907,7 +1934,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
       // The raw selection: one that is already gone deletes nothing.
       const current = rawSelection;
       if (current.kind === "block") {
-        const found = selectedItemId ? findBlock(project.items, current.blockId) : null;
+        const found = selectedItemId ? findBlock(itemsRef.current, current.blockId) : null;
         if (found && selectedItemId) actions.updateBlock(found.block.id, removeItem(found.block, selectedItemId));
         else actions.deleteBlock(current.blockId);
       } else if (current.kind === "group") actions.deleteGroup(current.groupId);
@@ -1918,7 +1945,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rawSelection, selectedItemId, project.items, actions]);
+  }, [rawSelection, selectedItemId, actions]);
 
   // The section and Blok holding the selection: their outlines stay lit.
   const activeSectionId = selectedBlock?.section.id ?? selectedGroup?.section.id ?? null;
@@ -1928,9 +1955,10 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
    * A new selection opens the section and Blok holding it in the layer tree —
    * once: they fold again at will (also while it stays selected).
    */
-  function revealLayer(next: Selection) {
-    const block = next.kind === "block" ? findBlock(project.items, next.blockId) : null;
-    const group = next.kind === "group" ? findGroup(project.items, next.groupId) : null;
+  const revealLayer = useCallback((next: Selection) => {
+    const items = itemsRef.current;
+    const block = next.kind === "block" ? findBlock(items, next.blockId) : null;
+    const group = next.kind === "group" ? findGroup(items, next.groupId) : null;
     const ids = block ? [block.section.id, block.group.id] : group ? [group.section.id] : [];
     setCollapsedLayers((prev) => {
       if (!ids.some((id) => prev.has(id))) return prev;
@@ -1938,11 +1966,12 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
       ids.forEach((id) => open.delete(id));
       return open;
     });
-  }
+  }, []);
 
   /** Selecting shows the element in the inspector (right) and, with `scroll`, brings it into view on the canvas. */
-  function select(next: Selection, { scroll = false } = {}) {
+  const select = useCallback((next: Selection, { scroll = false } = {}) => {
     setSelection(next);
+    setInspectorTab("design");
     revealLayer(next);
     if (!scroll) return;
     // Next frame: the element may have just been added.
@@ -1957,11 +1986,24 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
         : null;
       target?.scrollIntoView({ behavior: "smooth", block: next.kind === "section" || next.kind === "meta" ? "start" : "center" });
     });
-  }
+  }, [revealLayer]);
+  /** From the layer tree: the canvas scrolls to the row's element unless told otherwise. */
+  const selectFromPanel = useCallback<SelectFromPanel>((next, { scroll = true } = {}) => select(next, { scroll }), [select]);
+  const toggleLayer = useCallback((id: string) => {
+    setCollapsedLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const openPicker = useCallback((groupId: string) => setPicker({ groupId }), []);
 
   // ── Picking on the canvas, as in Figma (see pressOn) ──
   const picked: Selection = selection.kind === "block" ? { kind: "block", blockId: selection.blockId, itemId: selectedItemId ?? undefined } : selection;
-  const pickedLayers = selectionLayers(picked, project.items);
+  const pickedKey = layerKey(picked);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const pickedLayers = useMemo(() => selectionLayers(picked, project.items), [pickedKey, project.items]);
   /** The last press: the layer its click goes down to — and whether it, and the one before it, was in the selected component. */
   const press = useRef<{ drill: Selection | null; armed: boolean; armedBefore: boolean }>({ drill: null, armed: false, armedBefore: false });
   // The layer a click would select carries `data-canvas-hover`: its hover outline.
@@ -1991,7 +2033,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
   useEffect(() => {
     const at = pointerOn.current;
     showHover(at?.isConnected ? hoverOn(at, pickedLayers, deep) : null);
-  });
+  }, [pickedLayers, deep]);
 
   /** A catalog click adds the component where the selection is: after the selected component, into the selected Blok or section, else at the page's end. */
   function addFromCatalog(type: BlockType) {
@@ -2025,41 +2067,34 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
   });
 
   /** The first step of every trail: the section, with its title when it is the last step. */
-  function sectionCrumb(section: PageSection, last: boolean) {
+  function sectionCrumb(section: PageSection, last: boolean): Crumb {
     return {
       label: sectionName(section, findSection(project.items, section.id)?.index ?? 0),
       detail: last ? sectionTitle(section, lang) : undefined,
-      onClick: () => select({ kind: "section", sectionId: section.id }, { scroll: true }),
+      target: { kind: "section", sectionId: section.id },
     };
   }
 
   /** Where the selected component / item sits: section › Blok (› component) — each step selects that level. */
-  function blockCrumbs(found: NonNullable<typeof selectedBlock>, itemId: string | null) {
+  function blockCrumbs(found: NonNullable<typeof selectedBlock>, itemId: string | null): Crumb[] {
     const { section, group, block } = found;
-    const crumbs = [
+    const crumbs: Crumb[] = [
       sectionCrumb(section, false),
-      {
-        label: groupName(group, section.groups.findIndex((g) => g.id === group.id)),
-        onClick: () => select({ kind: "group", groupId: group.id }, { scroll: true }),
-      },
+      { label: groupName(group, section.groups.findIndex((g) => g.id === group.id)), target: { kind: "group", groupId: group.id } },
     ];
-    if (itemId) crumbs.push({ label: blockName(block), onClick: () => select({ kind: "block", blockId: block.id }, { scroll: true }) });
+    if (itemId) crumbs.push({ label: blockName(block), target: { kind: "block", blockId: block.id } });
     return crumbs;
   }
 
-  // Left panel header: the tab's name and its actions.
-  const panelTitle = TAB_TITLES[tab];
-  let panelActions: ReactNode = null;
-  if (tab === "layers") {
-    panelActions = (
-      <LayerButton label={allLayersCollapsed ? "Katmanları aç" : "Katmanları daralt"} onClick={() => toggleAllLayers(!allLayersCollapsed)}>
-        {allLayersCollapsed ? Icons.expandLayers : Icons.collapseLayers}
-      </LayerButton>
-    );
-  }
-  if (tab === "theme" && project.theme) {
-    panelActions = <PillButton size="sm" variant="ghost" onClick={() => actions.updateMeta({ theme: undefined })}>Varsayılana dön</PillButton>;
-  }
+  // Panel headers: the tabs, and the actions of the open one.
+  const layersActions = tab === "layers" && (
+    <LayerButton label={allLayersCollapsed ? "Katmanları aç" : "Katmanları daralt"} onClick={() => toggleAllLayers(!allLayersCollapsed)}>
+      {allLayersCollapsed ? Icons.expandLayers : Icons.collapseLayers}
+    </LayerButton>
+  );
+  const themeActions = inspectorTab === "theme" && project.theme && (
+    <PillButton size="xs" variant="ghost" onClick={() => actions.updateMeta({ theme: undefined })}>Varsayılana dön</PillButton>
+  );
 
   // Inspector header (right): what is selected and what can be done with it.
   let inspectorTitle = "Proje bilgileri";
@@ -2142,30 +2177,28 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
   let sectionIndex = 0;
 
   const pageFrame = pageFrameProps(project.frame);
+  const pageName = project.title?.trim() || "Sayfa";
   return (
     // Drags start as soon as the pointer moves (no press-and-hold wait) — for the
     // cards inside blocks and the sections panel too.
     <DragActivationContext.Provider value="press">
-      <div className="flex h-full min-h-0">
-        {/* ── Icon rail ── */}
-        <nav aria-label="Editör araçları" className="w-12 shrink-0 h-full flex flex-col items-center gap-1 py-2 border-r border-[var(--border)] bg-[var(--bg-1)] z-20 select-none">
-          <RailButton icon={RailIcons.layers} label="Katmanlar" active={tab === "layers"} onClick={() => setTab("layers")} />
-          <RailButton icon={RailIcons.components} label="Bileşenler" active={tab === "components"} onClick={() => setTab("components")} />
-          <RailButton icon={RailIcons.theme} label="Tema" active={tab === "theme"} onClick={() => setTab("theme")} />
-          <RailButton icon={RailIcons.publish} label="Yayın" active={tab === "publish"} onClick={() => setTab("publish")} />
-        </nav>
+      <div className="flex h-full min-h-0 bg-[var(--bg-1)]">
+        {/* ── Left panel: Katmanlar / Bileşenler, as Figma's File / Assets ── */}
+        <aside className="w-[256px] shrink-0 h-full flex flex-col border-r border-[var(--editor-border)] bg-[var(--bg-1)] z-10">
+          <PanelHeader
+            tabs={
+              <>
+                <PanelTab label="Katmanlar" active={tab === "layers"} onClick={() => setTab("layers")} />
+                <PanelTab label="Bileşenler" active={tab === "components"} onClick={() => setTab("components")} />
+              </>
+            }
+            actions={layersActions}
+          />
 
-        {/* ── Left panel: layers, components, theme, publish ── */}
-        <aside className="w-[280px] shrink-0 h-full flex flex-col border-r border-[var(--border)] bg-[var(--bg-1)] z-10">
-          <div className="shrink-0 flex items-center justify-between gap-2 h-11 pl-4 pr-2 border-b border-[var(--border)]">
-            <h2 className="min-w-0 truncate text-[13px] font-semibold leading-4 text-[var(--text-title)] select-none">{panelTitle}</h2>
-            <div className="flex items-center gap-0.5 shrink-0">{panelActions}</div>
-          </div>
-
-          {/* The site's own scrollbar; the layer tree runs almost edge to edge (4px), as in Figma. */}
+          {/* The site's own scrollbar; the layer tree runs edge to edge, as in Figma. */}
           <ScrollArea
             className="flex-1 min-h-0"
-            viewportClassName={cn("h-full overflow-x-hidden flex flex-col gap-3", tab === "layers" ? "px-1 py-4" : "p-4")}
+            viewportClassName={cn("h-full overflow-x-hidden flex flex-col", tab === "layers" ? "py-2" : "gap-3 p-3")}
             inset={8}
             edge={2}
           >
@@ -2174,173 +2207,195 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
                 project={project}
                 selection={selection}
                 collapsed={collapsedLayers}
-                onToggle={(id) =>
-                  setCollapsedLayers((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
-                }
+                onToggle={toggleLayer}
                 actions={actions}
-                onSelect={(next, { scroll = true } = {}) => select(next, { scroll })}
-                onAddBlock={(groupId) => setPicker({ groupId })}
+                onSelect={selectFromPanel}
+                onAddBlock={openPicker}
               />
             )}
 
             {tab === "components" && <CatalogPanel target={catalogTarget} onAdd={addFromCatalog} />}
-
-            {tab === "theme" && (
-              <ProjectThemeFields header={false} theme={project.theme} onChange={(theme) => actions.updateMeta({ theme })} />
-            )}
-
-            {tab === "publish" && <PublishPanel project={project} slug={slug} onLoadTemplate={onLoadTemplate} />}
-
           </ScrollArea>
         </aside>
 
-        {/* ── Canvas ── */}
+        {/* ── Canvas: Figma's grey, the page on it as a white frame ── */}
         <div
-          {...projectThemeAttrs(project.theme)}
           // No press-and-drag text selection on the canvas (it fights with hold-to-drag);
           // the field being edited opts back in. The settings panel stays selectable.
-          className="flex-1 min-w-0 h-full overflow-y-auto bg-[var(--bg-1)] transition-colors duration-200 select-none"
+          className="flex-1 min-w-0 h-full overflow-y-auto bg-[var(--editor-canvas)] transition-colors duration-200 select-none"
           onClick={() => setSelection({ kind: "none" })}
           // Links stay put while editing; the click still reaches the text underneath.
           onClickCapture={(e) => { if ((e.target as Element).closest("a[href]")) e.preventDefault(); }}
           // No native image / link dragging — reordering is done with dnd-kit.
           onDragStart={(e) => e.preventDefault()}
         >
-          {/* `relative`: the size badge (SizeBadge) is placed in it; `isolate`: the canvas's layers stay above its background. */}
-          <main
-            className={cn("relative isolate flex flex-col items-start w-full max-w-[720px] mx-auto px-6 pt-20 pb-40", reordering && REORDER_ROOM)}
-            // A press selects a layer beside the selection at once, so whatever gets dragged is the selection
-            // (capture phase: before the draggables under the pointer see it); inside it, the click goes a level down.
-            onPointerDownCapture={(e) => {
-              if (!isPrimaryPress(e)) return;
-              const found = pressOn(e.target as Element, pickedLayers, deepSelect(e));
-              press.current = { drill: found?.drill?.selection ?? null, armed: found?.armed ?? false, armedBefore: press.current.armed };
-              if (!found) return;
-              setDragTarget(e.nativeEvent, found.layer.el);
-              if (!found.drill) select(found.layer.selection);
-            }}
-            // (No click follows a drag: dnd-kit swallows it.)
-            onClickCapture={(e) => {
-              const { drill, armed } = press.current;
-              press.current.drill = null;
-              if (drill && layerKey(drill) !== layerKey(picked)) select(drill);
-              // A click that picks a component (or a layer above it) stops there: its texts, checkboxes,
-              // "add item" buttons… answer the next one.
-              const target = e.target as Element;
-              if (!armed && target.closest("[data-live-block], [data-overview-part]") && !target.closest("[data-no-drag]")) e.stopPropagation();
-            }}
-            // A double-click edits a text only in the component selected before it — not in one its clicks just
-            // picked — or straight away with Cmd / Ctrl held (deep select).
-            onDoubleClickCapture={(e) => { if (!press.current.armedBefore && !deepSelect(e)) e.stopPropagation(); }}
-            onPointerOver={(e) => {
-              pointerOn.current = e.target as Element;
-              if (deepSelect(e) !== deep) setDeep(deepSelect(e));
-              showHover(hoverOn(e.target as Element, pickedLayers, deepSelect(e)));
-            }}
-            // Ctrl-click is the Mac's right click: on the canvas it deep-selects instead of opening the menu.
-            onContextMenu={(e) => { if (e.ctrlKey) e.preventDefault(); }}
-            onPointerLeave={() => {
-              pointerOn.current = null;
-              showHover(null);
-            }}
-          >
-            {/*
-              While reordering, the rows are as wide as the section outlines (10px into
-              the gutter, like SECTION_BOX) and the list box sits another 14px outside them.
-            */}
-            {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set — the plain list while reordering. */}
-            <div
-              data-page-frame={reordering ? undefined : ""}
-              className={
-                reordering
-                  ? cn(REORDER_LIST, "-mx-[24px] w-[calc(100%+48px)]")
-                  : cn(pageFrame.className, PAGE_LINE, selection.kind === "page" ? "before:border-[var(--edit-accent)]" : PAGE_LINE_HOVER)
-              }
-              style={reordering ? undefined : pageFrame.style}
-            >
-              {/* While a section is dragged the page is just the compact list of sections. */}
-              {!reordering && (
-                <LiveOverview
-                  project={project}
-                  lang={lang}
-                  actions={actions}
-                  selection={selection}
-                />
+          {/* The stage around the page: room above and below — a screen's worth while reordering (ReorderAligner scrolls in it). */}
+          <div className={cn("flex flex-col w-full max-w-[768px] mx-auto px-6", reordering ? REORDER_ROOM : "pt-10 pb-24")}>
+            {/* The frame's name above its corner, as in Figma: blue while the page frame is selected; a click selects it. */}
+            <button
+              type="button"
+              data-no-drag
+              onClick={(e) => { e.stopPropagation(); select({ kind: "page" }); }}
+              className={cn(
+                "self-start flex items-center gap-1 max-w-full h-5 mb-1 px-0.5 text-[11px] leading-4 font-medium truncate cursor-default select-none transition-colors",
+                selection.kind === "page" ? "text-[var(--edit-accent)]" : "text-[var(--text-subtitle)] hover:text-[var(--edit-accent)]"
               )}
-              {project.items.map((item) =>
-                item.kind === "divider" ? (
-                  <LiveDivider
-                    key={item.id}
-                    divider={item}
-                    selected={selection.kind === "divider" && selection.dividerId === item.id}
-                  />
-                ) : (
-                  <LiveSection
-                    key={item.id}
-                    section={item}
-                    index={sectionIndex++}
+            >
+              <span className="shrink-0 flex items-center [&_svg]:w-3 [&_svg]:h-3">{LayerIcons.frame}</span>
+              <span className="truncate">{pageName}</span>
+            </button>
+
+            {/* `relative`: the size badge (SizeBadge) is placed in it; `isolate`: the canvas's layers stay above its background. */}
+            <main
+              {...projectThemeAttrs(project.theme)}
+              // The live page's own column (720px, 24px gutters), drawn as a frame on the canvas.
+              className={cn(ARTBOARD, "relative isolate flex flex-col items-start w-full px-6 pt-20 pb-32")}
+              // A press selects a layer beside the selection at once, so whatever gets dragged is the selection
+              // (capture phase: before the draggables under the pointer see it); inside it, the click goes a level down.
+              onPointerDownCapture={(e) => {
+                if (!isPrimaryPress(e)) return;
+                const found = pressOn(e.target as Element, pickedLayers, deepSelect(e));
+                press.current = { drill: found?.drill?.selection ?? null, armed: found?.armed ?? false, armedBefore: press.current.armed };
+                if (!found) return;
+                setDragTarget(e.nativeEvent, found.layer.el);
+                if (!found.drill) select(found.layer.selection);
+              }}
+              // (No click follows a drag: dnd-kit swallows it.)
+              onClickCapture={(e) => {
+                const { drill, armed } = press.current;
+                press.current.drill = null;
+                if (drill && layerKey(drill) !== layerKey(picked)) select(drill);
+                // A click that picks a component (or a layer above it) stops there: its texts, checkboxes,
+                // "add item" buttons… answer the next one.
+                const target = e.target as Element;
+                if (!armed && target.closest("[data-live-block], [data-overview-part]") && !target.closest("[data-no-drag]")) e.stopPropagation();
+              }}
+              // A double-click edits a text only in the component selected before it — not in one its clicks just
+              // picked — or straight away with Cmd / Ctrl held (deep select).
+              onDoubleClickCapture={(e) => { if (!press.current.armedBefore && !deepSelect(e)) e.stopPropagation(); }}
+              onPointerOver={(e) => {
+                pointerOn.current = e.target as Element;
+                if (deepSelect(e) !== deep) setDeep(deepSelect(e));
+                showHover(hoverOn(e.target as Element, pickedLayers, deepSelect(e)));
+              }}
+              // Ctrl-click is the Mac's right click: on the canvas it deep-selects instead of opening the menu.
+              onContextMenu={(e) => { if (e.ctrlKey) e.preventDefault(); }}
+              onPointerLeave={() => {
+                pointerOn.current = null;
+                showHover(null);
+              }}
+            >
+              {/*
+                While reordering, the rows are as wide as the section outlines (10px into
+                the gutter, like SECTION_BOX) and the list box sits another 14px outside them.
+              */}
+              {/* The page's frame (PageFrame): its sections and dividers, sized and aligned as set — the plain list while reordering. */}
+              <div
+                data-page-frame={reordering ? undefined : ""}
+                className={
+                  reordering
+                    ? cn(REORDER_LIST, "-mx-[10px] w-[calc(100%+20px)]")
+                    : cn(pageFrame.className, PAGE_LINE, selection.kind === "page" ? "before:border-[var(--edit-accent)]" : PAGE_LINE_HOVER)
+                }
+                style={reordering ? undefined : pageFrame.style}
+              >
+                {/* While a section is dragged the page is just the compact list of sections. */}
+                {!reordering && (
+                  <LiveOverview
+                    project={project}
                     lang={lang}
                     actions={actions}
-                    selected={selection.kind === "section" && selection.sectionId === item.id}
-                    active={activeSectionId === item.id}
-                    selectedGroupId={selection.kind === "group" ? selection.groupId : null}
-                    activeGroupId={activeGroupId}
-                    selectedBlockId={selectedBlock?.block.id ?? null}
-                    selectedItemId={selectedItemId}
-                    onSelect={(next) => select(next)}
-                    onInsert={setPicker}
+                    selection={selection}
                   />
-                )
-              )}
-            </div>
+                )}
+                {project.items.map((item) =>
+                  item.kind === "divider" ? (
+                    <LiveDivider
+                      key={item.id}
+                      divider={item}
+                      selected={selection.kind === "divider" && selection.dividerId === item.id}
+                    />
+                  ) : (
+                    <LiveSection
+                      key={item.id}
+                      section={item}
+                      index={sectionIndex++}
+                      lang={lang}
+                      actions={actions}
+                      selected={selection.kind === "section" && selection.sectionId === item.id}
+                      active={activeSectionId === item.id}
+                      selectedGroupId={selection.kind === "group" ? selection.groupId : null}
+                      activeGroupId={activeGroupId}
+                      selectedBlockId={selectedBlock?.block.id ?? null}
+                      selectedItemId={selectedItemId}
+                      onSelect={select}
+                      onInsert={setPicker}
+                    />
+                  )
+                )}
+              </div>
 
-            {/* An empty page: under its header. */}
-            {project.items.length === 0 && (
-              <div className="flex flex-col items-center gap-3 w-full mt-10 py-12 rounded-[28px] border border-dashed border-[var(--border-hover)] text-center">
-                <p className="text-sm text-[var(--text-subtitle)] select-none">Sayfa henüz boş</p>
-                <div className="flex items-center gap-2">
-                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); onLoadTemplate(); }}>Şablondan başla</PillButton>
-                  <PillButton size="md" onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>Bölüm ekle</PillButton>
+              {/* An empty page: under its header. */}
+              {project.items.length === 0 && (
+                <div className="flex flex-col items-center gap-3 w-full mt-10 py-12 rounded-[28px] border border-dashed border-[var(--border-hover)] text-center">
+                  <p className="text-sm text-[var(--text-subtitle)] select-none">Sayfa henüz boş</p>
+                  <div className="flex items-center gap-2">
+                    <PillButton size="md" onClick={(e) => { e.stopPropagation(); onLoadTemplate(); }}>Şablondan başla</PillButton>
+                    <PillButton size="md" onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>Bölüm ekle</PillButton>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {project.items.length > 0 && !reordering && (
-              <div className="flex items-center justify-center gap-2 w-full mt-16">
-                <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>
-                  Bölüm ekle
-                </PillButton>
-                <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addDivider(); }}>
-                  Ayırıcı ekle
-                </PillButton>
-              </div>
-            )}
+              {project.items.length > 0 && !reordering && (
+                <div className="flex items-center justify-center gap-2 w-full mt-16">
+                  <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addSection(); }}>
+                    Bölüm ekle
+                  </PillButton>
+                  <PillButton size="md" startIcon={Icons.plus} onClick={(e) => { e.stopPropagation(); actions.addDivider(); }}>
+                    Ayırıcı ekle
+                  </PillButton>
+                </div>
+              )}
 
-            {badge && <SizeBadge {...badge} />}
-          </main>
+              {badge && <SizeBadge {...badge} revision={project} />}
+            </main>
+          </div>
         </div>
 
-        {/* ── Inspector (Düzenle): whatever is selected, the project when nothing is — as Figma's right panel ── */}
-        <aside aria-label="Düzenle" className="w-[300px] shrink-0 h-full flex flex-col border-l border-[var(--border)] bg-[var(--bg-1)] z-10">
-          <div className="shrink-0 flex items-center justify-between gap-2 h-11 pl-4 pr-2 border-b border-[var(--border)]">
-            <h2 className="min-w-0 truncate text-[13px] font-semibold leading-4 text-[var(--text-title)] select-none">{inspectorTitle}</h2>
-            <div className="flex items-center gap-0.5 shrink-0">
-              {inspectorActions}
-              {selection.kind !== "none" && (
-                <LayerButton label="Seçimi kaldır (Esc)" onClick={() => setSelection({ kind: "none" })}>{Icons.close}</LayerButton>
-              )}
+        {/* ── Right panel: Tasarım / Tema / Yayın, as Figma's Design panel ── */}
+        <aside aria-label="Düzenle" className="w-[272px] shrink-0 h-full flex flex-col border-l border-[var(--editor-border)] bg-[var(--bg-1)] z-10">
+          <PanelHeader
+            tabs={
+              <>
+                <PanelTab label="Tasarım" active={inspectorTab === "design"} onClick={() => setInspectorTab("design")} />
+                <PanelTab label="Tema" active={inspectorTab === "theme"} onClick={() => setInspectorTab("theme")} />
+                <PanelTab label="Yayın" active={inspectorTab === "publish"} onClick={() => setInspectorTab("publish")} />
+              </>
+            }
+            actions={themeActions}
+          />
+          {/* Tasarım: what is selected and what can be done with it, over its settings (full-width sections, as in Figma). */}
+          {inspectorTab === "design" && (
+            <div className="shrink-0 flex items-center justify-between gap-2 h-9 pl-4 pr-2 border-b border-[var(--editor-border)]">
+              <h2 className="min-w-0 truncate text-[11px] font-semibold leading-4 text-[var(--text-title)] select-none">{inspectorTitle}</h2>
+              <div className="flex items-center gap-0.5 shrink-0">
+                {inspectorActions}
+                {selection.kind !== "none" && (
+                  <LayerButton label="Seçimi kaldır (Esc)" onClick={() => setSelection({ kind: "none" })}>{Icons.close}</LayerButton>
+                )}
+              </div>
             </div>
-          </div>
-          {/* Sections run full width, as in Figma's properties panel. */}
+          )}
           <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col" inset={8} edge={2}>
-            {selectedBlock ? (
+            {inspectorTab === "theme" ? (
+              <div className="p-3">
+                <ProjectThemeFields header={false} theme={project.theme} onChange={(theme) => actions.updateMeta({ theme })} />
+              </div>
+            ) : inspectorTab === "publish" ? (
+              <PublishPanel project={project} slug={slug} onLoadTemplate={onLoadTemplate} />
+            ) : selectedBlock ? (
               <div className="flex flex-col">
-                <Crumbs items={blockCrumbs(selectedBlock, selectedItemId)} />
+                <Crumbs items={blockCrumbs(selectedBlock, selectedItemId)} onSelect={(target) => select(target, { scroll: true })} />
                 {selectedItemId ? (
                   <ItemInspector
                     block={selectedBlock.block}
@@ -2384,7 +2439,7 @@ export function LiveEditor({ project, lang, slug, companies, actions, onLoadTemp
               </div>
             ) : selectedGroup ? (
               <div className="flex flex-col">
-                <Crumbs items={[sectionCrumb(selectedGroup.section, true)]} />
+                <Crumbs items={[sectionCrumb(selectedGroup.section, true)]} onSelect={(target) => select(target, { scroll: true })} />
                 <GroupInspector
                   group={selectedGroup.group}
                   section={selectedGroup.section}
