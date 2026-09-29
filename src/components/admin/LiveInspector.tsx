@@ -2007,15 +2007,15 @@ export function VariablePicker({ at, variables, byId, mode, selectedId, onPick }
   return (
     <div
       role="dialog"
-      aria-label="Değişkenler"
+      aria-label="Variables"
       style={popoverStyle(at, PICKER_WIDTH, 360)}
       className="fixed z-50 flex flex-col rounded-[8px] border border-[var(--border)] bg-[var(--bg-1)] shadow-[0_12px_32px_rgba(0,0,0,0.12)]"
     >
       <div className="shrink-0 p-2 border-b border-[var(--border)]">
         <input
           autoFocus
-          aria-label="Değişken ara"
-          placeholder="Ara"
+          aria-label="Search variables"
+          placeholder="Search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="w-full h-6 px-2 rounded-[6px] bg-[var(--bg-4)] text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
@@ -2047,7 +2047,7 @@ export function VariablePicker({ at, variables, byId, mode, selectedId, onPick }
           </div>
         ))}
         {groups.size === 0 && (
-          <p className="px-2 py-3 text-[11px] text-[var(--text-subtitle)]">{variables.length ? "Eşleşen değişken yok." : "Bu türde değişken yok."}</p>
+          <p className="px-2 py-3 text-[11px] text-[var(--text-subtitle)]">{variables.length ? "No results" : "No variables"}</p>
         )}
       </div>
     </div>

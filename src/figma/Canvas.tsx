@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { FigmaIcon } from "@/components/admin/figmaIcons";
 import { DesignSystemStyle } from "@/components/project/designSystem";
 import { MIN_ZOOM, clampZoom, fitView, zoomAround, type CanvasTool, type CanvasView, type ZoomActions } from "@/components/admin/canvasModel";
-import { findNode, getNode, isFrameLike, isLocked, topmost, type FigmaDocument, type SceneNode } from "./model";
+import { findNode, getNode, isFrameLike, isLocked, numberOf, topmost, type FigmaDocument, type FrameNode, type SceneNode } from "./model";
 import { MotionStyle, NodeView, RenderProvider, type RenderContext } from "./NodeView";
 
 /**
@@ -47,6 +47,10 @@ export interface CanvasProps {
   onReorder: (id: string, index: number) => void;
   /** A node sized: its rect in its parent now, and which axes changed */
   onResize: (id: string, rect: Rect, changed: { x: boolean; y: boolean }) => void;
+  /** An auto layout frame's padding or gap changed from its handles on the canvas */
+  onLayoutEdit?: (id: string, patch: Partial<FrameNode>) => void;
+  /** A padding or gap field focused in the panel: its strips highlighted here */
+  layoutFocus?: { pads?: PadSide[]; gap?: boolean } | null;
   /** (The tool is set by the editor's keys and toolbar.) */
   onTool?: (tool: CanvasTool) => void;
   /** Drawn with a tool into `parentId` (null: the canvas), at `rect` in it; `clicked`: no drag (a default size); `index`: its place in an auto layout's flow */
@@ -94,6 +98,14 @@ function pickFrom(path: { id: string; el: HTMLElement }[], selection: readonly s
 
 /** Figma's measurement red. */
 const MEASURE = "#f24822";
+/** Figma's pink: the gap handles between an auto layout's children. */
+const GAP_COLOR = "#ff24bd";
+
+type PadSide = "top" | "right" | "bottom" | "left";
+/** What a layout handle stands for: one side's padding, or the gap between the children. */
+type LayoutTarget = { kind: "pad"; side: PadSide } | { kind: "gap" };
+const OPPOSITE: Record<PadSide, PadSide> = { top: "bottom", bottom: "top", left: "right", right: "left" };
+const PAD_KEY: Record<PadSide, "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft"> = { top: "paddingTop", right: "paddingRight", bottom: "paddingBottom", left: "paddingLeft" };
 
 /** Figma's ⌥ measurement: both boxes outlined in red, the gaps between them drawn as red lines with their distance (canvas px). */
 function Measure({ a, b, zoom }: { a: Rect; b: Rect; zoom: number }) {
@@ -139,6 +151,14 @@ function drawRuler(canvas: HTMLCanvasElement | null, view: CanvasView, length: n
   if (!g) return;
   g.scale(dpr, dpr);
   g.clearRect(0, 0, length, length);
+  // The strip on the panel's own background (the editor's tokens), a hairline along its inner edge — as Figma's rulers.
+  const tokens = getComputedStyle(canvas);
+  const token = (name: string, fallback: string) => tokens.getPropertyValue(name).trim() || fallback;
+  g.fillStyle = token("--f-bg", "#ffffff");
+  g.fillRect(0, 0, length, length);
+  g.fillStyle = token("--f-border", "#e6e6e6");
+  if (vertical) g.fillRect(RULER - 1, 0, 1, length);
+  else g.fillRect(0, RULER - 1, length, 1);
   g.font = "9px Inter, ui-sans-serif, system-ui";
   const origin = vertical ? view.y : view.x;
   const span = selected ? { from: (vertical ? selected.y : selected.x) - RULER, size: vertical ? selected.h : selected.w } : null;
@@ -147,8 +167,8 @@ function drawRuler(canvas: HTMLCanvasElement | null, view: CanvasView, length: n
     if (vertical) g.fillRect(0, span.from, RULER, span.size);
     else g.fillRect(span.from, 0, span.size, RULER);
   }
-  g.fillStyle = "#b3b3b3";
-  g.strokeStyle = "#e6e6e6";
+  g.fillStyle = token("--f-text-tertiary", "#b3b3b3");
+  g.strokeStyle = token("--f-border", "#e6e6e6");
   const first = Math.floor(-origin / view.zoom / step) * step;
   for (let v = first; v * view.zoom + origin < length; v += step) {
     const at = Math.round(v * view.zoom + origin) + 0.5;
@@ -195,7 +215,7 @@ function Rulers({ view, width, height, selected }: { view: CanvasView; width: nu
     <>
       <canvas ref={top} aria-hidden className="pointer-events-none absolute top-0 z-20" style={{ left: RULER, width: width, height: RULER }} />
       <canvas ref={left} aria-hidden className="pointer-events-none absolute left-0 z-20" style={{ top: RULER, width: RULER, height: height }} />
-      <div aria-hidden className="pointer-events-none absolute left-0 top-0 z-20" style={{ width: RULER, height: RULER }} />
+      <div aria-hidden className="pointer-events-none absolute left-0 top-0 z-20 bg-[var(--f-bg)] border-r border-b border-[var(--f-border)]" style={{ width: RULER, height: RULER }} />
     </>
   );
 }
@@ -211,24 +231,35 @@ const World = memo(function World({ doc, render }: { doc: FigmaDocument; render:
   );
 });
 
-export function Canvas({ doc, render, selection, onSelect, view, onView, tool, onMove, onReparent, onReorder, onResize, onDraw, onDoubleClick, onContextMenu, zoomActionsRef, rulers = true, background }: CanvasProps) {
+export function Canvas({ doc, render, selection, onSelect, view, onView, tool, onMove, onReparent, onReorder, onResize, onLayoutEdit, layoutFocus, onDraw, onDoubleClick, onContextMenu, zoomActionsRef, rulers = true, background }: CanvasProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
   const [space, setSpace] = useState(false);
-  const [dragging, setDragging] = useState<"pan" | "move" | "resize" | "draw" | "marquee" | null>(null);
+  const [dragging, setDragging] = useState<"pan" | "move" | "resize" | "draw" | "marquee" | "layout" | null>(null);
+  // The padding / gap handles: the one hovered, the one dragged (with its value, for the badge), the one typed into.
+  const [layoutHover, setLayoutHover] = useState<LayoutTarget | null>(null);
+  const [layoutDrag, setLayoutDrag] = useState<{ target: LayoutTarget; value: number; all: boolean; both: boolean } | null>(null);
+  const [layoutEdit, setLayoutEdit] = useState<{ target: LayoutTarget; value: string } | null>(null);
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [drawRect, setDrawRect] = useState<Rect | null>(null);
   const [guides, setGuides] = useState<{ axis: "x" | "y"; at: number }[]>([]);
   // Where a dragged node would land: the frame's box (none for the canvas) and the line along an auto layout.
   const [drop, setDrop] = useState<{ rect: Rect | null; line?: Rect } | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
-  const [shown, setShown] = useState<{ boxes: Rect[]; hover: Rect | null; parent: Rect | null; labels: { id: string; name: string; rect: Rect; kind: string }[]; measure: { a: Rect; b: Rect } | null; origins: Rect[] }>({ boxes: [], hover: null, parent: null, labels: [], measure: null, origins: [] });
+  const [shown, setShown] = useState<{ boxes: Rect[]; hover: Rect | null; parent: Rect | null; labels: { id: string; name: string; rect: Rect; kind: string }[]; measure: { a: Rect; b: Rect } | null; origins: Rect[]; kids: Rect[] }>({ boxes: [], hover: null, parent: null, labels: [], measure: null, origins: [], kids: [] });
 
   const probe = useRef<HTMLSpanElement>(null);
   // ⌥ held: a copy drag's ghosts follow the pointer (the originals stay), and distances to what is hovered are measured in red, as Figma's.
   const [alt, setAlt] = useState(false);
   const altRef = useRef(false);
   useEffect(() => { altRef.current = alt; }, [alt]);
+  // The selected layers' elements marked, for what only shows on a selected layer (a grid's cells).
+  useEffect(() => {
+    const w = world.current;
+    if (!w) return;
+    w.querySelectorAll("[data-layer-selected]").forEach((el) => el.removeAttribute("data-layer-selected"));
+    for (const id of selection) w.querySelector(`[data-node-id="${CSS.escape(id)}"]`)?.setAttribute("data-layer-selected", "");
+  }, [selection, doc]);
   const ghosts = useRef<Map<string, HTMLElement>>(new Map());
   const [copying, setCopying] = useState(false);
   useEffect(() => {
@@ -318,8 +349,15 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
         if (!el || !isFrameLike(n)) return [];
         return [{ id: n.id, name: n.name, rect: worldRect(el), kind: n.type }];
       });
-      // Components anywhere carry their name too, as Figma's purple labels — only top-level ones (nested read from the tree).
-      const next = { boxes, hover, parent, labels, measure, origins };
+      // A selected auto layout frame's children in its flow, for the gap handles between them.
+      let kids: Rect[] = [];
+      if (sel.length === 1 && !sel[0].includes("/")) {
+        const n = getNode(d.nodes, sel[0]);
+        if (n && isFrameLike(n) && n.layoutMode !== "none") {
+          kids = n.children.filter((c) => c.visible !== false && !c.absolute).map((c) => elOf(c.id)).filter((el): el is HTMLElement => Boolean(el)).map((el) => worldRect(el));
+        }
+      }
+      const next = { boxes, hover, parent, labels, measure, origins, kids };
       const key = JSON.stringify(next);
       if (key === last) return;
       last = key;
@@ -641,20 +679,25 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
         const dx = (ev.clientX - start.x) / zoom;
         const dy = (ev.clientY - start.y) / zoom;
         const rect = { ...from };
-        if (handle.includes("e")) rect.w = from.w + dx;
-        if (handle.includes("w")) { rect.w = from.w - dx; rect.x = from.x + dx; }
-        if (handle.includes("s")) rect.h = from.h + dy;
-        if (handle.includes("n")) { rect.h = from.h - dy; rect.y = from.y + dy; }
+        // ⌥: the opposite side moves the same way, the centre stays put (Figma's).
+        const centred = ev.altKey;
+        const k = centred ? 2 : 1;
+        if (handle.includes("e")) rect.w = from.w + k * dx;
+        if (handle.includes("w")) { rect.w = from.w - k * dx; if (!centred) rect.x = from.x + dx; }
+        if (handle.includes("s")) rect.h = from.h + k * dy;
+        if (handle.includes("n")) { rect.h = from.h - k * dy; if (!centred) rect.y = from.y + dy; }
         // ⇧ on a corner, or the node's own constrained proportions: W and H change together.
         if ((ev.shiftKey && changed.x && changed.y) || found.node.lockAspect) {
           if (changed.x) rect.h = rect.w / ratio;
           else rect.w = rect.h * ratio;
-          if (handle.includes("n")) rect.y = from.y + from.h - rect.h;
-          if (handle.includes("w") && !changed.x) rect.x = from.x + from.w - rect.w;
+          if (!centred && handle.includes("n")) rect.y = from.y + from.h - rect.h;
+          if (!centred && handle.includes("w") && !changed.x) rect.x = from.x + from.w - rect.w;
         }
         const w = Math.max(1, Math.round(rect.w));
         const h = Math.max(found.node.type === "line" ? 0 : 1, Math.round(rect.h));
-        onResize(id, { x: Math.round((handle.includes("w") ? from.x + from.w - w : rect.x) - origin.x), y: Math.round((handle.includes("n") ? from.y + from.h - h : rect.y) - origin.y), w, h }, changed);
+        const x = centred ? from.x + (from.w - w) / 2 : handle.includes("w") ? from.x + from.w - w : rect.x;
+        const y = centred ? from.y + (from.h - h) / 2 : handle.includes("n") ? from.y + from.h - h : rect.y;
+        onResize(id, { x: Math.round(x - origin.x), y: Math.round(y - origin.y), w, h }, changed);
       },
       () => {}
     );
@@ -803,6 +846,139 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
   const purple = selection.some((id) => { const n = id.includes("/") ? null : getNode(doc.nodes, id); return n && (n.type === "component" || n.type === "componentSet" || n.type === "instance"); }) || selection.some((id) => id.includes("/"));
   const tone = purple ? "var(--edit-component)" : "var(--edit-accent)";
   const resizable = selectedNode && !selectedNode.locked;
+  // ── Figma's layout handles: a selected auto layout frame's padding (blue, at each edge) and gap (pink, between its children) ──
+  const layoutFrame = onLayoutEdit && box && selectedNode && isFrameLike(selectedNode) && (selectedNode.layoutMode === "vertical" || selectedNode.layoutMode === "horizontal") && !selectedNode.locked && !DRAW_TOOLS.has(tool) && (dragging === null || dragging === "layout") ? selectedNode : null;
+  const modelPads = layoutFrame ? { top: numberOf(layoutFrame.paddingTop, render.byId), right: numberOf(layoutFrame.paddingRight, render.byId), bottom: numberOf(layoutFrame.paddingBottom, render.byId), left: numberOf(layoutFrame.paddingLeft, render.byId) } : null;
+  // While a handle is dragged the model waits (the drag previews in the DOM): the strips follow the dragged value.
+  const pads = modelPads && layoutDrag?.target.kind === "pad"
+    ? (() => { const t = layoutDrag.target as { kind: "pad"; side: PadSide }; const sides: PadSide[] = layoutDrag.all ? ["top", "right", "bottom", "left"] : layoutDrag.both ? [t.side, OPPOSITE[t.side]] : [t.side]; const next = { ...modelPads }; for (const s of sides) next[s] = layoutDrag.value; return next; })()
+    : modelPads;
+  const flowH = layoutFrame?.layoutMode === "horizontal";
+  const kids = layoutFrame ? shown.kids.map(S) : [];
+  /** A padding side's strip (screen px) and its handle's point: in the middle of the strip (just inside the edge when there is none), as Figma's. */
+  const padGeometry = (side: PadSide) => {
+    const b = box!;
+    const z = view.zoom;
+    const p = pads![side] * z;
+    const mid = Math.max(p / 2, 6);
+    if (side === "top") return { region: { x: b.x, y: b.y, w: b.w, h: p }, at: { x: b.x + b.w / 2, y: b.y + mid }, across: true };
+    if (side === "bottom") return { region: { x: b.x, y: b.y + b.h - p, w: b.w, h: p }, at: { x: b.x + b.w / 2, y: b.y + b.h - mid }, across: true };
+    if (side === "left") return { region: { x: b.x, y: b.y, w: p, h: b.h }, at: { x: b.x + mid, y: b.y + b.h / 2 }, across: false };
+    return { region: { x: b.x + b.w - p, y: b.y, w: p, h: b.h }, at: { x: b.x + b.w - mid, y: b.y + b.h / 2 }, across: false };
+  };
+  /** The gaps between consecutive children in the flow (the same row, when wrapping): their strips and handle points. */
+  const gapGeometry = () => {
+    if (!layoutFrame || !pads || layoutFrame.primaryAlign === "spaceBetween") return [];
+    const b = box!;
+    const z = view.zoom;
+    const out: { region: Rect; at: { x: number; y: number } }[] = [];
+    for (let i = 0; i + 1 < kids.length; i++) {
+      const a = kids[i];
+      const c = kids[i + 1];
+      if (flowH) {
+        if (c.x < a.x + a.w - 1) continue;
+        const region = { x: a.x + a.w, y: b.y + pads.top * z, w: Math.max(0, c.x - (a.x + a.w)), h: Math.max(0, b.h - (pads.top + pads.bottom) * z) };
+        out.push({ region, at: { x: region.x + region.w / 2, y: region.y + region.h / 2 } });
+      } else {
+        if (c.y < a.y + a.h - 1) continue;
+        const region = { x: b.x + pads.left * z, y: a.y + a.h, w: Math.max(0, b.w - (pads.left + pads.right) * z), h: Math.max(0, c.y - (a.y + a.h)) };
+        out.push({ region, at: { x: region.x + region.w / 2, y: region.y + region.h / 2 } });
+      }
+    }
+    return out;
+  };
+  const gaps = layoutFrame ? gapGeometry() : [];
+  const layoutActive = layoutDrag?.target ?? layoutHover;
+  const padShown = (side: PadSide) => Boolean(layoutFocus?.pads?.includes(side)) || (!!layoutActive && layoutActive.kind === "pad" && (layoutActive.side === side || (layoutDrag?.both && OPPOSITE[layoutActive.side] === side) || Boolean(layoutDrag?.all)));
+  const gapShown = Boolean(layoutFocus?.gap) || (!!layoutActive && layoutActive.kind === "gap");
+  const applyLayout = (target: LayoutTarget, value: number, both = false, all = false) => {
+    if (!layoutFrame) return;
+    if (target.kind === "gap") return onLayoutEdit!(layoutFrame.id, { itemSpacing: { value } });
+    const sides: PadSide[] = all ? ["top", "right", "bottom", "left"] : both ? [target.side, OPPOSITE[target.side]] : [target.side];
+    const patch: Partial<FrameNode> = {};
+    for (const s of sides) patch[PAD_KEY[s]] = { value };
+    onLayoutEdit!(layoutFrame.id, patch);
+  };
+  /**
+   * A handle dragged: the padding (⌥: with its opposite; ⇧⌥: all four) or
+   * the gap follows the pointer — drawn straight into the frame's element
+   * while it moves (the whole document would be too slow to re-render at
+   * every step), written to the model once it is let go. A click opens the
+   * value to type.
+   */
+  const startLayoutDrag = (e: React.PointerEvent, target: LayoutTarget) => {
+    if (e.button !== 0 || !layoutFrame || !pads) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const frame = layoutFrame;
+    const el = elOf(frame.id);
+    // The element's own inline values (React's), put back once the drag ends — the model's render then writes what changed.
+    const saved = el ? { top: el.style.paddingTop, right: el.style.paddingRight, bottom: el.style.paddingBottom, left: el.style.paddingLeft, columnGap: el.style.columnGap, rowGap: el.style.rowGap } : null;
+    const start = { x: e.clientX, y: e.clientY };
+    const from = target.kind === "gap" ? numberOf(frame.itemSpacing, render.byId) : pads[target.side];
+    const modelSides = { ...pads };
+    let value = from;
+    let both = false;
+    let all = false;
+    let moved = false;
+    const preview = () => {
+      if (!el) return;
+      if (target.kind === "gap") {
+        if (flowH) el.style.columnGap = `${value}px`;
+        else el.style.rowGap = `${value}px`;
+        return;
+      }
+      const sides: PadSide[] = all ? ["top", "right", "bottom", "left"] : both ? [target.side, OPPOSITE[target.side]] : [target.side];
+      for (const s of ["top", "right", "bottom", "left"] as PadSide[]) el.style[PAD_KEY[s]] = `${sides.includes(s) ? value : modelSides[s]}px`;
+    };
+    setLayoutEdit(null);
+    setLayoutDrag({ target, value, both, all });
+    follow(
+      "layout",
+      (ev) => {
+        const zoom = latest.current.view.zoom;
+        const dx = (ev.clientX - start.x) / zoom;
+        const dy = (ev.clientY - start.y) / zoom;
+        if (Math.abs(ev.clientX - start.x) > 2 || Math.abs(ev.clientY - start.y) > 2) moved = true;
+        if (!moved) return;
+        // A padding's handle sits in its strip: pulled outward (up for the top, down for the bottom…) the padding grows, as Figma's.
+        const d = target.kind === "gap" ? (flowH ? dx : dy) : target.side === "top" ? -dy : target.side === "bottom" ? dy : target.side === "left" ? -dx : dx;
+        value = Math.max(0, Math.round(from + d));
+        both = ev.altKey && !ev.shiftKey;
+        all = ev.altKey && ev.shiftKey;
+        preview();
+        setLayoutDrag({ target, value, both, all });
+      },
+      () => {
+        setLayoutDrag(null);
+        if (el && saved) {
+          // The preview comes off (never by removing a longhand: the gap is React's shorthand, taking one off would zero it); the model's render then writes what changed.
+          el.style.paddingTop = saved.top;
+          el.style.paddingRight = saved.right;
+          el.style.paddingBottom = saved.bottom;
+          el.style.paddingLeft = saved.left;
+          el.style.columnGap = saved.columnGap;
+          el.style.rowGap = saved.rowGap;
+        }
+        if (moved) applyLayout(target, value, both, all);
+        else setLayoutEdit({ target, value: String(value) });
+      }
+    );
+  };
+  const commitLayoutEdit = () => {
+    if (!layoutEdit) return;
+    const n = Number(layoutEdit.value.replace(",", "."));
+    if (Number.isFinite(n)) applyLayout(layoutEdit.target, Math.max(0, Math.round(n)));
+    setLayoutEdit(null);
+  };
+  /** Where a handle's badge or field sits: outside the frame, past the handle. */
+  const layoutPoint = (target: LayoutTarget) => {
+    if (target.kind === "gap") {
+      const g = gaps[0];
+      return g ? g.at : null;
+    }
+    return padGeometry(target.side).at;
+  };
   const cursor = dragging === "pan" || (dragging === null && (space || tool === "hand")) ? (dragging === "pan" ? "grabbing" : "grab") : tool === "text" ? "text" : DRAW_TOOLS.has(tool) ? "crosshair" : undefined;
   const inset = rulers ? RULER : 0;
 
@@ -812,6 +988,11 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
       data-figma-canvas=""
       className="absolute inset-0 overflow-hidden select-none touch-none"
       style={{ cursor, background: background ?? "var(--edit-canvas, #f5f5f5)" }}
+      onPointerDownCapture={() => {
+        // A press on the canvas takes the focus off a panel field (its padding / gap highlight goes with it), as Figma's.
+        const active = document.activeElement as HTMLElement | null;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA") && !viewport.current?.contains(active)) active.blur();
+      }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClickCanvas}
       onPointerOver={(e) => {
@@ -901,6 +1082,92 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
         ) : (
           <div key={`gy${i}`} aria-hidden className="pointer-events-none absolute left-0 right-0 h-px" style={{ top: view.y + g.at * view.zoom, background: "var(--edit-snap, #ff00ff)" }} />
         )
+      )}
+      {/* ── Padding and gap handles (Figma's): hover shows the strip, a drag changes it, a click opens the value ── */}
+      {layoutFrame && pads && (
+        <>
+          {(["top", "right", "bottom", "left"] as PadSide[]).map((side) => {
+            const g = padGeometry(side);
+            const on = padShown(side);
+            return (
+              <span key={side}>
+                {on && g.region.w > 0 && g.region.h > 0 && (
+                  <span aria-hidden className="pointer-events-none absolute" style={{ left: g.region.x, top: g.region.y, width: g.region.w, height: g.region.h, background: "repeating-linear-gradient(-45deg, rgba(13,153,255,0.32) 0 2px, rgba(13,153,255,0.08) 2px 7px)" }} />
+                )}
+                <span
+                  data-canvas-ui=""
+                  role="slider"
+                  aria-label={`${side} padding`}
+                  aria-valuenow={pads[side]}
+                  onPointerDown={(e) => startLayoutDrag(e, { kind: "pad", side })}
+                  onPointerEnter={() => setLayoutHover({ kind: "pad", side })}
+                  onPointerLeave={() => setLayoutHover((h) => (h && h.kind === "pad" && h.side === side ? null : h))}
+                  className="absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2"
+                  style={{ left: g.at.x, top: g.at.y, width: g.across ? 22 : 12, height: g.across ? 12 : 22, cursor: g.across ? "ns-resize" : "ew-resize" }}
+                >
+                  <span className="rounded-full" style={{ width: g.across ? 14 : 2, height: g.across ? 2 : 14, background: on ? "var(--edit-accent, #0d99ff)" : "color-mix(in srgb, var(--edit-accent, #0d99ff) 70%, transparent)" }} />
+                </span>
+              </span>
+            );
+          })}
+          {gaps.map((g, i) => {
+            const on = gapShown;
+            return (
+              <span key={`gap${i}`}>
+                {on && g.region.w > 0 && g.region.h > 0 && (
+                  <span aria-hidden className="pointer-events-none absolute" style={{ left: g.region.x, top: g.region.y, width: g.region.w, height: g.region.h, boxShadow: `inset 0 0 0 1px ${GAP_COLOR}`, background: "rgba(255,36,189,0.06)" }} />
+                )}
+                <span
+                  data-canvas-ui=""
+                  role="slider"
+                  aria-label="Gap"
+                  aria-valuenow={numberOf(layoutFrame.itemSpacing, render.byId)}
+                  onPointerDown={(e) => startLayoutDrag(e, { kind: "gap" })}
+                  onPointerEnter={() => setLayoutHover({ kind: "gap" })}
+                  onPointerLeave={() => setLayoutHover((h) => (h && h.kind === "gap" ? null : h))}
+                  className="absolute flex items-center justify-center -translate-x-1/2 -translate-y-1/2"
+                  style={{ left: g.at.x, top: g.at.y, width: flowH ? 12 : 22, height: flowH ? 22 : 12, cursor: flowH ? "ew-resize" : "ns-resize" }}
+                >
+                  <span className="rounded-full" style={{ width: flowH ? 2 : 14, height: flowH ? 14 : 2, background: GAP_COLOR, opacity: on ? 1 : 0.8 }} />
+                </span>
+              </span>
+            );
+          })}
+          {/* The value's badge: over the handle while it is hovered or dragged (Figma's). */}
+          {layoutActive && !layoutEdit && (() => {
+            const at = layoutPoint(layoutActive);
+            if (!at) return null;
+            const value = layoutDrag ? layoutDrag.value : layoutActive.kind === "gap" ? numberOf(layoutFrame.itemSpacing, render.byId) : pads[layoutActive.side];
+            return (
+              <span aria-hidden className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 px-1.5 h-5 rounded-[4px] text-[11px] font-medium leading-5 text-white tabular-nums whitespace-nowrap" style={{ left: at.x, top: at.y - 18, background: layoutActive.kind === "gap" ? GAP_COLOR : "var(--edit-accent, #0d99ff)" }}>
+                {value}
+              </span>
+            );
+          })()}
+          {layoutEdit && (() => {
+            const at = layoutPoint(layoutEdit.target);
+            if (!at) return null;
+            const t = layoutEdit.target;
+            const dx = t.kind === "pad" && t.side === "left" ? -52 : t.kind === "pad" && t.side === "right" ? 52 : 0;
+            const dy = t.kind === "gap" ? -32 : t.side === "top" ? -32 : t.side === "bottom" ? 32 : 0;
+            const icon = t.kind === "gap" ? (flowH ? "al.spacing-horizontal" : "al.spacing-vertical") : "al.padding-sides";
+            return (
+              <span data-canvas-ui="" className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 h-8 pl-1.5 pr-2 rounded-[8px] bg-[var(--f-bg-menu,#1e1e1e)] text-white shadow-[0_4px_12px_rgba(0,0,0,0.3)]" style={{ left: at.x + dx, top: at.y + dy }} onPointerDown={(e) => e.stopPropagation()}>
+                <span className="flex items-center text-white/70"><FigmaIcon name={icon} size={16} /></span>
+                <input
+                  autoFocus
+                  aria-label={t.kind === "gap" ? "Gap" : `${t.side} padding`}
+                  value={layoutEdit.value}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => setLayoutEdit({ target: t, value: e.target.value })}
+                  onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") commitLayoutEdit(); if (e.key === "Escape") setLayoutEdit(null); }}
+                  onBlur={commitLayoutEdit}
+                  className="w-11 h-6 px-1.5 rounded-[3px] bg-white/10 text-[11px] leading-4 text-white outline-none tabular-nums selection:bg-[var(--edit-accent,#0d99ff)]"
+                />
+              </span>
+            );
+          })()}
+        </>
       )}
       {box && resizable && dragging !== "move" &&
         ALL_HANDLES.map((handle) => (

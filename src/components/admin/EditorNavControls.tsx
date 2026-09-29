@@ -104,7 +104,7 @@ export function EditorNavControls({ size = "md" }: { size?: "sm" | "md" }) {
   const isError  = saveStatus === "error";
 
   const saveIcon = isSaving ? <SpinIcon /> : isSaved ? <CheckIcon /> : isError ? <ErrorIcon /> : <SaveIcon />;
-  const saveLabel = isSaving ? "Kaydediliyor…" : isSaved ? "Kaydedildi" : isError ? "Hata!" : "Kaydet";
+  const saveLabel = isSaving ? "Saving…" : isSaved ? "Saved" : isError ? "Couldn't save" : "Save";
   const saveVariant: "default" | "filled" | "ghost" = isSaved ? "filled" : "default";
 
   return (

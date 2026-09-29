@@ -9,7 +9,7 @@ import { FigmaIcon } from "@/components/admin/figmaIcons";
  * Figma's context menu (UI3): a right click on a layer — on the canvas or in
  * the layer tree — opens what can be done with it, as Figma's dark menu: its
  * actions in groups (a line between them), each with its keys on the right,
- * some opening a menu of their own beside them (Katmanı seç ›, Varyant ›).
+ * some opening a menu of their own beside them (Select layer ›, Variant ›).
  * The mouse or the keys pick one (↑ ↓, → opens a menu beside, ← and Esc go
  * back, Enter picks); a click elsewhere, the wheel or Esc closes it.
  */

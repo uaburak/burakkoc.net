@@ -20,11 +20,11 @@ import { nodeCss } from "./css";
 import { uploadFile } from "@/lib/storage";
 import { Inspector, type EditorOps } from "./Inspector";
 import { Layers, layerIcon, requestRename, type TreePlace } from "./Layers";
-import { BrandButton, CollapseHeader, IconButton, Tab, TextInput } from "./ui";
+import { BrandButton, CollapseHeader, EDITOR_CSS, IconButton, Tab, TextInput } from "./ui";
 import { MotionStyle, NodeView, RenderProvider, type RenderContext } from "./NodeView";
 import {
-  PATH_SEP,
   allComponents,
+  applyPropertyValue,
   byIdMap,
   cloneNode,
   findComponent,
@@ -32,6 +32,9 @@ import {
   getNode,
   insertNode,
   isFrameLike,
+  PATH_SEP,
+  layerAt,
+  libraryOf,
   makeFrame,
   makeInstance,
   makeShape,
@@ -39,10 +42,14 @@ import {
   nextName,
   nid,
   numberOf,
+  pageOfNode,
   pickVariant,
+  pruneBindings,
   removeNodes,
   resolveInstance,
   setOf,
+  updateAnywhere,
+  withOverride,
   topmost,
   updateNode,
   updateNodes,
@@ -58,18 +65,22 @@ import {
 
 /**
  * The editor — Figma, for the project's page: the navigation bar (the
- * menu; Dosya, Varlıklar, Değişkenler), the left sidebar (the file, its
- * page, the layers), the canvas, the right sidebar (Tasarım / Prototip,
- * Kaydet), the toolbar. Everything edits `doc`; Kaydet writes it with the
+ * menu; File, Assets, Variables), the left sidebar (the file, its
+ * page, the layers), the canvas, the right sidebar (Design / Prototype,
+ * Save), the toolbar. Everything edits `doc`; Save writes it with the
  * project. Undo is the project's (see AdminEditorClient).
  */
 
 type LeftTab = "file" | "assets" | "variables";
 
 /** Figma's colours, as its UI kit's variables resolve (Light / Dark) — the chrome's tokens, and the site's ones over them for shared pieces. */
+const PANEL_WIDTHS_KEY = "figma-panel-widths";
+
 const FIGMA_TOKENS: Record<"light" | "dark", CSSProperties> = {
   light: {
     "--f-bg": "#ffffff", "--f-bg-secondary": "#f5f5f5", "--f-bg-hover": "#f5f5f5", "--f-bg-selected": "#e5f4ff", "--f-bg-selected-secondary": "#f2f9ff", "--f-bg-brand": "#0d99ff", "--f-bg-menu": "#1e1e1e",
+    // The layers' and pages' rows: the site's bg/3 hovered, bg/4 selected (the user's choice — grey, light, not Figma's blue)
+    "--f-bg-row-hover": "#f5f5f5", "--f-bg-row-selected": "#f0f0f0", "--f-bg-row-selected-secondary": "#f7f7f7",
     "--f-border": "#e6e6e6", "--f-border-translucent": "rgba(0,0,0,0.1)", "--f-border-selected": "#0d99ff",
     "--f-text": "rgba(0,0,0,0.9)", "--f-text-secondary": "rgba(0,0,0,0.5)", "--f-text-tertiary": "rgba(0,0,0,0.3)", "--f-text-brand": "#007be5", "--f-text-component": "#8638e5",
     "--f-icon": "rgba(0,0,0,0.9)", "--f-icon-secondary": "rgba(0,0,0,0.5)", "--f-icon-tertiary": "rgba(0,0,0,0.3)",
@@ -80,6 +91,7 @@ const FIGMA_TOKENS: Record<"light" | "dark", CSSProperties> = {
   } as CSSProperties,
   dark: {
     "--f-bg": "#2c2c2c", "--f-bg-secondary": "#383838", "--f-bg-hover": "#383838", "--f-bg-selected": "#4a5878", "--f-bg-selected-secondary": "#394360", "--f-bg-brand": "#0c8ce9", "--f-bg-menu": "#1e1e1e",
+    "--f-bg-row-hover": "#262626", "--f-bg-row-selected": "#1e1e1e", "--f-bg-row-selected-secondary": "#232323",
     "--f-border": "#444444", "--f-border-translucent": "rgba(255,255,255,0.1)", "--f-border-selected": "#0c8ce9",
     "--f-text": "#ffffff", "--f-text-secondary": "rgba(255,255,255,0.7)", "--f-text-tertiary": "rgba(255,255,255,0.4)", "--f-text-brand": "#7cc4f8", "--f-text-component": "#c9a5ff",
     "--f-icon": "#ffffff", "--f-icon-secondary": "rgba(255,255,255,0.7)", "--f-icon-tertiary": "rgba(255,255,255,0.4)",
@@ -101,7 +113,7 @@ function NavTab({ icon, label, active, onClick }: { icon: ReactNode; label: stri
 
 function SaveButton() {
   const { saveStatus, triggerSave } = useEditorContext();
-  const label = saveStatus === "saving" ? "Kaydediliyor…" : saveStatus === "saved" ? "Kaydedildi" : saveStatus === "error" ? "Hata" : "Kaydet";
+  const label = saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" : saveStatus === "error" ? "Error" : "Save";
   return (
     <BrandButton disabled={saveStatus === "saving" || !triggerSave} onClick={() => triggerSave?.()} className={cn(saveStatus === "error" && "bg-[#f24822]")}>
       {label}
@@ -112,7 +124,7 @@ function SaveButton() {
 function LangSwitch() {
   const { editLang, setEditLang } = useEditorContext();
   return (
-    <div role="radiogroup" aria-label="Dil" className="flex items-center gap-1">
+    <div role="radiogroup" aria-label="Language" className="flex items-center gap-1">
       {(["tr", "en"] as const).map((l) => (
         <Tab key={l} label={l.toUpperCase()} active={editLang === l} onClick={() => setEditLang(l)} />
       ))}
@@ -121,14 +133,14 @@ function LangSwitch() {
 }
 
 /** A toolbar tool, as the kit's: a 24px icon in a 32px box, blue while in use; a 16px chevron opens its menu. */
-function Tool({ icon, label, shortcut, active = false, onClick, menu }: { icon: ReactNode; label: string; shortcut?: string; active?: boolean; onClick: () => void; menu?: (el: HTMLElement) => void }) {
+function Tool({ icon, label, shortcut, active = false, onClick, menu, menuLabel }: { icon: ReactNode; label: string; shortcut?: string; active?: boolean; onClick: () => void; menu?: (el: HTMLElement) => void; menuLabel?: string }) {
   return (
     <div className="relative group/tool flex items-center gap-px">
       <button type="button" aria-label={label} aria-pressed={active} onClick={onClick} className={cn("flex items-center justify-center w-8 h-8 rounded-[5px] transition-colors cursor-pointer", active ? "bg-[var(--f-bg-brand)] text-white" : "text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)]")}>
         {icon}
       </button>
       {menu && (
-        <button type="button" aria-label={`${label} menüsü`} onClick={(e) => menu(e.currentTarget)} className="flex items-center justify-center w-4 h-8 rounded-[5px] text-[var(--f-icon-secondary)] hover:bg-[var(--f-bg-hover)] cursor-pointer">
+        <button type="button" aria-label={menuLabel ?? `${label} menu`} onClick={(e) => menu(e.currentTarget)} className="flex items-center justify-center w-4 h-8 rounded-[5px] text-[var(--f-icon-secondary)] hover:bg-[var(--f-bg-hover)] cursor-pointer">
           {fi("16.chevron.down")}
         </button>
       )}
@@ -161,7 +173,7 @@ const TEXT_ONLY = new Set(["characters", "charactersEn", "fontSize", "fontWeight
 const GEOMETRY_ONLY = new Set(["strokes", "cornerRadius", "corners", "effects", "effectStyle"]);
 const FRAME_ONLY = new Set(["children", "clipsContent", "layoutMode", "itemSpacing", "counterSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "primaryAlign", "counterAlign", "layoutWrap", "gridColumns", "gridRows", "layoutGrids", "strokesInLayout", "firstOnTop", "baselineAlign", "variant", "reactions", "mainId", "overrides"]);
 
-const KIND_HINT: Record<SceneNode["type"], string> = { frame: "çerçeve", rectangle: "dikdörtgen", ellipse: "elips", line: "çizgi", text: "metin", component: "bileşen", componentSet: "bileşen seti", instance: "örnek" };
+const KIND_HINT: Record<SceneNode["type"], string> = { frame: "frame", rectangle: "rectangle", ellipse: "ellipse", line: "line", text: "text", component: "component", componentSet: "component set", instance: "instance" };
 
 const isTyping = () => {
   const el = document.activeElement as HTMLElement | null;
@@ -193,6 +205,29 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const [minimized, setMinimized] = useState(false);
   const [previewing, setPreviewing] = useState<string | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
+  // A padding / gap field focused in the panel: what the canvas highlights.
+  const [layoutFocus, setLayoutFocus] = useState<{ pads?: ("top" | "right" | "bottom" | "left")[]; gap?: boolean } | null>(null);
+  // The sidebars' widths: dragged at their inner edge (Figma lets both be resized), kept in the browser.
+  const [panelWidths, setPanelWidths] = useState<{ left: number; right: number }>(() => {
+    try { const saved = JSON.parse(localStorage.getItem(PANEL_WIDTHS_KEY) ?? ""); if (saved && typeof saved.left === "number" && typeof saved.right === "number") return saved; } catch { /* the defaults */ }
+    return { left: 240, right: 240 };
+  });
+  const resizePanel = (side: "left" | "right") => (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelWidths[side];
+    const move = (ev: PointerEvent) => {
+      const w = Math.round(Math.max(200, Math.min(480, side === "left" ? startW + ev.clientX - startX : startW - (ev.clientX - startX))));
+      setPanelWidths((p) => (p[side] === w ? p : { ...p, [side]: w }));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setPanelWidths((p) => { try { localStorage.setItem(PANEL_WIDTHS_KEY, JSON.stringify(p)); } catch { /* ignore */ } return p; });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   // Figma's Find in the layers: the rows whose names match.
   const [query, setQuery] = useState<string | null>(null);
   const clipboard = useRef<SceneNode[]>([]);
@@ -205,6 +240,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     return pg ? { ...file, nodes: pg.nodes, background: pg.background } : file;
   }, [file]);
   const nodes = doc.nodes;
+  // Every page's nodes: where instances find their main components (the Components page's too).
+  const library = useMemo(() => libraryOf(file), [file]);
   const setNodes = useCallback((update: (nodes: SceneNode[]) => SceneNode[]) => onDoc((d) => {
     const pg = d.currentPage ? d.pages?.find((x) => x.id === d.currentPage) : undefined;
     if (pg) {
@@ -214,14 +251,14 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const next = update(d.nodes);
     return next === d.nodes ? d : { ...d, nodes: next };
   }), [onDoc]);
-  const pages = useMemo(() => [{ id: "", name: file.pageName ?? getNode(file.nodes, file.pageId)?.name ?? title ?? "Sayfa 1" }, ...(file.pages ?? []).map((pg) => ({ id: pg.id, name: pg.name }))], [file, title]);
+  const pages = useMemo(() => [{ id: "", name: file.pageName ?? getNode(file.nodes, file.pageId)?.name ?? title ?? "Page 1" }, ...(file.pages ?? []).map((pg) => ({ id: pg.id, name: pg.name }))], [file, title]);
   const [renamingPage, setRenamingPage] = useState<string | null>(null);
   const switchPage = (id: string) => { setSelectionState([]); setEditing(null); onDoc((d) => ({ ...d, currentPage: id || undefined })); };
   const addPage = () => {
     const id = nid("p");
     let n = pages.length + 1;
-    while (pages.some((pg) => pg.name === `Sayfa ${n}`)) n++;
-    onDoc((d) => ({ ...d, pages: [...(d.pages ?? []), { id, name: `Sayfa ${n}`, nodes: [] }], currentPage: id }));
+    while (pages.some((pg) => pg.name === `Page ${n}`)) n++;
+    onDoc((d) => ({ ...d, pages: [...(d.pages ?? []), { id, name: `Page ${n}`, nodes: [] }], currentPage: id }));
     setSelectionState([]);
   };
   const renamePage = (id: string, name: string) => {
@@ -240,10 +277,18 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const setSelection = useCallback((ids: string[]) => {
     setSelectionState(ids);
     setEditing(null);
-    // The layers holding it open.
+    // The layers holding it open — inside an instance, the instance and every holder down to it too.
     setOpen((prev) => {
       const next = new Set(prev);
-      for (const id of ids) findNode(nodes, id.split("/")[0])?.path.slice(0, -1).forEach((p) => next.add(p));
+      for (const id of ids) {
+        const slash = id.indexOf("/");
+        const own = slash < 0 ? id : id.slice(0, slash);
+        findNode(nodes, own)?.path.slice(0, -1).forEach((p) => next.add(p));
+        if (slash < 0) continue;
+        next.add(own);
+        const rest = id.slice(slash + 1);
+        for (let i = 0; i < rest.length; i++) if (rest[i] === "/" || rest[i] === PATH_SEP) next.add(`${own}/${rest.slice(0, i)}`);
+      }
       return next.size === prev.size ? prev : next;
     });
   }, [nodes]);
@@ -259,20 +304,16 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   });
 
   // ── Editing ──
+  // A node changed wherever it sits — a main component on the Components page from an instance's panel too.
   const patch = useCallback((id: string, p: Partial<SceneNode>) => {
     if (id.includes("/")) return;
-    setNodes((list) => updateNode(list, id, (n) => ({ ...n, ...p } as SceneNode)));
-  }, [setNodes]);
+    onDoc((d) => updateAnywhere(d, id, (n) => ({ ...n, ...p } as SceneNode)));
+  }, [onDoc]);
   const override = useCallback((compositeId: string, p: NodeOverride) => {
-    const [instanceId, key] = compositeId.split("/");
-    setNodes((list) => updateNode(list, instanceId, (n) => {
-      if (n.type !== "instance") return n;
-      const current = { ...(n.overrides?.[key] ?? {}), ...p } as Record<string, unknown>;
-      Object.keys(current).forEach((k) => current[k] === undefined && delete current[k]);
-      const overrides = { ...n.overrides, [key]: current as NodeOverride };
-      if (!Object.keys(current).length) delete overrides[key];
-      return { ...n, overrides: Object.keys(overrides).length ? overrides : undefined };
-    }));
+    const slash = compositeId.indexOf("/");
+    const instanceId = compositeId.slice(0, slash);
+    const keys = compositeId.slice(slash + 1).split("/");
+    setNodes((list) => updateNode(list, instanceId, (n) => (n.type !== "instance" ? n : { ...n, overrides: withOverride(n.overrides, keys, p) })));
   }, [setNodes]);
 
   const deleteSelection = () => {
@@ -328,7 +369,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const y = Math.min(...rects.map((x) => x.r.y));
     const right = Math.max(...rects.map((x) => x.r.x + x.r.w));
     const bottom = Math.max(...rects.map((x) => x.r.y + x.r.h));
-    const frame = makeFrame(kind === "group" ? nextName(nodes, "Grup") : nextName(nodes, "Çerçeve"), x - (parentRect?.x ?? 0), y - (parentRect?.y ?? 0), right - x, bottom - y);
+    const frame = makeFrame(kind === "group" ? nextName(nodes, "Group") : nextName(nodes, "Frame"), x - (parentRect?.x ?? 0), y - (parentRect?.y ?? 0), right - x, bottom - y);
     if (kind !== "frame") frame.fills = [];
     frame.clipsContent = false;
     frame.children = rects.map(({ t, r }) => ({ ...t.node, x: Math.round(r.x - x), y: Math.round(r.y - y), sizingH: undefined, sizingV: undefined }));
@@ -383,7 +424,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const id = selected[0];
     const node = id && !id.includes("/") ? getNode(nodes, id) : null;
     if (!node || node.type !== "instance") return;
-    const resolved = resolveInstance(nodes, node);
+    const resolved = resolveInstance(library, node);
     if (!resolved) return patch(id, { type: "frame", mainId: undefined, overrides: undefined } as Partial<SceneNode>);
     const detached = cloneNode({ ...resolved, type: "frame", mainId: undefined, overrides: undefined } as FrameNode);
     detached.id = node.id;
@@ -416,9 +457,9 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     set.paddingTop = set.paddingRight = set.paddingBottom = set.paddingLeft = { value: 16 };
     set.sizingH = "hug";
     set.sizingV = "hug";
-    const first: FrameNode = { ...node, x: 0, y: 0, variant: [{ property: "Özellik 1", value: "Varsayılan" }] };
+    const first: FrameNode = { ...node, x: 0, y: 0, variant: [{ property: "Property 1", value: "Default" }] };
     const second = cloneNode(first);
-    second.variant = [{ property: "Özellik 1", value: "Varyant 2" }];
+    second.variant = [{ property: "Property 1", value: "Variant 2" }];
     set.children = [first, second];
     setNodes((list) => insertNode(removeNodes(list, new Set([node.id])), found.parent?.id ?? null, set, found.index));
     setSelection([second.id]);
@@ -426,8 +467,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const nextValue = (set: FrameNode, property: string) => {
     const values = variantProperties(set).find((p) => p.name === property)?.values ?? [];
     let n = values.length + 1;
-    while (values.includes(`Varyant ${n}`)) n++;
-    return `Varyant ${n}`;
+    while (values.includes(`Variant ${n}`)) n++;
+    return `Variant ${n}`;
   };
 
   const combineAsVariants = () => {
@@ -445,7 +486,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     set.paddingTop = set.paddingRight = set.paddingBottom = set.paddingLeft = { value: 16 };
     set.sizingH = "hug";
     set.sizingV = "hug";
-    set.children = tops.map((t) => ({ ...(t.node as FrameNode), x: 0, y: 0, variant: [{ property: "Özellik 1", value: t.node.name }] }));
+    set.children = tops.map((t) => ({ ...(t.node as FrameNode), x: 0, y: 0, variant: [{ property: "Property 1", value: t.node.name }] }));
     setNodes((list) => insertNode(removeNodes(list, new Set(tops.map((t) => t.node.id))), parentId, set, Math.min(...tops.map((t) => t.index))));
     setSelection([set.id]);
   };
@@ -506,13 +547,16 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     },
     createComponent,
     detach,
-    resetOverrides: () => selected[0] && patch(selected[0], { overrides: undefined } as Partial<SceneNode>),
+    resetOverrides: () => selected[0] && patch(selected[0], { overrides: undefined, props: undefined, propsEn: undefined } as Partial<SceneNode>),
     goToMain: () => {
       const node = selected[0] ? getNode(nodes, selected[0].split("/")[0]) : null;
-      if (node?.type === "instance" && node.mainId && findComponent(nodes, node.mainId)) {
+      if (node?.type === "instance" && node.mainId && findComponent(library, node.mainId)) {
+        // On another page (the Components page): the editor opens it first.
+        const page = pageOfNode(file, node.mainId);
+        if (page !== null && page !== (file.currentPage ?? "")) switchPage(page);
         setSelection([node.mainId]);
         setLeftTab("file");
-        requestAnimationFrame(() => zoomActions.current?.fitSelection());
+        requestAnimationFrame(() => requestAnimationFrame(() => zoomActions.current?.fitSelection()));
       }
     },
     addVariant,
@@ -523,17 +567,33 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     addProperty: (setId) => setNodes((list) => updateNode(list, setId, (set) => {
       if (set.type !== "componentSet") return set;
       const count = variantProperties(set).length + 1;
-      return { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: [...(c.variant ?? []), { property: `Özellik ${count}`, value: "Varsayılan" }] } : c)) };
+      return { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: [...(c.variant ?? []), { property: `Property ${count}`, value: "Default" }] } : c)) };
     })),
     removeProperty: (setId, name) => setNodes((list) => updateNode(list, setId, (set) => (set.type === "componentSet" ? { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: c.variant?.filter((v) => v.property !== name) } : c)) } : set))),
+    // Component properties (booleans, texts, instance swaps): defined on the main component or its set, bound to its layers, valued on each instance.
+    setComponentProperties: (holderId, properties) => onDoc((d) => updateAnywhere(d, holderId, (n) => {
+      if (!isFrameLike(n)) return n;
+      return { ...pruneBindings(n, new Set(properties.map((p) => p.id))), properties: properties.length ? properties : undefined };
+    })),
+    setPropertyValue: (holderId, propId, value) => onDoc((d) => updateAnywhere(d, holderId, (n) => {
+      if (!isFrameLike(n)) return n;
+      return { ...applyPropertyValue(n, propId, value), properties: (n.properties ?? []).map((p) => (p.id === propId ? { ...p, value } : p)) };
+    })),
+    bindProperty: (nodeId, kind, propId) => patch(nodeId, { [kind === "visible" ? "visibleProp" : kind === "text" ? "charactersProp" : "mainProp"]: propId } as Partial<SceneNode>),
+    setInstanceProp: (instanceId, propId, value, en) => onDoc((d) => updateAnywhere(d, instanceId, (n) => {
+      if (n.type !== "instance") return n;
+      if (en && typeof value === "string") return { ...n, propsEn: { ...n.propsEn, [propId]: value } };
+      return { ...n, props: { ...n.props, [propId]: value } };
+    })),
     swapVariant: (instanceId, property, value) => {
       const instance = getNode(nodes, instanceId);
-      const main = instance?.type === "instance" && instance.mainId ? findComponent(nodes, instance.mainId) : null;
-      const set = main ? setOf(nodes, main.id) : null;
+      const main = instance?.type === "instance" && instance.mainId ? findComponent(library, instance.mainId) : null;
+      const set = main ? setOf(library, main.id) : null;
       if (!main || !set) return;
       patch(instanceId, { mainId: pickVariant(set, main, property, value).id } as Partial<SceneNode>);
     },
     setReactions: (variantId, reactions) => patch(variantId, { reactions: reactions.length ? reactions : undefined } as Partial<SceneNode>),
+    setLayoutFocus,
     preview: (id) => setPreviewing(id ?? previewTarget()),
     openVariables: () => setVariablesOpen(true),
     setBackground: (color) => onDoc((d) => {
@@ -583,8 +643,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       const id = nid("es");
       const taken = file.effectStyles ?? [];
       let k = taken.length + 1;
-      while (taken.some((st) => st.name === `Efekt stili ${k}`)) k++;
-      onDoc((d) => ({ ...d, effectStyles: [...(d.effectStyles ?? []), { id, name: `Efekt stili ${k}`, effects: n.effects! }] }));
+      while (taken.some((st) => st.name === `Effect style ${k}`)) k++;
+      onDoc((d) => ({ ...d, effectStyles: [...(d.effectStyles ?? []), { id, name: `Effect style ${k}`, effects: n.effects! }] }));
       patch(nodeId, { effectStyle: id } as Partial<SceneNode>);
     },
     applyEffectStyle: (nodeId, styleId) => {
@@ -607,14 +667,14 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     createColorStyle: (hex) => {
       const id = system.addVariable("color");
       let k = variables.filter((v) => v.kind === "color").length + 1;
-      while (variables.some((v) => v.name === `Renk ${k}`)) k++;
-      system.setVariable({ id, name: `Renk ${k}`, kind: "color", light: { value: hex } });
+      while (variables.some((v) => v.name === `Color ${k}`)) k++;
+      system.setVariable({ id, name: `Color ${k}`, kind: "color", light: { value: hex } });
       setVariablesOpen(true);
     },
     exportNode: (id, setting) => {
       const el = document.querySelector<HTMLElement>(`[data-figma-canvas] [data-node-id="${CSS.escape(id)}"]`);
       const n = getNode(nodes, id);
-      if (el && n) exportElement(el, n.name, setting).catch((err) => console.warn("Dışa aktarılamadı:", err));
+      if (el && n) exportElement(el, n.name, setting).catch((err) => console.warn("Could not export:", err));
     },
     upload: (f) => uploadFile(f, `projects/${slug}/figma/${Date.now()}.${f.name.split(".").pop() ?? "bin"}`),
     pageId: doc.pageId,
@@ -692,9 +752,9 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   };
   const onDraw = (drawn: CanvasTool, parentId: string | null, rect: Rect, clicked: boolean, index?: number) => {
     let node: SceneNode;
-    if (drawn === "frame") node = makeFrame(nextName(nodes, "Çerçeve"), rect.x, rect.y, rect.w, rect.h);
+    if (drawn === "frame") node = makeFrame(nextName(nodes, "Frame"), rect.x, rect.y, rect.w, rect.h);
     else if (drawn === "text") { node = makeText(rect.x, rect.y, ""); if (!clicked) { node.width = rect.w; node.textAutoResize = "height"; } }
-    else node = makeShape(drawn === "ellipse" ? "ellipse" : drawn === "line" ? "line" : "rectangle", nextName(nodes, drawn === "ellipse" ? "Elips" : drawn === "line" ? "Çizgi" : "Dikdörtgen"), rect.x, rect.y, rect.w, rect.h);
+    else node = makeShape(drawn === "ellipse" ? "ellipse" : drawn === "line" ? "line" : "rectangle", nextName(nodes, drawn === "ellipse" ? "Ellipse" : drawn === "line" ? "Line" : "Rectangle"), rect.x, rect.y, rect.w, rect.h);
     setNodes((list) => insertNode(list, parentId, node, index));
     setTool("move");
     setSelection([node.id]);
@@ -711,16 +771,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     if (id.includes("/")) {
       // A text inside an instance: its override typed in place.
       setSelection([id]);
-      const [instanceId, key] = id.split("/");
-      const instance = getNode(nodes, instanceId);
-      const main = instance?.type === "instance" && instance.mainId ? findComponent(nodes, instance.mainId) : null;
-      let list: SceneNode[] = main?.children ?? [];
-      let leaf: SceneNode | null = null;
-      for (const name of key.split(PATH_SEP)) {
-        leaf = list.find((c) => c.name === name) ?? null;
-        list = leaf && isFrameLike(leaf) ? leaf.children : [];
-      }
-      if (leaf?.type === "text") setEditing(id);
+      if (layerAt(library, id)?.node.type === "text") setEditing(id);
       return;
     }
     setSelection([id]);
@@ -731,11 +782,11 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     id: editing,
     onInput: (id, text) => {
       if (editing.includes("/")) override(editing, latest.current.lang === "en" ? { charactersEn: text } : { characters: text });
-      else patch(id, (latest.current.lang === "en" ? { charactersEn: text } : { characters: text, name: text.trim().slice(0, 40) || "Metin" }) as Partial<SceneNode>);
+      else patch(id, (latest.current.lang === "en" ? { charactersEn: text } : { characters: text, name: text.trim().slice(0, 40) || "Text" }) as Partial<SceneNode>);
     },
     onDone: () => setEditing(null),
   } : null, [editing, override, patch]);
-  const render = useMemo<RenderContext>(() => ({ nodes, byId, lang, play: false, editing: editingCtx }), [nodes, byId, lang, editingCtx]);
+  const render = useMemo<RenderContext>(() => ({ nodes: library, byId, lang, play: false, editing: editingCtx }), [library, byId, lang, editingCtx]);
 
   // ── Layers ──
   const moveInTree = (id: string, targetId: string, place: TreePlace) => {
@@ -775,18 +826,18 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   };
   const nodeMenu = (id: string | null, at?: { x: number; y: number }): MenuEntry[] => {
     const node = id && !id.includes("/") ? getNode(nodes, id) : null;
-    const pasteHere = { label: "Buraya yapıştır", disabled: !clipboard.current.length, onSelect: () => (at ? pasteAt(at.x, at.y, id) : paste()) };
+    const pasteHere = { label: "Paste here", disabled: !clipboard.current.length, onSelect: () => (at ? pasteAt(at.x, at.y, id) : paste()) };
     if (!node) {
       return [
         pasteHere,
         "-",
-        { label: "Geri al", shortcut: keys("mod", "z"), onSelect: undo },
-        { label: "Yinele", shortcut: keys("shift", "mod", "z"), onSelect: redo },
+        { label: "Undo", shortcut: keys("mod", "z"), onSelect: undo },
+        { label: "Redo", shortcut: keys("shift", "mod", "z"), onSelect: redo },
         "-",
-        { label: "Hepsini sığdır", shortcut: keys("shift", "1"), onSelect: () => zoomActions.current?.fitAll() },
-        { label: "%100", shortcut: keys("shift", "0"), onSelect: () => zoomActions.current?.zoomTo(1) },
+        { label: "Zoom to fit", shortcut: keys("shift", "1"), onSelect: () => zoomActions.current?.fitAll() },
+        { label: "Zoom to 100%", shortcut: keys("shift", "0"), onSelect: () => zoomActions.current?.zoomTo(1) },
         "-",
-        { label: "Görsel yerleştir…", shortcut: keys("shift", "mod", "k"), onSelect: placeImage },
+        { label: "Place image…", shortcut: keys("shift", "mod", "k"), onSelect: placeImage },
       ];
     }
     const found = findNode(nodes, id!);
@@ -797,97 +848,97 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const otherPages = pages.filter((pg) => pg.id !== (file.currentPage ?? ""));
     const many = selected.filter((s) => !s.includes("/")).length > 1;
     return [
-      { label: "Kopyala", shortcut: keys("mod", "c"), onSelect: copySelection },
+      { label: "Copy", shortcut: keys("mod", "c"), onSelect: copySelection },
       pasteHere,
-      { label: "Değiştirerek yapıştır", shortcut: keys("shift", "mod", "r"), disabled: !clipboard.current.length, onSelect: pasteToReplace },
-      { label: "Şu şekilde kopyala/yapıştır", items: [
-        { label: "CSS olarak kopyala", onSelect: () => void copyAs("css") },
-        { label: "SVG olarak kopyala", onSelect: () => void copyAs("svg") },
-        { label: "PNG olarak kopyala", onSelect: () => void copyAs("png") },
+      { label: "Paste to replace", shortcut: keys("shift", "mod", "r"), disabled: !clipboard.current.length, onSelect: pasteToReplace },
+      { label: "Copy/Paste as", items: [
+        { label: "Copy as CSS", onSelect: () => void copyAs("css") },
+        { label: "Copy as SVG", onSelect: () => void copyAs("svg") },
+        { label: "Copy as PNG", onSelect: () => void copyAs("png") },
         "-",
-        { label: "Özellikleri kopyala", shortcut: keys("alt", "mod", "c"), onSelect: copyProperties },
-        { label: "Özellikleri yapıştır", shortcut: keys("alt", "mod", "v"), disabled: !propsClipboard.current, onSelect: pasteProperties },
+        { label: "Copy properties", shortcut: keys("alt", "mod", "c"), onSelect: copyProperties },
+        { label: "Paste properties", shortcut: keys("alt", "mod", "v"), disabled: !propsClipboard.current, onSelect: pasteProperties },
       ] },
-      { label: "Çoğalt", shortcut: keys("mod", "d"), onSelect: duplicateSelection },
-      { label: "Sil", shortcut: keys("backspace"), onSelect: deleteSelection },
-      { label: "Hareket ekle", items: variantSet ? [
-        { label: "Tıklayınca → sonraki varyant", onSelect: () => addMotion(node.id, "click") },
-        { label: "Üzerine gelince → sonraki varyant", onSelect: () => addMotion(node.id, "hover") },
-        { label: "Basılıyken → sonraki varyant", onSelect: () => addMotion(node.id, "press") },
+      { label: "Duplicate", shortcut: keys("mod", "d"), onSelect: duplicateSelection },
+      { label: "Delete", shortcut: keys("backspace"), onSelect: deleteSelection },
+      { label: "Add motion", items: variantSet ? [
+        { label: "On click → next variant", onSelect: () => addMotion(node.id, "click") },
+        { label: "While hovering → next variant", onSelect: () => addMotion(node.id, "hover") },
+        { label: "While pressing → next variant", onSelect: () => addMotion(node.id, "press") },
         "-",
-        { label: "Prototip sekmesini aç", onSelect: () => setRightTab("prototype") },
+        { label: "Open Prototype tab", onSelect: () => setRightTab("prototype") },
       ] : [
-        { label: "Prototip sekmesini aç", hint: "varyantlar arasında", onSelect: () => setRightTab("prototype") },
+        { label: "Open Prototype tab", hint: "between variants", onSelect: () => setRightTab("prototype") },
       ] },
       "-",
-      { label: "Katman seç", items: chain.map((n) => ({ label: n.name, hint: KIND_HINT[n.type], checked: selected.includes(n.id), onSelect: () => setSelection([n.id]) })) },
-      { label: "Sayfaya taşı", items: otherPages.length ? otherPages.map((pg) => ({ label: pg.name, onSelect: () => moveToPage(pg.id) })) : [{ label: "Başka sayfa yok", disabled: true }, { label: "Sayfa ekle", onSelect: addPage }] },
-      { label: "En öne getir", shortcut: "]", onSelect: () => reorder("front") },
-      { label: "En arkaya gönder", shortcut: "[", onSelect: () => reorder("back") },
-      { label: "Öne getir", shortcut: keys("mod", "]"), onSelect: () => reorder("forward") },
-      { label: "Arkaya gönder", shortcut: keys("mod", "["), onSelect: () => reorder("backward") },
+      { label: "Select layer", items: chain.map((n) => ({ label: n.name, hint: KIND_HINT[n.type], checked: selected.includes(n.id), onSelect: () => setSelection([n.id]) })) },
+      { label: "Move to page", items: otherPages.length ? otherPages.map((pg) => ({ label: pg.name, onSelect: () => moveToPage(pg.id) })) : [{ label: "No other pages", disabled: true }, { label: "Add new page", onSelect: addPage }] },
+      { label: "Bring to front", shortcut: "]", onSelect: () => reorder("front") },
+      { label: "Send to back", shortcut: "[", onSelect: () => reorder("back") },
+      { label: "Bring forward", shortcut: keys("mod", "]"), onSelect: () => reorder("forward") },
+      { label: "Send backward", shortcut: keys("mod", "["), onSelect: () => reorder("backward") },
       "-",
-      { label: "Grupla", shortcut: keys("mod", "g"), onSelect: () => groupSelection("group") },
-      { label: "Seçimi çerçevele", shortcut: keys("alt", "mod", "g"), onSelect: () => groupSelection("frame") },
-      { label: "Grubu çöz", shortcut: keys("mod", "backspace"), disabled: !(frame && node.type !== "instance"), onSelect: ungroup },
-      { label: "Maske olarak kullan", shortcut: "^" + keys("mod", "m"), disabled: node.type === "text" || many, onSelect: () => maskWith(node.id) },
+      { label: "Group selection", shortcut: keys("mod", "g"), onSelect: () => groupSelection("group") },
+      { label: "Frame selection", shortcut: keys("alt", "mod", "g"), onSelect: () => groupSelection("frame") },
+      { label: "Ungroup", shortcut: keys("mod", "backspace"), disabled: !(frame && node.type !== "instance"), onSelect: ungroup },
+      { label: "Use as mask", shortcut: "^" + keys("mod", "m"), disabled: node.type === "text" || many, onSelect: () => maskWith(node.id) },
       "-",
-      { label: frame && node.type !== "instance" && node.type !== "componentSet" && node.layoutMode !== "none" && !many ? "Auto layout'u kaldır" : "Auto layout ekle", shortcut: keys("shift", "a"), onSelect: () => autoLayout() },
-      { label: "Diğer yerleşim seçenekleri", items: [
-        { label: "Genişlik: İçeriği sar", checked: node.sizingH === "hug", onSelect: () => patch(node.id, { sizingH: "hug" }) },
-        { label: "Genişlik: Kabı doldur", checked: node.sizingH === "fill", onSelect: () => patch(node.id, { sizingH: "fill" }) },
-        { label: "Genişlik: Sabit", checked: !node.sizingH, onSelect: () => patch(node.id, { sizingH: undefined }) },
+      { label: frame && node.type !== "instance" && node.type !== "componentSet" && node.layoutMode !== "none" && !many ? "Remove auto layout" : "Add auto layout", shortcut: keys("shift", "a"), onSelect: () => autoLayout() },
+      { label: "More layout options", items: [
+        { label: "Width: Hug contents", checked: node.sizingH === "hug", onSelect: () => patch(node.id, { sizingH: "hug" }) },
+        { label: "Width: Fill container", checked: node.sizingH === "fill", onSelect: () => patch(node.id, { sizingH: "fill" }) },
+        { label: "Width: Fixed", checked: !node.sizingH, onSelect: () => patch(node.id, { sizingH: undefined }) },
         "-",
-        { label: "Yükseklik: İçeriği sar", checked: node.sizingV === "hug", onSelect: () => patch(node.id, { sizingV: "hug" }) },
-        { label: "Yükseklik: Kabı doldur", checked: node.sizingV === "fill", onSelect: () => patch(node.id, { sizingV: "fill" }) },
-        { label: "Yükseklik: Sabit", checked: !node.sizingV, onSelect: () => patch(node.id, { sizingV: undefined }) },
+        { label: "Height: Hug contents", checked: node.sizingV === "hug", onSelect: () => patch(node.id, { sizingV: "hug" }) },
+        { label: "Height: Fill container", checked: node.sizingV === "fill", onSelect: () => patch(node.id, { sizingV: "fill" }) },
+        { label: "Height: Fixed", checked: !node.sizingV, onSelect: () => patch(node.id, { sizingV: undefined }) },
         ...(frame && node.layoutMode !== "none" ? ["-" as const,
-          { label: "Sar (wrap)", checked: Boolean(node.layoutWrap), disabled: node.layoutMode !== "horizontal", onSelect: () => patch(node.id, { layoutWrap: node.layoutWrap ? undefined : true } as Partial<SceneNode>) },
-          { label: "İçeriği kırp", checked: Boolean(node.clipsContent), onSelect: () => patch(node.id, { clipsContent: !node.clipsContent } as Partial<SceneNode>) },
+          { label: "Wrap", checked: Boolean(node.layoutWrap), disabled: node.layoutMode !== "horizontal", onSelect: () => patch(node.id, { layoutWrap: node.layoutWrap ? undefined : true } as Partial<SceneNode>) },
+          { label: "Clip content", checked: Boolean(node.clipsContent), onSelect: () => patch(node.id, { clipsContent: !node.clipsContent } as Partial<SceneNode>) },
         ] : []),
-        ...(found?.parent && found.parent.layoutMode !== "none" ? ["-" as const, { label: "Auto layout'tan bağımsız konum", checked: Boolean(node.absolute), onSelect: () => patch(node.id, { absolute: node.absolute ? undefined : true }) }] : []),
+        ...(found?.parent && found.parent.layoutMode !== "none" ? ["-" as const, { label: "Absolute position", checked: Boolean(node.absolute), onSelect: () => patch(node.id, { absolute: node.absolute ? undefined : true }) }] : []),
       ] },
-      ...(node.type === "frame" ? [{ label: "Bileşen oluştur", shortcut: keys("alt", "mod", "k"), onSelect: createComponent }] : []),
-      ...(node.type === "component" || node.type === "componentSet" ? [{ label: "Varyant ekle", onSelect: () => addVariant(node.id) }] : []),
-      ...(node.type === "component" && selected.length > 1 ? [{ label: "Varyant olarak birleştir", onSelect: combineAsVariants }] : []),
+      ...(node.type === "frame" ? [{ label: "Create component", shortcut: keys("alt", "mod", "k"), onSelect: createComponent }] : []),
+      ...(node.type === "component" || node.type === "componentSet" ? [{ label: "Add variant", onSelect: () => addVariant(node.id) }] : []),
+      ...(node.type === "component" && selected.length > 1 ? [{ label: "Combine as variants", onSelect: combineAsVariants }] : []),
       ...(node.type === "instance" ? [
-        { label: "Ana bileşene git", onSelect: ops.goToMain },
-        { label: "Değişiklikleri sıfırla", disabled: !node.overrides, onSelect: ops.resetOverrides },
-        { label: "Örneği ayır", shortcut: keys("alt", "mod", "b"), onSelect: detach },
+        { label: "Go to main component", onSelect: ops.goToMain },
+        { label: "Reset all changes", disabled: !node.overrides, onSelect: ops.resetOverrides },
+        { label: "Detach instance", shortcut: keys("alt", "mod", "b"), onSelect: detach },
       ] : []),
-      ...(top && frame && node.type !== "componentSet" ? [{ label: "Sayfa olarak ayarla", hint: "sitede bu görünür", checked: doc.pageId === node.id, onSelect: () => onDoc((d) => ({ ...d, pageId: node.id })) }] : []),
+      ...(top && frame && node.type !== "componentSet" ? [{ label: "Set as site page", hint: "shown on the site", checked: doc.pageId === node.id, onSelect: () => onDoc((d) => ({ ...d, pageId: node.id })) }] : []),
       "-",
-      { label: node.visible === false ? "Göster" : "Gizle", shortcut: keys("shift", "mod", "h"), onSelect: () => patch(node.id, { visible: node.visible === false ? undefined : false }) },
-      { label: node.locked ? "Kilidi aç" : "Kilitle", shortcut: keys("shift", "mod", "l"), onSelect: () => patch(node.id, { locked: node.locked ? undefined : true }) },
-      { label: "Yeniden adlandır", shortcut: keys("mod", "r"), onSelect: () => { setLeftTab("file"); requestAnimationFrame(() => requestRename(node.id)); } },
+      { label: node.visible === false ? "Show" : "Hide", shortcut: keys("shift", "mod", "h"), onSelect: () => patch(node.id, { visible: node.visible === false ? undefined : false }) },
+      { label: node.locked ? "Unlock" : "Lock", shortcut: keys("shift", "mod", "l"), onSelect: () => patch(node.id, { locked: node.locked ? undefined : true }) },
+      { label: "Rename", shortcut: keys("mod", "r"), onSelect: () => { setLeftTab("file"); requestAnimationFrame(() => requestRename(node.id)); } },
       "-",
-      { label: "Yatay çevir", shortcut: keys("shift", "h"), checked: Boolean(node.flipH), onSelect: () => flip("H") },
-      { label: "Dikey çevir", shortcut: keys("shift", "v"), checked: Boolean(node.flipV), onSelect: () => flip("V") },
+      { label: "Flip horizontal", shortcut: keys("shift", "h"), checked: Boolean(node.flipH), onSelect: () => flip("H") },
+      { label: "Flip vertical", shortcut: keys("shift", "v"), checked: Boolean(node.flipV), onSelect: () => flip("V") },
     ];
   };
   const shellMenu = (): MenuEntry[] => [
-    { label: "Projeler", hint: "listeye dön", onSelect: () => router.push("/admin/projects") },
+    { label: "Back to projects", onSelect: () => router.push("/admin/projects") },
     "-",
-    { label: "Geri al", shortcut: keys("mod", "z"), onSelect: undo },
-    { label: "Yinele", shortcut: keys("shift", "mod", "z"), onSelect: redo },
+    { label: "Undo", shortcut: keys("mod", "z"), onSelect: undo },
+    { label: "Redo", shortcut: keys("shift", "mod", "z"), onSelect: redo },
     "-",
-    { label: "Yayında görüntüle", disabled: !isPublished, onSelect: () => window.open(`/projects/${slug}`, "_blank") },
-    { label: "Prototipi oynat", onSelect: () => setPreviewing(previewTarget()) },
+    { label: "View on site", disabled: !isPublished, onSelect: () => window.open(`/projects/${slug}`, "_blank") },
+    { label: "Present", onSelect: () => setPreviewing(previewTarget()) },
     "-",
-    { label: theme === "dark" ? "Açık tema" : "Koyu tema", onSelect: toggleTheme },
-    { label: minimized ? "Panelleri göster" : "Panelleri gizle", shortcut: keys("mod", "\\"), onSelect: () => setMinimized((m) => !m) },
-    { label: rulers ? "Cetvelleri gizle" : "Cetvelleri göster", shortcut: keys("shift", "r"), onSelect: () => setRulers((r) => !r) },
+    { label: theme === "dark" ? "Light theme" : "Dark theme", onSelect: toggleTheme },
+    { label: minimized ? "Show UI" : "Hide UI", shortcut: keys("mod", "\\"), onSelect: () => setMinimized((m) => !m) },
+    { label: rulers ? "Hide rulers" : "Show rulers", shortcut: keys("shift", "r"), onSelect: () => setRulers((r) => !r) },
   ];
   const zoomMenu = (): MenuEntry[] => [
-    { label: "Yakınlaştır", shortcut: keys("mod", "+"), onSelect: () => zoomActions.current?.zoomTo(view.zoom * 2) },
-    { label: "Uzaklaştır", shortcut: keys("mod", "-"), onSelect: () => zoomActions.current?.zoomTo(view.zoom / 2) },
+    { label: "Zoom in", shortcut: keys("mod", "+"), onSelect: () => zoomActions.current?.zoomTo(view.zoom * 2) },
+    { label: "Zoom out", shortcut: keys("mod", "-"), onSelect: () => zoomActions.current?.zoomTo(view.zoom / 2) },
     "-",
-    { label: "Hepsini sığdır", shortcut: keys("shift", "1"), onSelect: () => zoomActions.current?.fitAll() },
-    { label: "Seçime yakınlaştır", shortcut: keys("shift", "2"), disabled: !selected.length, onSelect: () => zoomActions.current?.fitSelection() },
+    { label: "Zoom to fit", shortcut: keys("shift", "1"), onSelect: () => zoomActions.current?.fitAll() },
+    { label: "Zoom to selection", shortcut: keys("shift", "2"), disabled: !selected.length, onSelect: () => zoomActions.current?.fitSelection() },
     "-",
-    { label: "%50", onSelect: () => zoomActions.current?.zoomTo(0.5) },
-    { label: "%100", shortcut: keys("shift", "0"), onSelect: () => zoomActions.current?.zoomTo(1) },
-    { label: "%200", onSelect: () => zoomActions.current?.zoomTo(2) },
+    { label: "Zoom to 50%", onSelect: () => zoomActions.current?.zoomTo(0.5) },
+    { label: "Zoom to 100%", shortcut: keys("shift", "0"), onSelect: () => zoomActions.current?.zoomTo(1) },
+    { label: "Zoom to 200%", onSelect: () => zoomActions.current?.zoomTo(2) },
   ];
   const headerMenu = (node: SceneNode): MenuItem[] => {
     const found = findNode(nodes, node.id);
@@ -940,7 +991,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       return navigator.clipboard.writeText(text);
     }
     const el = document.querySelector<HTMLElement>(`[data-figma-canvas] [data-node-id="${CSS.escape(id)}"]`);
-    if (el) await copyElementAs(el, kind).catch((err) => console.warn("Kopyalanamadı:", err));
+    if (el) await copyElementAs(el, kind).catch((err) => console.warn("Could not copy:", err));
   };
   /** Move to page: the layers taken out of this page and put on another, at their places. */
   const moveToPage = (pageId: string) => {
@@ -967,12 +1018,12 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const mask = found.node;
     const siblings = found.parent ? found.parent.children : nodes;
     const above = siblings.slice(found.index + 1);
-    const frame = makeFrame(`${mask.name} (maske)`, mask.x, mask.y, mask.width, mask.height);
+    const frame = makeFrame(`${mask.name} (mask group)`, mask.x, mask.y, mask.width, mask.height);
     frame.fills = [];
     frame.clipsContent = true;
     if (mask.type === "ellipse") frame.cornerRadius = { value: 9999 };
     else if (mask.type !== "line" && (mask.cornerRadius || mask.corners)) { frame.cornerRadius = mask.cornerRadius; frame.corners = mask.corners; }
-    frame.children = [{ ...mask, x: 0, y: 0, visible: false, name: `${mask.name} (maske şekli)` }, ...above.map((n) => ({ ...n, x: n.x - mask.x, y: n.y - mask.y }))];
+    frame.children = [{ ...mask, x: 0, y: 0, visible: false, name: `${mask.name} (mask)` }, ...above.map((n) => ({ ...n, x: n.x - mask.x, y: n.y - mask.y }))];
     const gone = new Set([mask.id, ...above.map((n) => n.id)]);
     setNodes((list) => insertNode(removeNodes(list, gone), found.parent?.id ?? null, frame, found.index));
     setSelection([frame.id]);
@@ -1020,7 +1071,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       const canvas = document.querySelector<HTMLElement>("[data-figma-canvas]");
       const cx = ((canvas?.clientWidth ?? 800) / 2 - view.x) / view.zoom;
       const cy = ((canvas?.clientHeight ?? 600) / 2 - view.y) / view.zoom;
-      const shape = makeShape("rectangle", f.name.replace(/\.[^.]+$/, "") || "Görsel", cx - w / 2, cy - h / 2, w, h);
+      const shape = makeShape("rectangle", f.name.replace(/\.[^.]+$/, "") || "Image", cx - w / 2, cy - h / 2, w, h);
       shape.fills = [{ type: "image", color: { value: "#d9d9d9" }, image: { url, fit: "fill" } }];
       setNodes((list) => insertNode(list, null, shape));
       setSelection([shape.id]);
@@ -1200,7 +1251,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   }, [view.zoom, patch, setNodes, setSelection, byId]);
 
   // ── Assets: the file's components, an instance put on the canvas with a click ──
-  const components = useMemo(() => allComponents(nodes), [nodes]);
+  const components = useMemo(() => allComponents(library), [library]);
   const insertInstance = (component: FrameNode) => {
     const canvas = document.querySelector<HTMLElement>("[data-figma-canvas]");
     const w = canvas?.clientWidth ?? 800;
@@ -1208,50 +1259,55 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const cx = (w / 2 - view.x) / view.zoom;
     const cy = (h / 2 - view.y) / view.zoom;
     const instance = makeInstance(component, Math.round(cx - component.width / 2), Math.round(cy - component.height / 2));
-    setNodes((list) => insertNode(list, null, instance));
+    // On the project's page: into its page frame (at the end of its flow), as a section of the site.
+    const page = !file.currentPage ? getNode(nodes, doc.pageId) : null;
+    const into = page && isFrameLike(page) && page.id !== component.id ? page : null;
+    setNodes((list) => insertNode(list, into?.id ?? null, into ? { ...instance, x: 0, y: 0 } : instance));
     setSelection([instance.id]);
   };
 
   const previewNode = previewing ? getNode(nodes, previewing) : null;
-  const previewCtx = useMemo<RenderContext>(() => ({ nodes, byId, lang, play: true }), [nodes, byId, lang]);
+  const previewCtx = useMemo<RenderContext>(() => ({ nodes: library, byId, lang, play: true }), [library, byId, lang]);
 
   return (
     <div className="relative flex h-full min-h-0 text-[11px] leading-4 text-[var(--text-title)]" style={{ ...FIGMA_TOKENS[theme], fontFamily: "var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif" }}>
+      <style>{EDITOR_CSS}</style>
       {/* ── The navigation bar: the menu, then the tabs with their labels ── */}
       {!minimized && (
-        <nav aria-label="Gezinme çubuğu" className="w-12 shrink-0 h-full flex flex-col items-center border-r border-[var(--f-border)] bg-[var(--f-bg)] z-20 select-none">
-          <button type="button" aria-label="Ana menü" aria-haspopup="menu" onClick={(e) => openMenuUnder(e.currentTarget, shellMenu())} className="flex items-center justify-center w-12 h-12 text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] transition-colors cursor-pointer">
+        <nav aria-label="Navigation" className="w-12 shrink-0 h-full flex flex-col items-center border-r border-[var(--f-border)] bg-[var(--f-bg)] z-20 select-none">
+          <button type="button" aria-label="Main menu" aria-haspopup="menu" onClick={(e) => openMenuUnder(e.currentTarget, shellMenu())} className="flex items-center justify-center w-12 h-12 text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] transition-colors cursor-pointer">
             <span className="flex items-center">{fi("24.figma")}<span className="-ml-1 text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span></span>
           </button>
           <span className="w-6 h-px my-1 bg-[var(--f-border)]" />
-          <NavTab icon={fi("24.page")} label="Dosya" active={leftTab === "file"} onClick={() => setLeftTab("file")} />
-          <NavTab icon={fi("24.library")} label="Varlıklar" active={leftTab === "assets"} onClick={() => setLeftTab("assets")} />
-          <NavTab icon={fi("variable.small")} label="Değişkenler" active={variablesOpen} onClick={() => setVariablesOpen(true)} />
+          <NavTab icon={fi("24.page")} label="File" active={leftTab === "file"} onClick={() => setLeftTab("file")} />
+          <NavTab icon={fi("24.library")} label="Assets" active={leftTab === "assets"} onClick={() => setLeftTab("assets")} />
+          <NavTab icon={fi("variable.small")} label="Variables" active={variablesOpen} onClick={() => setVariablesOpen(true)} />
         </nav>
       )}
 
       {/* ── The left sidebar ── */}
       {!minimized && (
-        <aside data-left-panel="" className="w-[240px] shrink-0 h-full flex flex-col border-r border-[var(--f-border)] bg-[var(--f-bg)] z-10">
+        <aside data-left-panel="" className="relative shrink-0 h-full flex flex-col border-r border-[var(--f-border)] bg-[var(--f-bg)] z-10" style={{ width: panelWidths.left }}>
+          <div role="separator" aria-orientation="vertical" aria-label="Resize sidebar" onPointerDown={resizePanel("left")} className="absolute top-0 bottom-0 -right-[3px] w-[6px] z-30 cursor-col-resize hover:bg-[var(--f-border-selected)]/40 active:bg-[var(--f-border-selected)]/40" />
           <div className="shrink-0 flex items-start gap-1 h-14 pl-4 pr-2 pt-2 border-b border-[var(--f-border)]">
             <div className="min-w-0 flex-1 flex flex-col">
               <button type="button" aria-haspopup="menu" onClick={(e) => openMenuUnder(e.currentTarget, shellMenu())} className="flex items-center gap-1 min-w-0 h-[22px] text-left cursor-pointer">
                 <span className="min-w-0 truncate text-[13px] font-[550] leading-[22px] tracking-[-0.0325px] text-[var(--f-text)]">{title || slug}</span>
                 <span className="shrink-0 text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span>
               </button>
-              <span className="truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)]">Projeler</span>
+              <span className="truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)]">Projects</span>
             </div>
-            <IconButton label="Panelleri gizle (⌘\\)" icon={fi("24.sidebar.closed")} onClick={() => setMinimized(true)} />
+            <IconButton label="Hide UI (⌘\\)" icon={fi("24.sidebar.closed")} onClick={() => setMinimized(true)} />
           </div>
           {leftTab === "file" && (
             <>
-              <section aria-label="Sayfalar" className="shrink-0 flex flex-col pb-2 border-b border-[var(--f-border)]">
+              <section aria-label="Pages" className="shrink-0 flex flex-col pb-2 border-b border-[var(--f-border)]">
                 <CollapseHeader
-                  label="Sayfalar"
+                  label="Pages"
                   icons={
                     <>
-                      <IconButton label="Katmanlarda bul" icon={fi("24.search.small")} active={query !== null} onClick={() => setQuery((q) => (q === null ? "" : null))} />
-                      <IconButton label="Sayfa ekle" icon={fi("plus.small")} onClick={addPage} />
+                      <IconButton label="Find" icon={fi("24.search.small")} active={query !== null} onClick={() => setQuery((q) => (q === null ? "" : null))} />
+                      <IconButton label="Add new page" icon={fi("plus.small")} onClick={addPage} />
                     </>
                   }
                 />
@@ -1263,15 +1319,15 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
                         key={pg.id || "main"}
                         onClick={() => !current && switchPage(pg.id)}
                         onDoubleClick={() => setRenamingPage(pg.id)}
-                        onContextMenu={(e) => openMenu(e, [{ label: "Yeniden adlandır", onSelect: () => setRenamingPage(pg.id) }, { label: "Sayfayı sil", disabled: !pg.id, onSelect: () => removePage(pg.id) }])}
-                        className={cn("flex items-center h-6 pl-2 pr-1 rounded-[5px] text-[11px] font-[450] leading-4 text-[var(--f-text)] cursor-pointer", current ? "bg-[var(--f-bg-hover)]" : "hover:bg-[var(--f-bg-hover)]")}
+                        onContextMenu={(e) => openMenu(e, [{ label: "Rename page", onSelect: () => setRenamingPage(pg.id) }, { label: "Delete page", disabled: !pg.id, onSelect: () => removePage(pg.id) }])}
+                        className={cn("flex items-center h-8 pl-2 pr-1 rounded-[5px] text-[11px] font-[450] leading-4 text-[var(--f-text)] cursor-pointer", current ? "bg-[var(--f-bg-row-selected)]" : "hover:bg-[var(--f-bg-row-hover)]")}
                       >
                         {renamingPage === pg.id ? (
-                          <input autoFocus aria-label="Sayfa adı" defaultValue={pg.name} onFocus={(e) => e.currentTarget.select()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") { renamePage(pg.id, e.currentTarget.value); setRenamingPage(null); } if (e.key === "Escape") setRenamingPage(null); }} onBlur={(e) => { renamePage(pg.id, e.currentTarget.value); setRenamingPage(null); }} className="min-w-0 flex-1 h-5 px-1 rounded-[3px] bg-[var(--f-bg)] border border-[var(--f-border-selected)] outline-none" />
+                          <input autoFocus aria-label="Page name" defaultValue={pg.name} onFocus={(e) => e.currentTarget.select()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") { renamePage(pg.id, e.currentTarget.value); setRenamingPage(null); } if (e.key === "Escape") setRenamingPage(null); }} onBlur={(e) => { renamePage(pg.id, e.currentTarget.value); setRenamingPage(null); }} className="min-w-0 flex-1 h-5 px-1 rounded-[3px] bg-[var(--f-bg)] border border-[var(--f-border-selected)] outline-none" />
                         ) : (
                           <>
                             <span className="min-w-0 flex-1 truncate">{pg.name}</span>
-                            {!pg.id && <span className="text-[var(--f-text-secondary)]" title="Sitede görünen sayfa">{fi("16.page")}</span>}
+                            {!pg.id && <span className="text-[var(--f-text-secondary)]" title="Shown on the site">{fi("16.page")}</span>}
                           </>
                         )}
                       </div>
@@ -1279,15 +1335,16 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
                   })}
                 </div>
               </section>
-              <CollapseHeader label="Katmanlar" icons={<IconButton label="Katmanları daralt" icon={fi("collapse-layers.small")} onClick={() => setOpen(new Set())} />} />
+              <CollapseHeader label="Layers" icons={<IconButton label="Collapse layers" icon={fi("collapse-layers.small")} onClick={() => setOpen(new Set())} />} />
               {query !== null && (
                 <div className="shrink-0 px-2 pb-2">
-                  <TextInput label="Katmanlarda bul" value={query} placeholder="Bul…" onChange={setQuery} />
+                  <TextInput label="Find" value={query} placeholder="Find…" onChange={setQuery} />
                 </div>
               )}
               <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col pb-4" inset={8} edge={2}>
                 <Layers
                   nodes={nodes}
+                  library={library}
                   filter={query || undefined}
                   selection={selected}
                   open={open}
@@ -1295,8 +1352,18 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
                   onToggleMany={(ids, on) => setOpen((prev) => { const next = new Set(prev); ids.forEach((id) => (on ? next.add(id) : next.delete(id))); return next; })}
                   onSelect={(id, additive) => setSelection(additive ? (selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]) : [id])}
                   onSelectMany={(ids) => setSelection(ids)}
+                  onLocate={(id) => { setSelection([id]); window.setTimeout(() => zoomActions.current?.fitSelection(), 60); }}
                   onRename={(id, name) => patch(id, { name })}
-                  onToggleHidden={(id) => { const n = getNode(nodes, id); if (n) patch(id, { visible: n.visible === false ? undefined : false }); }}
+                  onToggleHidden={(id) => {
+                    if (id.includes("/")) {
+                      // Inside an instance: the instance's override of the layer.
+                      const l = layerAt(library, id);
+                      if (l) override(id, { visible: l.node.visible === false ? undefined : false });
+                      return;
+                    }
+                    const n = getNode(nodes, id);
+                    if (n) patch(id, { visible: n.visible === false ? undefined : false });
+                  }}
                   onToggleLocked={(id) => { const n = getNode(nodes, id); if (n) patch(id, { locked: n.locked ? undefined : true }); }}
                   onMoveInTree={moveInTree}
                   onContextMenu={(id, e) => { if (!selected.includes(id)) setSelection([id]); openMenu(e, nodeMenu(id)); }}
@@ -1306,8 +1373,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
           )}
           {leftTab === "assets" && (
             <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col pb-3" inset={8} edge={2}>
-              <CollapseHeader label="Yerel bileşenler" />
-              {components.length === 0 && <p className="px-4 py-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">Henüz bileşen yok. Bir çerçeve seç, ⌥⌘K.</p>}
+              <CollapseHeader label="Local components" />
+              {components.length === 0 && <p className="px-4 py-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">No components yet. Select a frame and press ⌥⌘K.</p>}
               {components.map(({ component, set }) => (
                 <div key={component.id} className="px-2 py-0.5">
                   <button type="button" onClick={() => insertInstance(component)} className="flex items-center gap-2 w-full h-8 px-2 rounded-[5px] text-left hover:bg-[var(--f-bg-hover)] cursor-pointer">
@@ -1326,15 +1393,15 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
         {minimized && (
           <>
             <div className="absolute top-3 left-3 z-30 flex items-center gap-1 h-12 pl-2 pr-2 rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_1px_3px_rgba(0,0,0,0.15)] select-none">
-              <button type="button" aria-label="Ana menü" onClick={(e) => openMenuUnder(e.currentTarget, shellMenu())} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] cursor-pointer">{fi("24.figma")}</button>
+              <button type="button" aria-label="Main menu" onClick={(e) => openMenuUnder(e.currentTarget, shellMenu())} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] cursor-pointer">{fi("24.figma")}</button>
               <span className="px-1 text-[13px] font-[550] leading-[22px] tracking-[-0.0325px] text-[var(--f-text)]">{title || slug}</span>
-              <IconButton label="Panelleri göster (⌘\\)" icon={fi("24.sidebar.closed")} onClick={() => setMinimized(false)} />
+              <IconButton label="Show UI (⌘\\)" icon={fi("24.sidebar.closed")} onClick={() => setMinimized(false)} />
             </div>
             <div className="absolute top-3 right-3 z-30 flex items-center gap-2 h-12 pl-2 pr-2 rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_1px_3px_rgba(0,0,0,0.15)] select-none">
               <button type="button" aria-haspopup="menu" onClick={(e) => openMenuUnder(e.currentTarget, zoomMenu(), "right")} className="flex items-center h-8 px-2 rounded-[5px] text-[11px] text-[var(--f-text)] tabular-nums hover:bg-[var(--f-bg-hover)] cursor-pointer">
                 {Math.round(view.zoom * 100)}%<span className="text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span>
               </button>
-              <button type="button" aria-label="Prototipi oynat" onClick={() => setPreviewing(previewTarget())} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] cursor-pointer">{fi("24.play")}</button>
+              <button type="button" aria-label="Present" onClick={() => setPreviewing(previewTarget())} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] cursor-pointer">{fi("24.play")}</button>
               <SaveButton />
             </div>
           </>
@@ -1355,34 +1422,37 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
           onDraw={onDraw}
           onDoubleClick={onDoubleClick}
           onContextMenu={(id, e) => { if (id && !selected.includes(id)) setSelection([id]); openMenu(e, nodeMenu(id, { x: e.clientX, y: e.clientY })); }}
+          onLayoutEdit={(id, p) => patch(id, p as Partial<SceneNode>)}
+          layoutFocus={layoutFocus}
           zoomActionsRef={zoomActions}
           rulers={rulers}
           background={doc.background}
         />
         {/* The toolbar, as the kit's: 8px in, the tools 8px apart, a line before the end. */}
-        <div role="toolbar" aria-label="Araçlar" onClick={(e) => e.stopPropagation()} className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 h-12 px-2 rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_1px_3px_rgba(0,0,0,0.15)] select-none">
-          <Tool icon={<FigmaIcon name={tool === "hand" ? "24.hand" : "24.move"} />} label={tool === "hand" ? "El" : "Taşı"} shortcut={tool === "hand" ? "H" : "V"} active={tool === "move" || tool === "hand"} onClick={() => setTool("move")} menu={(el) => openMenuUnder(el, [{ label: "Taşı", shortcut: "V", checked: tool === "move", onSelect: () => setTool("move") }, { label: "El", shortcut: "H", checked: tool === "hand", onSelect: () => setTool("hand") }])} />
-          <Tool icon={<FigmaIcon name="24.frame" />} label="Çerçeve" shortcut="F" active={tool === "frame"} onClick={() => setTool("frame")} />
-          <Tool icon={<FigmaIcon name={tool === "ellipse" ? "24.ellipse" : tool === "line" ? "24.line" : "24.rectangle"} />} label={tool === "ellipse" ? "Elips" : tool === "line" ? "Çizgi" : "Dikdörtgen"} shortcut={tool === "ellipse" ? "O" : tool === "line" ? "L" : "R"} active={tool === "rectangle" || tool === "ellipse" || tool === "line"} onClick={() => setTool("rectangle")} menu={(el) => openMenuUnder(el, [{ label: "Dikdörtgen", shortcut: "R", checked: tool === "rectangle", onSelect: () => setTool("rectangle") }, { label: "Elips", shortcut: "O", checked: tool === "ellipse", onSelect: () => setTool("ellipse") }, { label: "Çizgi", shortcut: "L", checked: tool === "line", onSelect: () => setTool("line") }, "-", { label: "Görsel yerleştir…", shortcut: keys("shift", "mod", "k"), onSelect: placeImage }])} />
-          <Tool icon={<FigmaIcon name="24.text" />} label="Metin" shortcut="T" active={tool === "text"} onClick={() => setTool("text")} />
+        <div role="toolbar" aria-label="Tools" onClick={(e) => e.stopPropagation()} className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 h-12 px-2 rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_1px_3px_rgba(0,0,0,0.15)] select-none">
+          <Tool icon={<FigmaIcon name={tool === "hand" ? "24.hand" : "24.move"} />} label={tool === "hand" ? "Hand" : "Move"} shortcut={tool === "hand" ? "H" : "V"} active={tool === "move" || tool === "hand"} onClick={() => setTool("move")} menuLabel="Move tools" menu={(el) => openMenuUnder(el, [{ label: "Move", shortcut: "V", checked: tool === "move", onSelect: () => setTool("move") }, { label: "Hand", shortcut: "H", checked: tool === "hand", onSelect: () => setTool("hand") }])} />
+          <Tool icon={<FigmaIcon name="24.frame" />} label="Frame" shortcut="F" active={tool === "frame"} onClick={() => setTool("frame")} />
+          <Tool icon={<FigmaIcon name={tool === "ellipse" ? "24.ellipse" : tool === "line" ? "24.line" : "24.rectangle"} />} label={tool === "ellipse" ? "Ellipse" : tool === "line" ? "Line" : "Rectangle"} shortcut={tool === "ellipse" ? "O" : tool === "line" ? "L" : "R"} active={tool === "rectangle" || tool === "ellipse" || tool === "line"} onClick={() => setTool("rectangle")} menuLabel="Shape tools" menu={(el) => openMenuUnder(el, [{ label: "Rectangle", shortcut: "R", checked: tool === "rectangle", onSelect: () => setTool("rectangle") }, { label: "Ellipse", shortcut: "O", checked: tool === "ellipse", onSelect: () => setTool("ellipse") }, { label: "Line", shortcut: "L", checked: tool === "line", onSelect: () => setTool("line") }, "-", { label: "Place image…", shortcut: keys("shift", "mod", "k"), onSelect: placeImage }])} />
+          <Tool icon={<FigmaIcon name="24.text" />} label="Text" shortcut="T" active={tool === "text"} onClick={() => setTool("text")} />
           <span aria-hidden className="w-px h-12 -my-2 bg-[var(--f-border)]" />
-          <Tool icon={<FigmaIcon name="24.component" />} label="Bileşen oluştur" shortcut="⌥⌘K" onClick={createComponent} />
-          <Tool icon={<FigmaIcon name="24.prototyping" />} label="Prototipi oynat" onClick={() => setPreviewing(previewTarget())} />
+          <Tool icon={<FigmaIcon name="24.component" />} label="Create component" shortcut="⌥⌘K" onClick={createComponent} />
+          <Tool icon={<FigmaIcon name="24.prototyping" />} label="Present" onClick={() => setPreviewing(previewTarget())} />
         </div>
       </div>
 
-      {/* ── The right sidebar: the header (the language, present, Kaydet), the tabs with the zoom, the properties ── */}
+      {/* ── The right sidebar: the header (the language, present, Save), the tabs with the zoom, the properties ── */}
       {!minimized && (
-        <aside data-design-panel="" className="w-[240px] shrink-0 h-full flex flex-col border-l border-[var(--f-border)] bg-[var(--f-bg)] z-10">
+        <aside data-design-panel="" className="relative shrink-0 h-full flex flex-col border-l border-[var(--f-border)] bg-[var(--f-bg)] z-10" style={{ width: panelWidths.right }}>
+          <div role="separator" aria-orientation="vertical" aria-label="Resize panel" onPointerDown={resizePanel("right")} className="absolute top-0 bottom-0 -left-[3px] w-[6px] z-30 cursor-col-resize hover:bg-[var(--f-border-selected)]/40 active:bg-[var(--f-border-selected)]/40" />
           <div className="shrink-0 flex flex-col gap-2 p-2 border-b border-[var(--f-border)]">
             <div className="flex items-center justify-between pl-1">
               <LangSwitch />
               <div className="flex items-center gap-2">
                 <div className="flex items-center rounded-[5px] hover:bg-[var(--f-bg-hover)]">
-                  <button type="button" aria-label="Yayında görüntüle" title={isPublished ? "Yayında görüntüle" : "Önce kaydet"} disabled={!isPublished} onClick={() => window.open(`/projects/${slug}`, "_blank")} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] cursor-pointer disabled:opacity-40 disabled:cursor-default">
+                  <button type="button" aria-label="View on site" title={isPublished ? "View on site" : "Save first"} disabled={!isPublished} onClick={() => window.open(`/projects/${slug}`, "_blank")} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] cursor-pointer disabled:opacity-40 disabled:cursor-default">
                     {fi("24.play")}
                   </button>
-                  <button type="button" aria-label="Sunum menüsü" onClick={(e) => openMenuUnder(e.currentTarget, [{ label: "Yayında görüntüle", disabled: !isPublished, onSelect: () => window.open(`/projects/${slug}`, "_blank") }, { label: "Prototipi oynat", onSelect: () => setPreviewing(previewTarget()) }], "right")} className="flex items-center justify-center w-4 h-8 text-[var(--f-icon-secondary)] cursor-pointer">
+                  <button type="button" aria-label="Present options" onClick={(e) => openMenuUnder(e.currentTarget, [{ label: "View on site", disabled: !isPublished, onSelect: () => window.open(`/projects/${slug}`, "_blank") }, { label: "Present", onSelect: () => setPreviewing(previewTarget()) }], "right")} className="flex items-center justify-center w-4 h-8 text-[var(--f-icon-secondary)] cursor-pointer">
                     {fi("16.chevron.down")}
                   </button>
                 </div>
@@ -1391,8 +1461,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
             </div>
             <div role="tablist" className="flex items-center justify-between">
               <div className="flex items-center gap-1">
-                <Tab label="Tasarım" active={rightTab === "design"} onClick={() => setRightTab("design")} />
-                <Tab label="Prototip" active={rightTab === "prototype"} onClick={() => setRightTab("prototype")} />
+                <Tab label="Design" active={rightTab === "design"} onClick={() => setRightTab("design")} />
+                <Tab label="Prototype" active={rightTab === "prototype"} onClick={() => setRightTab("prototype")} />
               </div>
               <button type="button" aria-haspopup="menu" onClick={(e) => openMenuUnder(e.currentTarget, zoomMenu(), "right")} className="flex items-center justify-end w-[60px] h-6 pl-1 rounded-[5px] text-[11px] leading-4 text-[var(--f-text)] tabular-nums hover:bg-[var(--f-bg-hover)] cursor-pointer">
                 {Math.round(view.zoom * 100)}%
@@ -1401,7 +1471,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
             </div>
           </div>
           <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col" inset={8} edge={2}>
-            <Inspector nodes={nodes} selection={selected} tab={rightTab} ops={ops} variables={variables} byId={byId} mode={theme} textStyles={textStyles} lang={lang} background={doc.background ?? "#f5f5f5"} header={headerMenu} />
+            <Inspector nodes={library} pageNodes={nodes} selection={selected} tab={rightTab} ops={ops} variables={variables} byId={byId} mode={theme} textStyles={textStyles} lang={lang} background={doc.background ?? "#f5f5f5"} header={headerMenu} />
           </ScrollArea>
         </aside>
       )}
@@ -1427,12 +1497,12 @@ function Preview({ node, render, onClose }: { node: FrameNode; render: RenderCon
   }, [onClose]);
   const scale = Math.min(1, (window.innerWidth - 120) / node.width, (window.innerHeight - 140) / Math.max(1, node.height));
   return (
-    <div role="dialog" aria-label="Prototip" className="fixed inset-0 z-50 flex flex-col bg-[#1e1e1e]" onClick={onClose}>
+    <div role="dialog" aria-label="Prototype" className="fixed inset-0 z-50 flex flex-col bg-[#1e1e1e]" onClick={onClose}>
       <div className="shrink-0 flex items-center justify-between h-12 px-4 text-[11px] text-white" onClick={(e) => e.stopPropagation()}>
-        <span className="font-semibold">{node.name} — Prototip</span>
+        <span className="font-semibold">{node.name} — Prototype</span>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setRun((r) => r + 1)} className="h-7 px-2.5 rounded-[5px] bg-white/10 hover:bg-white/20 cursor-pointer">Baştan</button>
-          <button type="button" onClick={onClose} className="h-7 px-2.5 rounded-[5px] bg-white/10 hover:bg-white/20 cursor-pointer">Kapat (Esc)</button>
+          <button type="button" onClick={() => setRun((r) => r + 1)} className="h-7 px-2.5 rounded-[5px] bg-white/10 hover:bg-white/20 cursor-pointer">Restart</button>
+          <button type="button" onClick={onClose} className="h-7 px-2.5 rounded-[5px] bg-white/10 hover:bg-white/20 cursor-pointer">Close (Esc)</button>
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-auto flex items-start justify-center p-8" onClick={(e) => e.stopPropagation()}>

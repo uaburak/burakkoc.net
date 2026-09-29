@@ -19,7 +19,7 @@ export function Section({ title, strong = true, muted = false, icons, pb = 8, ch
     <section className={cn("flex flex-col border-b border-[var(--f-border)]", pb === 12 ? "pb-3" : pb === 8 ? "pb-2" : "")}>
       <div className="flex items-center gap-1 h-10 pl-4 pr-2">
         <span className={cn("flex-1 min-w-0 truncate text-[11px] leading-4 tracking-[0.055px] select-none", strong ? "font-[550]" : "font-[450]", muted ? "text-[var(--f-text-secondary)]" : "text-[var(--f-text)]")}>{title}</span>
-        {icons}
+        <span className="f-icons flex items-center gap-1">{icons}</span>
       </div>
       {children}
     </section>
@@ -31,7 +31,7 @@ export function PropRow({ children, icons, className }: { children: ReactNode; i
   return (
     <div className={cn("flex items-start gap-2 pl-4 pr-2 py-1", className)}>
       <div className="flex flex-1 min-w-0 items-center gap-2">{children}</div>
-      {icons && <div className="flex shrink-0 items-center gap-1">{icons}</div>}
+      {icons && <div className="f-icons flex shrink-0 items-center gap-1">{icons}</div>}
     </div>
   );
 }
@@ -42,7 +42,7 @@ export function IconButton({ label, icon, active = false, disabled = false, onCl
     <button
       type="button"
       aria-label={label}
-      title={label}
+      data-tip={label}
       aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
@@ -67,7 +67,7 @@ export function Prefix({ children }: { children: ReactNode }) {
   return <span className="flex shrink-0 items-center justify-center w-6 h-6 text-[11px] font-[450] text-[var(--f-text-secondary)] select-none">{children}</span>;
 }
 
-const FIELD = "flex items-center h-6 min-w-0 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent hover:border-[var(--f-border)] focus-within:border-[var(--f-border-selected)] transition-colors";
+const FIELD = "group/field flex items-center h-6 min-w-0 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent hover:border-[var(--f-border)] focus-within:border-[var(--f-border-selected)] transition-colors";
 
 /**
  * As Figma's fields: a click on an unfocused field selects everything in it,
@@ -94,8 +94,10 @@ export const selectAllOnClick = {
  * the field keeps it, Esc drops it), stepped with ↑ ↓ (⇧: by 10), scrubbed by
  * dragging the prefix. `suffix` sits at its end (a unit, a sizing menu).
  */
-export function NumericInput({ label, prefix, value, min = -100000, max = 100000, unit, placeholder, fallback, onChange, onClear, suffix, disabled = false, className }: {
+export function NumericInput({ label, prefix, value, min = -100000, max = 100000, unit, placeholder, fallback, onChange, onClear, suffix, disabled = false, className, onFocusChange }: {
   label: string;
+  /** Focused / blurred (the canvas highlights what a padding or gap field edits) */
+  onFocusChange?: (focused: boolean) => void;
   prefix: ReactNode;
   value: number | null;
   min?: number;
@@ -112,6 +114,9 @@ export function NumericInput({ label, prefix, value, min = -100000, max = 100000
   const base = value ?? fallback ?? 0;
   const [draft, setDraft] = useState<string | null>(null);
   const typing = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  // With a unit the number hugs it ("100%", "0°", as Figma writes them): the input is as wide as its digits, the rest of the field still focuses it.
+  const shown = draft ?? (value === null ? placeholder ?? "" : String(value));
   const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n * 100) / 100));
   const finish = (raw?: string) => {
     if (!typing.current) return;
@@ -124,13 +129,15 @@ export function NumericInput({ label, prefix, value, min = -100000, max = 100000
   const scrub = (e: React.PointerEvent) => {
     if (disabled) return;
     e.preventDefault();
+    // Scrubbing the icon edits the value as typing would: the canvas shows what it edits meanwhile.
+    onFocusChange?.(true);
     const startX = e.clientX;
     let last = value;
     const move = (ev: PointerEvent) => {
       const next = clamp(base + Math.round((ev.clientX - startX) / 4));
       if (next !== last) { last = next; onChange(next); }
     };
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); onFocusChange?.(false); };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
@@ -138,14 +145,17 @@ export function NumericInput({ label, prefix, value, min = -100000, max = 100000
     <div className={cn(FIELD, "flex-1", disabled && "opacity-50", className)}>
       <span onPointerDown={scrub} className="flex shrink-0 cursor-ew-resize">{typeof prefix === "string" ? <Prefix>{prefix}</Prefix> : prefix}</span>
       <input
+        ref={input}
         aria-label={label}
         inputMode="decimal"
         disabled={disabled}
         value={draft ?? (value === null ? "" : String(value))}
         placeholder={placeholder}
+        style={unit ? { width: `${Math.max(1, shown.length) + 0.2}ch` } : undefined}
         {...selectAllOnClick}
         onChange={(e) => { typing.current = true; setDraft(e.target.value); }}
-        onBlur={(e) => finish(e.currentTarget.value)}
+        onFocus={(e) => { selectAllOnClick.onFocus(e); onFocusChange?.(true); }}
+        onBlur={(e) => { finish(e.currentTarget.value); onFocusChange?.(false); }}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Enter") finish(e.currentTarget.value);
@@ -158,9 +168,14 @@ export function NumericInput({ label, prefix, value, min = -100000, max = 100000
             setDraft(null);
           }
         }}
-        className="min-w-0 flex-1 h-full bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none tabular-nums"
+        className={cn("min-w-0 h-full bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none tabular-nums", !unit && "flex-1")}
       />
-      {unit && <span className="shrink-0 pr-2 text-[11px] text-[var(--f-text-secondary)] select-none">{unit}</span>}
+      {unit && (
+        <>
+          <span className="shrink-0 text-[11px] text-[var(--f-text)] select-none">{unit}</span>
+          <span className="flex-1 h-full min-w-1 cursor-text" onPointerDown={(e) => { e.preventDefault(); input.current?.focus(); input.current?.select(); }} />
+        </>
+      )}
       {suffix}
     </div>
   );
@@ -209,15 +224,25 @@ export function Select({ label, value, options, onChange, prefix, className }: {
 /** A chevron menu's entry: as the context menu's, or the old field menu's (`divided` draws a line before it). */
 export type ChevronItem = (MenuItem & { icon?: ReactNode; shortcut?: string }) | MenuEntry;
 
-export function ChevronMenu({ label, items, width, children, className }: { label: string; items: ChevronItem[]; width?: number; children?: ReactNode; className?: string }) {
+export function ChevronMenu({ label, items, width, children, className, hover = false }: { label: string; items: ChevronItem[]; width?: number; children?: ReactNode; className?: string; /** The chevron only while the field is hovered (Figma's sizing fields) */ hover?: boolean }) {
   void width;
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const entries: MenuEntry[] = items.flatMap((item): MenuEntry[] => (item === "-" ? ["-"] : "divided" in item && item.divided ? ["-", item] : [item]));
   return (
     <div className={cn("relative flex shrink-0 items-center", className)}>
       <button type="button" aria-haspopup="menu" aria-expanded={Boolean(at)} aria-label={label} title={label} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt(at ? null : { x: r.left, y: r.bottom + 4 }); }} className="flex items-center gap-0.5 h-6 pl-1 pr-0.5 rounded-[5px] text-[11px] text-[var(--f-text)] hover:bg-[var(--f-bg-hover)] cursor-pointer">
-        {children}
-        <FigmaIcon name="16.chevron.down" className="text-[var(--f-icon-secondary)]" />
+        {hover ? (
+          // Figma's sizing field: "Fill" / "Hug" sits where the chevron goes; hovering the field (or the open menu) swaps in the chevron.
+          <span className="relative flex min-w-4 items-center justify-end">
+            <span className={cn("pr-[3px]", at ? "opacity-0" : "group-hover/field:opacity-0")}>{children}</span>
+            <FigmaIcon name="16.chevron.down" className={cn("absolute right-0 text-[var(--f-icon-secondary)]", !at && "opacity-0 group-hover/field:opacity-100")} />
+          </span>
+        ) : (
+          <>
+            {children}
+            <FigmaIcon name="16.chevron.down" className="text-[var(--f-icon-secondary)]" />
+          </>
+        )}
       </button>
       {at && <ContextMenu at={at} entries={entries} onClose={() => setAt(null)} />}
     </div>
@@ -277,7 +302,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, chit, cl
       {chit ?? (
         <label className="relative cursor-pointer">
           <Chit color={color} />
-          <input type="color" aria-label="Renk seç" value={valid ? color : "#000000"} onChange={(e) => onColor(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
+          <input type="color" aria-label="Pick color" value={valid ? color : "#000000"} onChange={(e) => onColor(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
         </label>
       )}
       <input
@@ -291,7 +316,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, chit, cl
       />
       {onOpacity && (
         <span className="flex w-[53px] h-full shrink-0 items-center border-l border-[var(--f-bg)]">
-          <NumericInput label="Opaklık" prefix={<span className="w-[7px]" />} value={opacity} min={0} max={100} unit="%" onChange={onOpacity} className="bg-transparent border-0 hover:border-0 flex-1 rounded-none" />
+          <NumericInput label="Opacity" prefix={<span className="w-[7px]" />} value={opacity} min={0} max={100} unit="%" onChange={onOpacity} className="bg-transparent border-0 hover:border-0 flex-1 rounded-none" />
         </span>
       )}
     </div>
@@ -322,7 +347,7 @@ export function CollapseHeader({ label, open, onToggle, icons }: { label: string
   );
 }
 
-/** Figma's blue button (Share → Kaydet): 32px, 12px in, 5px corners. */
+/** Figma's blue button (Share → Save): 32px, 12px in, 5px corners. */
 export function BrandButton({ children, disabled, onClick, className }: { children: ReactNode; disabled?: boolean; onClick?: () => void; className?: string }) {
   return (
     <button type="button" disabled={disabled} onClick={onClick} className={cn("flex items-center h-8 px-3 rounded-[5px] bg-[var(--f-bg-brand)] text-[11px] font-[450] leading-4 tracking-[0.055px] text-white hover:brightness-105 cursor-pointer disabled:opacity-70 disabled:cursor-default", className)}>
@@ -330,3 +355,26 @@ export function BrandButton({ children, disabled, onClick, className }: { childr
     </button>
   );
 }
+
+/**
+ * The editor's own CSS, rendered once by it: Figma's tooltips — a button's
+ * label under it after a beat (`data-tip`); in an icon column (`.f-icons`)
+ * they hang from the right edge — and a grid frame's cells, shown while it
+ * is selected.
+ */
+export const EDITOR_CSS = `
+[data-grid-cells] { opacity: 0; }
+[data-layer-selected] > [data-grid-cells] { opacity: 1; }
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
+  padding: 4px 8px; border-radius: 5px; background: #1e1e1e; color: #fff;
+  font-size: 11px; line-height: 16px; font-weight: 400; letter-spacing: 0.055px; white-space: nowrap;
+  pointer-events: none; display: none; z-index: 60;
+}
+/* Shown only while hovered (a hidden tooltip past the panel's edge would still make it scroll sideways); it fades in after a beat. */
+[data-tip]:hover::after { display: block; animation: f-tip 0.1s 0.5s both; }
+@keyframes f-tip { from { opacity: 0; } to { opacity: 1; } }
+.f-icons [data-tip]::after { left: auto; right: 0; transform: none; }
+`;

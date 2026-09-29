@@ -13,6 +13,7 @@ import { useDesignSystem } from "@/components/admin/useDesignSystem";
 import { useUndo } from "@/components/admin/useUndo";
 import { FigmaEditor } from "@/figma/FigmaEditor";
 import { newDocument, upgradeDocument, type FigmaDocument } from "@/figma/model";
+import { withStartingLibrary } from "@/figma/library";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -51,8 +52,8 @@ function readDraft(slug: string): ProjectData | null {
   }
 }
 
-/** The project with its Figma file — a new one (its page frame named after it) when it has none yet. */
-const withCanvas = (p: ProjectData): ProjectData => ({ ...p, canvas: p.canvas ? upgradeDocument(p.canvas) : newDocument(p.title || p.slug) });
+/** The project with its Figma file — a new one (its page frame named after it) when it has none yet — with the starting components on their page. */
+const withCanvas = (p: ProjectData): ProjectData => ({ ...p, canvas: withStartingLibrary(p.canvas ? upgradeDocument(p.canvas) : newDocument(p.title || p.slug)) });
 
 // ── Main editor ───────────────────────────────────────────────────────────────
 

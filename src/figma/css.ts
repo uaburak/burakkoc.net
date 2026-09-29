@@ -132,19 +132,23 @@ function placement(node: SceneNode, parentLayout: LayoutMode, byId: Map<string, 
   const fillH = node.sizingV === "fill";
   style.width = hugW ? "max-content" : fillW ? undefined : node.width;
   style.height = hugH ? "auto" : fillH ? undefined : node.height;
+  // Across the flow, Fill stretches — unless a max size caps it: a stretched item stays at the start
+  // once capped, so a capped one takes the whole width instead and sits where the parent aligns it.
   if (fillW) {
     if (along === "H") {
       style.flexGrow = 1;
       style.flexBasis = 0;
       style.minWidth = 0;
-    } else style.alignSelf = "stretch";
+    } else if (node.maxWidth !== undefined) style.width = "100%";
+    else style.alignSelf = "stretch";
   }
   if (fillH) {
     if (along === "V") {
       style.flexGrow = 1;
       style.flexBasis = 0;
       style.minHeight = 0;
-    } else style.alignSelf = "stretch";
+    } else if (node.maxHeight !== undefined) style.height = "100%";
+    else style.alignSelf = "stretch";
   }
   if (hugW && node.type !== "text") style.width = "max-content";
   return limits(style);
@@ -165,9 +169,11 @@ export function frameLayoutCss(frame: FrameNode, byId: Map<string, DesignVariabl
   if (frame.layoutMode === "none") return style;
   if (frame.layoutMode === "grid") {
     style.display = "grid";
-    style.gridTemplateColumns = `repeat(${Math.max(1, frame.gridColumns ?? 2)}, auto)`;
+    // Equal columns sharing the width (as the site's grids of cards): Fill children stretch into them.
+    style.gridTemplateColumns = `repeat(${Math.max(1, frame.gridColumns ?? 2)}, minmax(0, 1fr))`;
     if (frame.gridRows) style.gridTemplateRows = `repeat(${frame.gridRows}, auto)`;
-    style.gap = px(frame.itemSpacing, byId);
+    style.columnGap = px(frame.itemSpacing, byId);
+    style.rowGap = px(frame.counterSpacing ?? frame.itemSpacing, byId);
     style.justifyContent = JUSTIFY[frame.primaryAlign];
     style.alignItems = ALIGN[frame.counterAlign];
     style.justifyItems = ALIGN[frame.counterAlign] === "flex-start" ? "start" : ALIGN[frame.counterAlign] === "flex-end" ? "end" : "center";
@@ -230,6 +236,8 @@ export function nodeCss(node: SceneNode, parentLayout: LayoutMode, byId: Map<str
   Object.assign(style, fillsCss(node.fills, byId));
   if (isFrameLike(node)) {
     Object.assign(style, frameLayoutCss(node, byId));
+    // A hidden frame stays hidden (its auto layout's display: flex must not show it).
+    if (node.visible === false) style.display = "none";
     if (node.clipsContent) style.overflow = "hidden";
     // A component set: Figma's dashed purple frame around its variants.
     if (node.type === "componentSet") style.outline = "1px dashed var(--edit-component, #9747ff)";

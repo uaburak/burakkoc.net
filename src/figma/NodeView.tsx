@@ -3,7 +3,7 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DesignVariable } from "@/types/design";
 import { MOTION_CSS } from "@/components/project/interactions";
-import { colorWithAlpha, nodeCss, motionCss } from "./css";
+import { colorWithAlpha, frameLayoutCss, nodeCss, motionCss } from "./css";
 import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, type FrameNode, type LayoutGrid, type LayoutMode, type Reaction, type SceneNode, type TextNode } from "./model";
 
 /**
@@ -90,7 +90,7 @@ function TextView({ node, parentLayout, id, zIndex }: { node: TextNode; parentLa
   const words = textOf(node, ctx.lang);
   return (
     <div data-node-id={id} data-node-type="text" data-text-style={node.textStyle} style={style}>
-      {words || (ctx.editing !== undefined ? <span style={{ opacity: 0.3 }}>Metin</span> : null)}
+      {words || (ctx.editing !== undefined ? <span style={{ opacity: 0.3 }}>Text</span> : null)}
     </div>
   );
 }
@@ -188,6 +188,19 @@ function FrameBox({ node, parentLayout, id, type, extraStyle, extraProps, childI
     <div data-node-id={id} data-node-type={type} style={style} {...extraProps}>
       <Children parent={node} childId={childId} keyOf={keyOf} path="" />
       {ctx.editing !== undefined && node.layoutGrids?.some((g) => g.visible !== false) && <LayoutGrids grids={node.layoutGrids} />}
+      {ctx.editing !== undefined && node.layoutMode === "grid" && <GridCells frame={node} byId={ctx.byId} />}
+    </div>
+  );
+}
+
+/** A grid's cells outlined — the editor only, and only while the frame is selected (see EDITOR_CSS): its columns × rows (as many rows as its children fill, when Auto). */
+function GridCells({ frame, byId }: { frame: FrameNode; byId: Map<string, DesignVariable> }) {
+  const layout = frameLayoutCss(frame, byId);
+  const cols = Math.max(1, frame.gridColumns ?? 2);
+  const rows = frame.gridRows ?? Math.max(1, Math.ceil(frame.children.length / cols));
+  return (
+    <div data-grid-cells="" aria-hidden className="pointer-events-none absolute inset-0 grid" style={{ boxSizing: "border-box", paddingTop: layout.paddingTop, paddingRight: layout.paddingRight, paddingBottom: layout.paddingBottom, paddingLeft: layout.paddingLeft, columnGap: layout.columnGap, rowGap: layout.rowGap, gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
+      {Array.from({ length: cols * rows }).map((_, i) => <span key={i} style={{ boxShadow: "inset 0 0 0 1px var(--edit-accent, #0d99ff)", opacity: 0.5 }} />)}
     </div>
   );
 }

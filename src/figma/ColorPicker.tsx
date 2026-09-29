@@ -5,14 +5,16 @@ import type { DesignVariable, VariableValue } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { fi } from "@/components/admin/figmaIcons";
 import { boundValue, splitName, type ThemeMode } from "@/components/project/designVariables";
-import { IconButton, NumericInput, Select, Tab, TextInput, selectAllOnClick } from "./ui";
+import { ChevronMenu, IconButton, NumericInput, Select, Tab, TextInput, selectAllOnClick } from "./ui";
 import { PAINT_LABEL, type GradientStop, type Paint } from "./model";
 
 /**
  * Figma's colour picker (UI3): Custom — the colour's square (saturation
  * across, brightness down), the hue and the alpha sliders, the eyedropper,
  * the hex and the opacity, the colours already on this page; Libraries —
- * the site's colour variables. Floats beside the design panel.
+ * the site's colour variables as Figma lists them: a search, the library
+ * menu, swatches (or rows) by collection and group. Floats beside the
+ * design panel.
  */
 
 type Hsv = { h: number; s: number; v: number };
@@ -46,9 +48,13 @@ function hsvToHex({ h, s, v }: Hsv): string {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 
-export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pageColors, onChange, onVariable, onClose, paint, onPaint, onUpload, onCreateVariable }: {
+export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pageColors, onChange, onVariable, onClose, paint, onPaint, onUpload, onCreateVariable, initialTab, selectedId }: {
   color: string;
   opacity: number;
+  /** Which tab opens first (Custom unless said) */
+  initialTab?: "custom" | "libraries";
+  /** The variable the colour is bound to, if any — marked in Libraries */
+  selectedId?: string;
   /** The fill being edited, when it may become a gradient or an image */
   paint?: Paint;
   onPaint?: (paint: Paint) => void;
@@ -61,13 +67,16 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
   variables: DesignVariable[];
   byId: Map<string, DesignVariable>;
   mode: ThemeMode;
-  /** The colours used on this page (Figma's "On this page") */
+  /** The colours used on this page (Figma's "Document colors") */
   pageColors: string[];
   onChange: (hex: string, opacity: number) => void;
   onVariable?: (value: VariableValue) => void;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<"custom" | "libraries">("custom");
+  const [tab, setTab] = useState<"custom" | "libraries">(initialTab ?? "custom");
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState<"grid" | "list">("grid");
+  const [library, setLibrary] = useState<string | null>(null);
   const kind: NonNullable<Paint["type"]> = paint?.type ?? "solid";
   const [stop, setStop] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -148,40 +157,60 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
     } catch { /* cancelled */ }
   };
   const colorVars = useMemo(() => variables.filter((v) => v.kind === "color"), [variables]);
+  const DEFAULT_COLLECTION = "Collection 1";
+  const collections = useMemo(() => [...new Set(colorVars.map((v) => v.collection ?? DEFAULT_COLLECTION))], [colorVars]);
+  // The variables shown: the chosen library's, matching the search — by collection, then by group ("Arka plan/1" → "Arka plan").
+  const grouped = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const out: [string, [string, DesignVariable[]][]][] = [];
+    for (const v of colorVars) {
+      const coll = v.collection ?? DEFAULT_COLLECTION;
+      if ((library && coll !== library) || (q && !v.name.toLowerCase().includes(q))) continue;
+      const [group] = splitName(v.name);
+      let c = out.find((x) => x[0] === coll);
+      if (!c) out.push((c = [coll, []]));
+      let g = c[1].find((x) => x[0] === group);
+      if (!g) c[1].push((g = [group, []]));
+      g[1].push(v);
+    }
+    return out;
+  }, [colorVars, library, query]);
+  const pickVariable = (id: string) => { onVariable?.({ alias: id }); onClose(); };
+  const valueOf = (v: DesignVariable) => String(boundValue(v.light, mode, byId) ?? "#000000");
   const top = Math.max(8, Math.min(anchor.top, window.innerHeight - 520));
   const left = Math.max(8, anchor.right - 240 - 8);
 
   return (
-    <div ref={ref} role="dialog" aria-label="Renk" className="fixed z-50 flex w-[240px] flex-col rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_10px_16px_rgba(0,0,0,0.2)] text-[11px] leading-4 text-[var(--f-text)]" style={{ top, left }} onPointerDown={(e) => e.stopPropagation()}>
+    <div ref={ref} role="dialog" aria-label="Color" className="fixed z-50 flex w-[240px] flex-col rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_10px_16px_rgba(0,0,0,0.2)] text-[11px] leading-4 text-[var(--f-text)]" style={{ top, left }} onPointerDown={(e) => e.stopPropagation()}>
       <div className="flex items-center justify-between h-10 px-2 border-b border-[var(--f-border)]">
         <div className="flex items-center gap-1">
-          <Tab label="Özel" active={tab === "custom"} onClick={() => setTab("custom")} />
-          <Tab label="Kütüphaneler" active={tab === "libraries"} onClick={() => setTab("libraries")} />
+          <Tab label="Custom" active={tab === "custom"} onClick={() => setTab("custom")} />
+          <Tab label="Libraries" active={tab === "libraries"} onClick={() => setTab("libraries")} />
         </div>
         <div className="flex items-center gap-1">
-          {onCreateVariable && <IconButton label="Renk değişkeni oluştur" icon={fi("plus.small")} onClick={() => { onCreateVariable(hsvToHex(hsv)); onClose(); }} />}
-          <IconButton label="Kapat" icon={fi("close.small")} onClick={onClose} />
+          {onCreateVariable && <IconButton label="Create color variable" icon={fi("plus.small")} onClick={() => { onCreateVariable(hsvToHex(hsv)); onClose(); }} />}
+          <IconButton label="Close" icon={fi("close.small")} onClick={onClose} />
         </div>
       </div>
       {tab === "custom" ? (
         <div className="flex flex-col gap-2 p-2">
           <div className="flex items-center gap-1 px-1">
-            <IconButton label="Düz" icon={fi("24.fill.solid.small")} active={kind === "solid"} onClick={() => setKind("solid")} />
+            <IconButton label="Solid" icon={fi("24.fill.solid.small")} active={kind === "solid"} onClick={() => setKind("solid")} />
             {kind !== "solid" && <span className="ml-1 text-[var(--f-text-secondary)]">{PAINT_LABEL[kind]}</span>}
-            <IconButton label="Gradyan" icon={fi("24.gradient.linear.small")} active={kind === "gradient"} disabled={!onPaint} onClick={() => setKind("gradient")} />
-            <IconButton label="Görsel" icon={fi("24.fill.image.small")} active={kind === "image"} disabled={!onPaint} onClick={() => setKind("image")} />
+            <IconButton label="Gradient" icon={fi("24.gradient.linear.small")} active={kind === "gradient"} disabled={!onPaint} onClick={() => setKind("gradient")} />
+            <IconButton label="Image" icon={fi("24.fill.image.small")} active={kind === "image"} disabled={!onPaint} onClick={() => setKind("image")} />
           </div>
           {kind === "gradient" && paint?.gradient && (
             <div className="flex flex-col gap-2">
               <div className="relative h-4 rounded-[3px]" style={{ background: `linear-gradient(to right, ${[...stops].sort((a, b) => a.position - b.position).map((st) => `${st.color} ${st.position}%`).join(", ")})` }} onDoubleClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); const at = Math.round(((e.clientX - r.left) / r.width) * 100); setStops([...stops, { color: hsvToHex(hsv), position: at }]); setStop(stops.length); }}>
                 {stops.map((st, i) => (
-                  <button key={i} type="button" aria-label={`Durak ${i + 1}`} onPointerDown={(e) => { e.stopPropagation(); setStop(i); drag(e as unknown as React.PointerEvent, () => {}); const bar = e.currentTarget.parentElement!.getBoundingClientRect(); const move = (ev: PointerEvent) => setStops(stops.map((x, j) => (j === i ? { ...x, position: Math.round(Math.min(100, Math.max(0, ((ev.clientX - bar.left) / bar.width) * 100))) } : x))); const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); }} className={cn("absolute top-1/2 w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border-2 shadow-[0_0_0_1px_rgba(0,0,0,0.3)] cursor-pointer", i === stop ? "border-[var(--f-border-selected)]" : "border-white")} style={{ left: `${st.position}%`, background: st.color }} />
+                  <button key={i} type="button" aria-label={`Stop ${i + 1}`} onPointerDown={(e) => { e.stopPropagation(); setStop(i); drag(e as unknown as React.PointerEvent, () => {}); const bar = e.currentTarget.parentElement!.getBoundingClientRect(); const move = (ev: PointerEvent) => setStops(stops.map((x, j) => (j === i ? { ...x, position: Math.round(Math.min(100, Math.max(0, ((ev.clientX - bar.left) / bar.width) * 100))) } : x))); const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", up); }} className={cn("absolute top-1/2 w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border-2 shadow-[0_0_0_1px_rgba(0,0,0,0.3)] cursor-pointer", i === stop ? "border-[var(--f-border-selected)]" : "border-white")} style={{ left: `${st.position}%`, background: st.color }} />
                 ))}
               </div>
               <div className="flex items-center gap-2">
-                <NumericInput label="Açı" prefix={<span className="flex w-6 justify-center text-[var(--f-text-secondary)]">{fi("24.rotation", 16)}</span>} value={paint.gradient.angle} min={0} max={360} unit="°" onChange={(angle) => onPaint?.({ ...paint, gradient: { ...paint.gradient!, angle } })} />
-                <NumericInput label="Durak konumu" prefix={<span className="flex w-6 justify-center text-[var(--f-text-secondary)]">%</span>} value={stops[stop]?.position ?? 0} min={0} max={100} onChange={(position) => setStops(stops.map((x, j) => (j === stop ? { ...x, position } : x)))} />
-                <IconButton label="Durağı kaldır" icon={fi("minus.small")} disabled={stops.length <= 2} onClick={() => { setStops(stops.filter((_, j) => j !== stop)); setStop(0); }} />
+                <NumericInput label="Angle" prefix={<span className="flex w-6 justify-center text-[var(--f-text-secondary)]">{fi("24.rotation", 16)}</span>} value={paint.gradient.angle} min={0} max={360} unit="°" onChange={(angle) => onPaint?.({ ...paint, gradient: { ...paint.gradient!, angle } })} />
+                <NumericInput label="Stop position" prefix={<span className="flex w-6 justify-center text-[var(--f-text-secondary)]">%</span>} value={stops[stop]?.position ?? 0} min={0} max={100} onChange={(position) => setStops(stops.map((x, j) => (j === stop ? { ...x, position } : x)))} />
+                <IconButton label="Remove stop" icon={fi("minus.small")} disabled={stops.length <= 2} onClick={() => { setStops(stops.filter((_, j) => j !== stop)); setStop(0); }} />
               </div>
             </div>
           )}
@@ -189,10 +218,10 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
             <div className="flex flex-col gap-2">
               <div className="w-full h-[120px] rounded-[5px] bg-[var(--f-bg-secondary)] bg-center bg-no-repeat" style={{ backgroundImage: paint?.image?.url ? `url("${paint.image.url}")` : undefined, backgroundSize: paint?.image?.fit === "fit" ? "contain" : paint?.image?.fit === "tile" ? "auto" : "cover", backgroundRepeat: paint?.image?.fit === "tile" ? "repeat" : "no-repeat" }} />
               <div className="flex items-center gap-2">
-                <Select label="Sığdırma" value={paint?.image?.fit ?? "fill"} options={[{ value: "fill", label: "Doldur" }, { value: "fit", label: "Sığdır" }, { value: "tile", label: "Döşe" }]} onChange={(fit) => onPaint?.({ ...paint!, image: { url: paint?.image?.url ?? "", fit: fit as "fill" | "fit" | "tile" } })} />
-                <button type="button" onClick={chooseImage} disabled={!onUpload || uploading} className="flex h-6 shrink-0 items-center px-2 rounded-[5px] bg-[var(--f-bg-secondary)] text-[var(--f-text)] hover:bg-[var(--f-bg-hover)] cursor-pointer disabled:opacity-50">{uploading ? "Yükleniyor…" : "Görsel seç…"}</button>
+                <Select label="Scale mode" value={paint?.image?.fit ?? "fill"} options={[{ value: "fill", label: "Fill" }, { value: "fit", label: "Fit" }, { value: "tile", label: "Tile" }]} onChange={(fit) => onPaint?.({ ...paint!, image: { url: paint?.image?.url ?? "", fit: fit as "fill" | "fit" | "tile" } })} />
+                <button type="button" onClick={chooseImage} disabled={!onUpload || uploading} className="flex h-6 shrink-0 items-center px-2 rounded-[5px] bg-[var(--f-bg-secondary)] text-[var(--f-text)] hover:bg-[var(--f-bg-hover)] cursor-pointer disabled:opacity-50">{uploading ? "Uploading…" : "Choose image"}</button>
               </div>
-              <TextInput label="Görsel adresi" value={paint?.image?.url ?? ""} placeholder="https://…" onCommit={(url) => onPaint?.({ ...paint!, image: { url: url.trim(), fit: paint?.image?.fit ?? "fill" } })} />
+              <TextInput label="Image URL" value={paint?.image?.url ?? ""} placeholder="https://…" onCommit={(url) => onPaint?.({ ...paint!, image: { url: url.trim(), fit: paint?.image?.fit ?? "fill" } })} />
             </div>
           ) : (
           <div className="relative w-full h-[184px] rounded-[5px] overflow-hidden cursor-crosshair" style={{ background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueColor})` }} onPointerDown={(e) => drag(e, (x, y) => set({ ...hsv, s: x, v: 1 - y }))}>
@@ -201,7 +230,7 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
           )}
           {kind !== "image" && (
           <div className="flex items-center gap-2">
-            <IconButton label="Damlalık" icon={fi("24.eyedropper.small")} onClick={pick} disabled={!eyedropper} />
+            <IconButton label="Eyedropper" icon={fi("24.eyedropper.small")} onClick={pick} disabled={!eyedropper} />
             <div className="flex flex-1 flex-col gap-2">
               <div className="relative h-3 rounded-full cursor-pointer" style={{ background: "linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" }} onPointerDown={(e) => drag(e, (x) => set({ ...hsv, h: x * 360 }))}>
                 <span className="pointer-events-none absolute top-1/2 w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.3)]" style={{ left: `${(hsv.h / 360) * 100}%`, background: hueColor }} />
@@ -214,8 +243,8 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
           )}
           {kind !== "image" && (
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1 h-6 px-2 rounded-[5px] bg-[var(--f-bg-secondary)] text-[var(--f-text)]">Hex {fi("16.chevron.down")}</span>
-            <div className="flex flex-1 items-center h-6 rounded-[5px] bg-[var(--f-bg-secondary)]">
+            <span className="flex shrink-0 items-center gap-1 h-6 px-2 rounded-[5px] bg-[var(--f-bg-secondary)] text-[var(--f-text)]">Hex {fi("16.chevron.down")}</span>
+            <div className="flex flex-1 min-w-0 items-center h-6 rounded-[5px] bg-[var(--f-bg-secondary)]">
               <input
                 aria-label="Hex"
                 value={hexDraft ?? hsvToHex(hsv).replace("#", "").toUpperCase()}
@@ -225,37 +254,64 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
                 onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
                 className="min-w-0 flex-1 h-full pl-2 bg-transparent outline-none uppercase text-[var(--f-text)]"
               />
-              <span className="flex w-[53px] h-full items-center border-l border-[var(--f-bg)]">
-                <NumericInput label="Opaklık" prefix={<span className="w-[7px]" />} value={opacity} min={0} max={100} unit="%" onChange={(o) => onChange(hsvToHex(hsv), o)} className="bg-transparent border-0 hover:border-0 rounded-none" />
+              <span className="flex w-[53px] shrink-0 h-full items-center border-l border-[var(--f-bg)]">
+                <NumericInput label="Opacity" prefix={<span className="w-[7px]" />} value={opacity} min={0} max={100} unit="%" onChange={(o) => onChange(hsvToHex(hsv), o)} className="bg-transparent border-0 hover:border-0 rounded-none" />
               </span>
             </div>
           </div>
           )}
           <div className="mt-1 pt-2 border-t border-[var(--f-border)]">
             <div className="flex items-center justify-between h-6 px-1 text-[var(--f-text)]">
-              <span>Bu sayfada</span>
+              <span>Document colors</span>
               <span className="text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span>
             </div>
             <div className="grid grid-cols-8 gap-1 px-1 pt-1 pb-1">
               {pageColors.map((c) => (
                 <button key={c} type="button" title={c} aria-label={c} onClick={() => set(hexToHsv(c))} className="w-5 h-5 rounded-[3px] border border-[var(--f-border-translucent)] cursor-pointer" style={{ background: c }} />
               ))}
-              {pageColors.length === 0 && <span className="col-span-8 py-1 text-[var(--f-text-secondary)]">Henüz renk yok.</span>}
+              {pageColors.length === 0 && <span className="col-span-8 py-1 text-[var(--f-text-secondary)]">No colors yet.</span>}
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex flex-col py-1 max-h-[420px] overflow-y-auto">
-          {colorVars.length === 0 && <p className="px-3 py-2 text-[var(--f-text-secondary)]">Renk değişkeni yok.</p>}
-          {colorVars.map((v) => {
-            const value = String(boundValue(v.light, mode, byId) ?? "#000000");
-            return (
-              <button key={v.id} type="button" onClick={() => { onVariable?.({ alias: v.id }); onClose(); }} className="flex items-center gap-2 h-8 px-3 text-left hover:bg-[var(--f-bg-hover)] cursor-pointer" disabled={!onVariable}>
-                <span className={cn("w-4 h-4 shrink-0 rounded-full border border-[var(--f-border-translucent)]")} style={{ background: value }} />
-                <span className="min-w-0 flex-1 truncate text-[var(--f-text)]">{v.name}</span>
-              </button>
-            );
-          })}
+        <div className="flex flex-col">
+          <div className="flex items-center gap-1 h-10 px-2 border-b border-[var(--f-border)]">
+            <span className="flex w-6 h-6 shrink-0 items-center justify-center text-[var(--f-icon-secondary)]">{fi("24.search.small")}</span>
+            <input aria-label="Search" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.stopPropagation()} className="min-w-0 flex-1 h-6 bg-transparent outline-none text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)]" />
+          </div>
+          <div className="flex items-center justify-between h-10 pl-2 pr-2 border-b border-[var(--f-border)]">
+            <ChevronMenu label="Library" items={[{ label: "All libraries", checked: !library, onSelect: () => setLibrary(null) }, ...collections.map((c) => ({ label: c, checked: library === c, onSelect: () => setLibrary(c) }))]}>
+              <span className="text-[11px] text-[var(--f-text)]">{library ?? "All libraries"}</span>
+            </ChevronMenu>
+            <IconButton label={view === "grid" ? "List view" : "Grid view"} icon={fi(view === "grid" ? "list-view" : "24.grid")} onClick={() => setView(view === "grid" ? "list" : "grid")} />
+          </div>
+          <div className="flex flex-col max-h-[400px] overflow-y-auto px-3 pb-2">
+            {grouped.length === 0 && <p className="py-3 text-[var(--f-text-secondary)]">{colorVars.length ? "No results" : "No color variables."}</p>}
+            {grouped.map(([coll, groups]) => (
+              <div key={coll} className="flex flex-col">
+                <p className="flex items-center h-8 text-[11px] font-[550] text-[var(--f-text)]">{coll}</p>
+                {groups.map(([group, list]) => (
+                  <div key={group || "_"} className="flex flex-col pb-1">
+                    {group && <p className="flex items-center h-6 text-[11px] text-[var(--f-text-secondary)]">{group}</p>}
+                    {view === "grid" ? (
+                      <div className="flex flex-wrap gap-2 py-1">
+                        {list.map((v) => (
+                          <button key={v.id} type="button" title={v.name} aria-label={v.name} disabled={!onVariable} onClick={() => pickVariable(v.id)} className={cn("w-7 h-7 rounded-[4px] border border-[var(--f-border-translucent)] cursor-pointer", selectedId === v.id && "outline outline-2 outline-offset-1 outline-[var(--f-border-selected)]")} style={{ background: valueOf(v) }} />
+                        ))}
+                      </div>
+                    ) : (
+                      list.map((v) => (
+                        <button key={v.id} type="button" disabled={!onVariable} onClick={() => pickVariable(v.id)} className={cn("flex items-center gap-2 h-8 -mx-1 px-1 rounded-[5px] text-left hover:bg-[var(--f-bg-hover)] cursor-pointer", selectedId === v.id && "bg-[var(--f-bg-secondary)]")}>
+                          <span className="w-4 h-4 shrink-0 rounded-[3px] border border-[var(--f-border-translucent)]" style={{ background: valueOf(v) }} />
+                          <span className="min-w-0 flex-1 truncate text-[var(--f-text)]">{splitName(v.name)[1] || v.name}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

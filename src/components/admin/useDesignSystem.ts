@@ -46,7 +46,7 @@ export interface DesignSystem {
   copyComponent: (id: string) => string;
   /** Deletes an added component (its instances go back to their type's own) — a starting one goes back to its look */
   removeComponent: (id: string) => void;
-  /** What is drawn on the Bileşenler page on its own (see CanvasNode) */
+  /** What is drawn on the Components page on its own (see CanvasNode) */
   nodes: CanvasNode[];
   /** Changes them (functional: drags and typing never overwrite each other) */
   setNodes: (update: (nodes: CanvasNode[]) => CanvasNode[]) => void;
@@ -86,9 +86,9 @@ function upsert<T extends { id: string }>(list: T[], entry: T): T[] {
 }
 
 const NEW_VARIABLE: Record<VariableKind, { name: string; value: string | number }> = {
-  color: { name: "Yeni renk", value: "#000000" },
-  number: { name: "Yeni sayı", value: 16 },
-  weight: { name: "Yeni kalınlık", value: 400 },
+  color: { name: "Color", value: "#000000" },
+  number: { name: "Number", value: 16 },
+  weight: { name: "Weight", value: 400 },
 };
 
 export function useDesignSystem(): DesignSystem {
@@ -161,7 +161,7 @@ export function useDesignSystem(): DesignSystem {
     setTextStyle,
     addTextStyle: () => {
       const id = uid();
-      setTextStyle(newTextStyle(id, freeName("Yeni metin stili", textStyles)));
+      setTextStyle(newTextStyle(id, freeName("Text style", textStyles)));
       return id;
     },
     removeTextStyle: (id) => {
@@ -181,7 +181,7 @@ export function useDesignSystem(): DesignSystem {
     },
     copyComponent: (id) => {
       const from = components.find((c) => c.id === id) ?? STARTING_COMPONENTS[0];
-      const copy = copyComponent(from, uid(), freeName(`${from.name} kopyası`, components));
+      const copy = copyComponent(from, uid(), freeName(`${from.name} copy`, components));
       setComponent(copy);
       return copy.id;
     },

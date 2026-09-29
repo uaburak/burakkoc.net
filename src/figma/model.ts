@@ -33,7 +33,7 @@ export interface Paint {
   image?: { url: string; fit: "fill" | "fit" | "tile" };
 }
 
-export const PAINT_LABEL: Record<NonNullable<Paint["type"]>, string> = { solid: "Düz", gradient: "Gradyan", image: "Görsel" };
+export const PAINT_LABEL: Record<NonNullable<Paint["type"]>, string> = { solid: "Solid", gradient: "Gradient", image: "Image" };
 
 /** Figma's layout grids: columns, rows or a square grid drawn over a frame in the editor. */
 export interface LayoutGrid {
@@ -49,7 +49,7 @@ export interface LayoutGrid {
 }
 
 export const newLayoutGrid = (type: LayoutGrid["type"]): LayoutGrid => ({ type, count: type === "grid" ? 0 : 5, gutter: 20, margin: 0, size: 8, color: "#ff0000", opacity: 10 });
-export const LAYOUT_GRID_LABEL: Record<LayoutGrid["type"], string> = { columns: "Sütunlar", rows: "Satırlar", grid: "Izgara" };
+export const LAYOUT_GRID_LABEL: Record<LayoutGrid["type"], string> = { columns: "Columns", rows: "Rows", grid: "Grid" };
 
 /** An effect style: effects kept under a name, applied to layers. */
 export interface EffectStyle {
@@ -65,23 +65,23 @@ export interface ExportSetting {
 }
 
 export const BLEND_MODES: { value: BlendMode; label: string }[] = [
-  { value: "pass-through", label: "Geçirgen" },
+  { value: "pass-through", label: "Pass through" },
   { value: "normal", label: "Normal" },
-  { value: "darken", label: "Koyulaştır" },
-  { value: "multiply", label: "Çarp" },
-  { value: "color-burn", label: "Renk yakma" },
-  { value: "lighten", label: "Açıklaştır" },
-  { value: "screen", label: "Ekran" },
-  { value: "color-dodge", label: "Renk soldurma" },
-  { value: "overlay", label: "Kaplama" },
-  { value: "soft-light", label: "Yumuşak ışık" },
-  { value: "hard-light", label: "Sert ışık" },
-  { value: "difference", label: "Fark" },
-  { value: "exclusion", label: "Dışlama" },
-  { value: "hue", label: "Ton" },
-  { value: "saturation", label: "Doygunluk" },
-  { value: "color", label: "Renk" },
-  { value: "luminosity", label: "Parlaklık" },
+  { value: "darken", label: "Darken" },
+  { value: "multiply", label: "Multiply" },
+  { value: "color-burn", label: "Color burn" },
+  { value: "lighten", label: "Lighten" },
+  { value: "screen", label: "Screen" },
+  { value: "color-dodge", label: "Color dodge" },
+  { value: "overlay", label: "Overlay" },
+  { value: "soft-light", label: "Soft light" },
+  { value: "hard-light", label: "Hard light" },
+  { value: "difference", label: "Difference" },
+  { value: "exclusion", label: "Exclusion" },
+  { value: "hue", label: "Hue" },
+  { value: "saturation", label: "Saturation" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
 ];
 
 export type StrokeAlign = "inside" | "center" | "outside";
@@ -106,7 +106,7 @@ export type Effect =
 /** (The drop shadow's shape, as effects were first stored.) */
 export type Shadow = Extract<Effect, { type: "dropShadow" | "innerShadow" }>;
 
-export const EFFECT_LABEL: Record<Effect["type"], string> = { dropShadow: "Dış gölge", innerShadow: "İç gölge", layerBlur: "Katman bulanıklığı", backgroundBlur: "Arka plan bulanıklığı" };
+export const EFFECT_LABEL: Record<Effect["type"], string> = { dropShadow: "Drop shadow", innerShadow: "Inner shadow", layerBlur: "Layer blur", backgroundBlur: "Background blur" };
 export const newEffect = (type: Effect["type"]): Effect =>
   type === "layerBlur" || type === "backgroundBlur" ? { type, radius: 4 } : { type, x: 0, y: 4, blur: 4, spread: 0, color: "#000000", opacity: 25 };
 
@@ -137,6 +137,30 @@ export interface Reaction {
 }
 
 export type Corners = [VariableValue, VariableValue, VariableValue, VariableValue];
+
+/**
+ * Figma's component properties (besides the variant ones, which are the
+ * set's variants' values): a boolean shows or hides a layer, a text gives a
+ * text its words, an instance swap picks a nested instance's component.
+ * They are defined on the main component — on the set, for its variants —
+ * and layers bind to them (visibleProp, charactersProp, mainProp); each
+ * instance keeps its own values (props).
+ */
+export type PropertyType = "boolean" | "text" | "instanceSwap";
+
+export interface ComponentProperty {
+  id: string;
+  name: string;
+  type: PropertyType;
+  /** Its default: on / off, the words, or a component's id */
+  value: string | boolean;
+  /** Instance swap: the components offered first (ids) */
+  preferred?: string[];
+}
+
+export const PROPERTY_LABEL: Record<PropertyType, string> = { boolean: "Boolean", text: "Text", instanceSwap: "Instance swap" };
+
+export type PropertyValues = Record<string, string | boolean>;
 
 interface BaseNode {
   id: string;
@@ -175,6 +199,8 @@ interface BaseNode {
   /** W / H from a number variable ("Apply variable…") */
   widthVar?: VariableValue;
   heightVar?: VariableValue;
+  /** Inside a main component: shown or hidden by this boolean property (its id) */
+  visibleProp?: string;
 }
 
 interface Geometry {
@@ -208,6 +234,8 @@ export interface TextNode extends BaseNode {
   fills: Paint[];
   /** One of the site's text styles — its typography over the node's own */
   textStyle?: string;
+  /** Inside a main component: its words from this text property (its id) */
+  charactersProp?: string;
   /** Figma's type settings */
   textCase?: "upper" | "lower" | "title";
   textDecoration?: "underline" | "strikethrough";
@@ -250,11 +278,19 @@ export interface FrameNode extends BaseNode, Geometry {
   variant?: VariantValue[];
   /** A variant's prototype: what its instances do */
   reactions?: Reaction[];
+  /** A main component's (or a set's, for its variants) properties */
+  properties?: ComponentProperty[];
   /** An instance: its main component's id (a variant's, in a set) */
   mainId?: string;
+  /** An instance's values of its component's properties (by property id) — the defaults where unset */
+  props?: PropertyValues;
+  /** An instance's English words for its text properties */
+  propsEn?: Record<string, string>;
+  /** An instance inside a main component: its component from this instance swap property (its id) */
+  mainProp?: string;
   /**
    * An instance's overrides, by the overridden layer's name path inside the
-   * main component ("Etiket", "Kart›Başlık") — "" for the instance's own frame.
+   * main component ("Label", "Card›Title") — "" for the instance's own frame.
    */
   overrides?: Record<string, NodeOverride>;
 }
@@ -268,6 +304,8 @@ export interface NodeOverride {
   visible?: boolean;
   opacity?: number;
   cornerRadius?: VariableValue;
+  /** A nested instance's own overrides (a Card's texts inside a Project info instance) */
+  overrides?: Record<string, NodeOverride>;
 }
 
 export type SceneNode = FrameNode | ShapeNode | TextNode;
@@ -296,6 +334,8 @@ export interface FigmaDocument {
   currentPage?: string;
   /** The file's effect styles */
   effectStyles?: EffectStyle[];
+  /** Which starting library its Components page was seeded from (see library.ts) */
+  libraryVersion?: number;
 }
 
 /** A file as stored, brought up to date: effects made before they had a type are drop shadows. */
@@ -305,6 +345,33 @@ export function upgradeDocument(doc: FigmaDocument): FigmaDocument {
     return isFrameLike(next) ? { ...next, children: next.children.map(fix) } : next;
   };
   return { ...doc, nodes: doc.nodes.map(fix) };
+}
+
+/** Every node of the file, the open page's first — where components are found, whichever page they sit on (Figma's local components). */
+export function libraryOf(doc: FigmaDocument): SceneNode[] {
+  const current = doc.currentPage ? doc.pages?.find((p) => p.id === doc.currentPage) : undefined;
+  const others = (doc.pages ?? []).filter((p) => p !== current).flatMap((p) => p.nodes);
+  return current ? [...current.nodes, ...doc.nodes, ...others] : [...doc.nodes, ...others];
+}
+
+/** The page node `id` sits on: "" for the project's page, a page's id otherwise, null when it is nowhere. */
+export function pageOfNode(doc: FigmaDocument, id: string): string | null {
+  if (findNode(doc.nodes, id)) return "";
+  return doc.pages?.find((p) => findNode(p.nodes, id))?.id ?? null;
+}
+
+/** The file with node `id` changed by `update`, whichever page it sits on. */
+export function updateAnywhere(doc: FigmaDocument, id: string, update: (node: SceneNode) => SceneNode): FigmaDocument {
+  const nodes = updateNode(doc.nodes, id, update);
+  let pages = doc.pages;
+  if (pages) {
+    const next = pages.map((p) => {
+      const n = updateNode(p.nodes, id, update);
+      return n === p.nodes ? p : { ...p, nodes: n };
+    });
+    if (next.some((p, i) => p !== pages![i])) pages = next;
+  }
+  return nodes === doc.nodes && pages === doc.pages ? doc : { ...doc, nodes, pages };
 }
 
 export const isFrameLike = (node: SceneNode): node is FrameNode =>
@@ -360,7 +427,7 @@ export const makeShape = (type: ShapeNode["type"], name: string, x: number, y: n
 
 export const makeText = (x: number, y: number, characters = ""): TextNode => ({
   id: nid(),
-  name: characters || "Metin",
+  name: characters || "Text",
   type: "text",
   x: Math.round(x),
   y: Math.round(y),
@@ -376,7 +443,7 @@ export const makeText = (x: number, y: number, characters = ""): TextNode => ({
 
 /** A new file: the project's page — a 1440 × 1024 frame, white, stacking what is put in it (set its height to Sar to grow with it). */
 export function newDocument(title: string): FigmaDocument {
-  const page = baseFrame(title || "Sayfa", 0, 0, 1440, 1024);
+  const page = baseFrame(title || "Page", 0, 0, 1440, 1024);
   page.layoutMode = "vertical";
   page.clipsContent = false;
   return { version: 1, nodes: [page], pageId: page.id };
@@ -553,6 +620,67 @@ export function variantProperties(set: FrameNode): { name: string; values: strin
   return props;
 }
 
+/** Where a component's properties are defined: its set, when it is a variant; itself otherwise. */
+export function propertyHolder(nodes: readonly SceneNode[], componentId: string): FrameNode | null {
+  const component = findComponent(nodes, componentId);
+  if (!component) return null;
+  return setOf(nodes, component.id) ?? component;
+}
+
+/** A component's properties (its set's, for a variant). */
+export const propertiesOf = (nodes: readonly SceneNode[], componentId: string): ComponentProperty[] => propertyHolder(nodes, componentId)?.properties ?? [];
+
+/** An instance's values of its component's properties: the defaults, the instance's own over them. */
+export function propertyValues(nodes: readonly SceneNode[], main: FrameNode, instance: Pick<FrameNode, "props">): PropertyValues {
+  const values: PropertyValues = {};
+  for (const p of propertiesOf(nodes, main.id)) values[p.id] = p.value;
+  for (const [id, v] of Object.entries(instance.props ?? {})) if (id in values) values[id] = v;
+  return values;
+}
+
+/** The main component a node sits in (itself, when it is one), with where its properties live — null outside main components. */
+export function componentAround(nodes: readonly SceneNode[], id: string): { component: FrameNode; holder: FrameNode } | null {
+  const found = findNode(nodes, id);
+  if (!found) return null;
+  for (let i = found.path.length - 1; i >= 0; i--) {
+    const n = getNode(nodes, found.path[i]);
+    if (n?.type === "component") return { component: n, holder: setOf(nodes, n.id) ?? n };
+  }
+  return null;
+}
+
+/** A property name no other of the holder's has: `base`, else `base 2`, `base 3`… */
+export function freePropertyName(holder: FrameNode, base: string) {
+  const names = new Set((holder.properties ?? []).map((p) => p.name));
+  for (const p of variantProperties(holder)) names.add(p.name);
+  if (!names.has(base)) return base;
+  for (let n = 2; ; n++) if (!names.has(`${base} ${n}`)) return `${base} ${n}`;
+}
+
+/** `holder` with every layer bound to property `id` given `value`: shown or hidden, its words, its component. */
+export function applyPropertyValue(holder: FrameNode, id: string, value: string | boolean): FrameNode {
+  const visit = (n: SceneNode): SceneNode => {
+    let next = n;
+    if (n.visibleProp === id) next = { ...next, visible: value ? undefined : false };
+    if (next.type === "text" && next.charactersProp === id && typeof value === "string") next = { ...next, characters: value };
+    if (next.type === "instance" && next.mainProp === id && typeof value === "string") next = { ...next, mainId: value };
+    return isFrameLike(next) ? { ...next, children: next.children.map(visit) } : next;
+  };
+  return visit(holder) as FrameNode;
+}
+
+/** `holder` with its layers' bindings to properties not in `keep` taken off. */
+export function pruneBindings(holder: FrameNode, keep: ReadonlySet<string>): FrameNode {
+  const visit = (n: SceneNode): SceneNode => {
+    let next = n;
+    if (n.visibleProp && !keep.has(n.visibleProp)) next = { ...next, visibleProp: undefined };
+    if (next.type === "text" && next.charactersProp && !keep.has(next.charactersProp)) next = { ...next, charactersProp: undefined };
+    if (next.type === "instance" && next.mainProp && !keep.has(next.mainProp)) next = { ...next, mainProp: undefined };
+    return isFrameLike(next) ? { ...next, children: next.children.map(visit) } : next;
+  };
+  return visit(holder) as FrameNode;
+}
+
 /** A variant's name, as Figma shows it: "State=Hover, Size=Large". */
 export const variantName = (variant: FrameNode) => (variant.variant?.length ? variant.variant.map((v) => `${v.property}=${v.value}`).join(", ") : variant.name);
 
@@ -566,7 +694,7 @@ export function pickVariant(set: FrameNode, current: FrameNode, property: string
   return scored[0]?.v ?? current;
 }
 
-/** A layer's path of names inside a component ("Kart›Başlık"), the key its overrides are kept under. */
+/** A layer's path of names inside a component ("Card›Title"), the key its overrides are kept under. */
 export const PATH_SEP = "›";
 export function namePath(component: FrameNode, id: string): string | null {
   const search = (list: SceneNode[], path: string[]): string | null => {
@@ -592,6 +720,21 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
   const main = findComponent(nodes, shownId ?? instance.mainId ?? "");
   if (!main) return null;
   const overrides = instance.overrides ?? {};
+  const values = propertyValues(nodes, main, instance);
+  const valuesEn = instance.propsEn ?? {};
+  // A layer bound to a property: shown by a boolean, worded by a text, swapped by an instance swap.
+  const applyProps = <T extends SceneNode>(node: T): T => {
+    let next = node;
+    if (node.visibleProp && node.visibleProp in values) next = { ...next, visible: Boolean(values[node.visibleProp]) };
+    if (next.type === "text" && next.charactersProp && typeof values[next.charactersProp] === "string") {
+      next = { ...next, characters: values[next.charactersProp] as string, charactersEn: valuesEn[next.charactersProp] } as T;
+    }
+    if (next.type === "instance" && (next as FrameNode).mainProp) {
+      const id = values[(next as FrameNode).mainProp!];
+      if (typeof id === "string" && findComponent(nodes, id)) next = { ...next, mainId: id } as T;
+    }
+    return next;
+  };
   const applyOverride = <T extends SceneNode>(node: T, key: string): T => {
     const o = overrides[key];
     if (!o) return node;
@@ -606,13 +749,15 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
       if (o.fills) (next as FrameNode | ShapeNode).fills = o.fills;
       if (o.strokes) (next as FrameNode | ShapeNode).strokes = o.strokes;
       if (o.cornerRadius) (next as FrameNode | ShapeNode).cornerRadius = o.cornerRadius;
+      // A nested instance: the outer instance's overrides of it over its own.
+      if (o.overrides && next.type === "instance") (next as FrameNode).overrides = mergeOverrides((next as FrameNode).overrides, o.overrides);
     }
     return next;
   };
   const children = (list: SceneNode[], path: string): SceneNode[] =>
     list.map((child) => {
       const key = path ? `${path}${PATH_SEP}${child.name}` : child.name;
-      const applied = applyOverride(child, key);
+      const applied = applyOverride(applyProps(child), key);
       return isFrameLike(applied) && applied.type !== "instance" ? { ...applied, children: children(applied.children, key) } : applied;
     });
   const self = applyOverride(main, "");
@@ -636,12 +781,70 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
     visible: instance.visible,
     sizingH: instance.sizingH,
     sizingV: instance.sizingV,
+    minWidth: instance.minWidth,
+    maxWidth: instance.maxWidth,
+    minHeight: instance.minHeight,
+    maxHeight: instance.maxHeight,
+    widthVar: instance.widthVar,
+    heightVar: instance.heightVar,
     variant: undefined,
     reactions: undefined,
     mainId: instance.mainId,
     overrides: instance.overrides,
     children: children(main.children, ""),
   };
+}
+
+/** `over` on top of `base`, key by key (nested maps merged too). */
+export function mergeOverrides(base: Record<string, NodeOverride> | undefined, over: Record<string, NodeOverride>): Record<string, NodeOverride> {
+  const out: Record<string, NodeOverride> = { ...(base ?? {}) };
+  for (const [key, o] of Object.entries(over)) {
+    const b = out[key];
+    out[key] = b ? { ...b, ...o, ...(b.overrides || o.overrides ? { overrides: mergeOverrides(b.overrides, o.overrides ?? {}) } : {}) } : o;
+  }
+  return out;
+}
+
+/**
+ * An instance's overrides with `patch` on the layer at `keys` — a name path,
+ * then one more per nested instance ("Card" → "Label" for the Label of a
+ * Card inside a Project info). Cleared values (undefined) come off; an
+ * emptied override goes.
+ */
+export function withOverride(overrides: Record<string, NodeOverride> | undefined, keys: readonly string[], patch: NodeOverride): Record<string, NodeOverride> | undefined {
+  const [key, ...rest] = keys;
+  const current = { ...(overrides?.[key] ?? {}) } as Record<string, unknown>;
+  if (rest.length) current.overrides = withOverride(current.overrides as Record<string, NodeOverride> | undefined, rest, patch);
+  else Object.assign(current, patch);
+  Object.keys(current).forEach((k) => current[k] === undefined && delete current[k]);
+  const next = { ...overrides, [key]: current as NodeOverride };
+  if (!Object.keys(current).length) delete next[key];
+  return Object.keys(next).length ? next : undefined;
+}
+
+/**
+ * The layer a composite id names — "instanceId/Kart›Etiket", one "/" more per
+ * nested instance ("instanceId/Kart/Etiket") — as it is drawn (its overrides
+ * applied), with the instance holding it and the keys its override sits under.
+ */
+export function layerAt(nodes: readonly SceneNode[], compositeId: string): { instance: FrameNode; node: SceneNode; keys: string[] } | null {
+  const slash = compositeId.indexOf("/");
+  if (slash < 0) return null;
+  const instance = getNode(nodes, compositeId.slice(0, slash));
+  if (!instance || instance.type !== "instance") return null;
+  const keys = compositeId.slice(slash + 1).split("/");
+  let holder: FrameNode | null = resolveInstance(nodes, instance);
+  let node: SceneNode | null = null;
+  for (let i = 0; i < keys.length && holder; i++) {
+    let list: SceneNode[] = holder.children;
+    node = null;
+    for (const name of keys[i].split(PATH_SEP)) {
+      node = list.find((c) => c.name === name) ?? null;
+      list = node && isFrameLike(node) ? node.children : [];
+    }
+    holder = node?.type === "instance" && i < keys.length - 1 ? resolveInstance(nodes, node) : null;
+  }
+  return node ? { instance, node, keys } : null;
 }
 
 /** An instance of `component`, at `x`, `y` — its size the component's. */

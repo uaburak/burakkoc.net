@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { fi } from "@/components/admin/figmaIcons";
-import { isFrameLike, type SceneNode } from "./model";
+import { PATH_SEP, isFrameLike, resolveInstance, type SceneNode } from "./model";
 
 /**
  * Figma's Layers list, as UI3 draws it: 32px rows — 12px in, the chevron
@@ -15,7 +15,12 @@ import { isFrameLike, type SceneNode } from "./model";
  * ⇧-click selects the run of rows up to it; double-click renames; ⌥-click
  * on a chevron opens or closes everything inside. A row dragged lands before
  * or after another, or inside a frame. Hovering a row outlines its node on
- * the canvas.
+ * the canvas; double-clicking a row's icon zooms the canvas to its layer.
+ *
+ * An instance opens onto its inner layers — its main component's, with the
+ * instance's overrides on them — in purple, as Figma's: each is selected by
+ * its composite id (the instance's id, "/", its name path; see NodeView), can
+ * be hidden (an override), but not renamed, locked or moved.
  */
 
 export type TreePlace = "before" | "after" | "inside";
@@ -63,8 +68,12 @@ interface TreeDrag {
 /** The cell's inset: Figma's rows are tinted from 8px in to the right edge. */
 const CELL = { left: 8, right: 0 };
 
-function Row({ node, depth, selected, insideSelected, open, hasKids, onToggle, onRename, onToggleHidden, onToggleLocked, target, dragging, onPointerDown, onContextMenu }: {
+function Row({ id, node, inInstance, depth, selected, insideSelected, open, hasKids, onToggle, onRename, onLocate, onToggleHidden, onToggleLocked, target, dragging, onPointerDown, onContextMenu }: {
+  /** What the row stands for: the node's id, or a composite one inside an instance */
+  id: string;
   node: SceneNode;
+  /** A layer inside an instance */
+  inInstance: boolean;
   depth: number;
   selected: boolean;
   insideSelected: boolean;
@@ -72,6 +81,8 @@ function Row({ node, depth, selected, insideSelected, open, hasKids, onToggle, o
   hasKids: boolean;
   onToggle: (all: boolean) => void;
   onRename: (name: string) => void;
+  /** Double-click on the icon: the canvas zooms to the layer */
+  onLocate: () => void;
   onToggleHidden: () => void;
   onToggleLocked: () => void;
   target: TreePlace | null;
@@ -95,35 +106,35 @@ function Row({ node, depth, selected, insideSelected, open, hasKids, onToggle, o
     if (value !== undefined && value.trim()) onRename(value.trim());
     setRenaming(false);
   };
-  const purple = isPurple(node);
+  const purple = isPurple(node) || inInstance;
   const hidden = node.visible === false;
-  const pinned = node.locked || hidden;
+  const pinned = (node.locked && !inInstance) || hidden;
   return (
     <div
       ref={row}
-      data-tree-row={node.id}
-      data-tree-frame={isFrameLike(node) && node.type !== "instance" ? "" : undefined}
+      data-tree-row={id}
+      data-tree-frame={isFrameLike(node) && node.type !== "instance" && !inInstance ? "" : undefined}
       onPointerDown={onPointerDown}
-      onMouseEnter={() => hoverNode(node.id)}
+      onMouseEnter={() => hoverNode(id)}
       onMouseLeave={() => hoverNode(null)}
       onContextMenu={onContextMenu}
-      onDoubleClick={(e) => { e.stopPropagation(); ended.current = false; setRenaming(true); }}
-      className={cn("group/row relative h-8 select-none", dragging && "opacity-40")}
+      onDoubleClick={(e) => { e.stopPropagation(); if (inInstance) return; ended.current = false; setRenaming(true); }}
+      className={cn("group/row relative h-7 select-none", dragging && "opacity-40")}
     >
       {/* The cell: selected, in the light blue; inside a selected layer, the lighter tint runs on (its block rounds as one); hovered, the grey. */}
       <div
         className={cn(
           "absolute top-0 bottom-0",
-          selected ? cn("bg-[var(--f-bg-selected)]", open && hasKids ? "rounded-t-[5px]" : "rounded-[5px]") : insideSelected ? "" : "rounded-[5px] group-hover/row:bg-[var(--f-bg-hover)]",
+          selected ? cn("bg-[var(--f-bg-row-selected)]", open && hasKids ? "rounded-t-[5px]" : "rounded-[5px]") : insideSelected ? "" : "rounded-[5px] group-hover/row:bg-[var(--f-bg-row-hover)]",
           target === "inside" && "outline outline-2 -outline-offset-2 outline-[var(--f-border-selected)] rounded-[5px]"
         )}
         style={CELL}
       />
       {target && target !== "inside" && <span aria-hidden className={cn("pointer-events-none absolute right-0 z-10 h-[2px] rounded-full bg-[var(--f-border-selected)]", target === "before" ? "top-0" : "bottom-0")} style={{ left: 12 + depth * 24 }} />}
-      <div className="relative flex items-center h-8 pr-2" style={{ paddingLeft: 12 + depth * 24 }}>
+      <div className="relative flex items-center h-7 pr-2" style={{ paddingLeft: 12 + depth * 24 }}>
         <button
           type="button"
-          aria-label={open ? "Daralt" : "Genişlet"}
+          aria-label={open ? "Collapse" : "Expand"}
           tabIndex={-1}
           onClick={(e) => { e.stopPropagation(); onToggle(e.altKey); }}
           onDoubleClick={(e) => e.stopPropagation()}
@@ -131,11 +142,11 @@ function Row({ node, depth, selected, insideSelected, open, hasKids, onToggle, o
         >
           {fi(open ? "16.chevron.down" : "16.chevron.right")}
         </button>
-        <span className={cn("flex w-4 h-4 shrink-0 items-center justify-center", purple ? "text-[var(--f-text-component)]" : "text-[var(--f-icon-secondary)]", hidden && "opacity-50")}>{layerIcon(node)}</span>
+        <span onDoubleClick={(e) => { e.stopPropagation(); onLocate(); }} title="Double-click to zoom to layer" className={cn("flex w-4 h-4 shrink-0 items-center justify-center cursor-pointer", purple ? "text-[var(--f-text-component)]" : "text-[var(--f-icon-secondary)]", hidden && "opacity-50")}>{layerIcon(node)}</span>
         {renaming ? (
           <input
             autoFocus
-            aria-label="Katman adı"
+            aria-label="Layer name"
             defaultValue={node.name}
             onFocus={(e) => e.currentTarget.select()}
             onBlur={(e) => finish(e.currentTarget.value)}
@@ -147,10 +158,12 @@ function Row({ node, depth, selected, insideSelected, open, hasKids, onToggle, o
           <span className={cn("min-w-0 flex-1 ml-2 truncate text-[11px] font-[450] leading-4 tracking-[0.055px]", purple ? "text-[var(--f-text-component)]" : "text-[var(--f-text)]", hidden && "opacity-50")}>{node.name}</span>
         )}
         <div className={cn("flex shrink-0 items-center", !pinned && "opacity-0 group-hover/row:opacity-100")}>
-          <button type="button" aria-label={node.locked ? "Kilidi aç" : "Kilitle"} tabIndex={-1} onClick={(e) => { e.stopPropagation(); onToggleLocked(); }} className={cn("flex w-6 h-6 items-center justify-center text-[var(--f-icon)] cursor-pointer", !node.locked && "opacity-0 group-hover/row:opacity-100")}>
-            {fi(node.locked ? "16.lock.locked" : "16.lock.unlocked")}
-          </button>
-          <button type="button" aria-label={hidden ? "Göster" : "Gizle"} tabIndex={-1} onClick={(e) => { e.stopPropagation(); onToggleHidden(); }} className={cn("flex w-6 h-6 items-center justify-center text-[var(--f-icon)] cursor-pointer", !hidden && "opacity-0 group-hover/row:opacity-100")}>
+          {!inInstance && (
+            <button type="button" aria-label={node.locked ? "Unlock" : "Lock"} tabIndex={-1} onClick={(e) => { e.stopPropagation(); onToggleLocked(); }} className={cn("flex w-6 h-6 items-center justify-center text-[var(--f-icon)] cursor-pointer", !node.locked && "opacity-0 group-hover/row:opacity-100")}>
+              {fi(node.locked ? "16.lock.locked" : "16.lock.unlocked")}
+            </button>
+          )}
+          <button type="button" aria-label={hidden ? "Show" : "Hide"} tabIndex={-1} onClick={(e) => { e.stopPropagation(); onToggleHidden(); }} className={cn("flex w-6 h-6 items-center justify-center text-[var(--f-icon)] cursor-pointer", !hidden && "opacity-0 group-hover/row:opacity-100")}>
             {fi(hidden ? "16.hidden" : "16.visible")}
           </button>
         </div>
@@ -159,8 +172,16 @@ function Row({ node, depth, selected, insideSelected, open, hasKids, onToggle, o
   );
 }
 
-export function Layers({ nodes, selection, open, onToggle, onToggleMany, onSelect, onSelectMany, onRename, onToggleHidden, onToggleLocked, onMoveInTree, onContextMenu, filter }: {
+/** Where a row sits inside an instance: the instance's (composite) id and the name path down to the row's holder. */
+interface InInstance {
+  instance: string;
+  path: string;
+}
+
+export function Layers({ nodes, library = nodes, selection, open, onToggle, onToggleMany, onSelect, onSelectMany, onRename, onLocate, onToggleHidden, onToggleLocked, onMoveInTree, onContextMenu, filter }: {
   nodes: SceneNode[];
+  /** Every page's nodes — where instances' main components are found */
+  library?: SceneNode[];
   selection: readonly string[];
   open: ReadonlySet<string>;
   onToggle: (id: string) => void;
@@ -170,6 +191,8 @@ export function Layers({ nodes, selection, open, onToggle, onToggleMany, onSelec
   /** ⇧-click: the run of rows from the last selected one to the clicked one */
   onSelectMany: (ids: string[]) => void;
   onRename: (id: string, name: string) => void;
+  /** Double-click on a row's icon: the canvas zooms to that layer */
+  onLocate: (id: string) => void;
   onToggleHidden: (id: string) => void;
   onToggleLocked: (id: string) => void;
   onMoveInTree: (id: string, targetId: string, place: TreePlace) => void;
@@ -185,7 +208,8 @@ export function Layers({ nodes, selection, open, onToggle, onToggleMany, onSelec
   }, [drag]);
 
   const onPointerDown = (e: React.PointerEvent, id: string) => {
-    if (e.button !== 0 || (e.target as Element).closest("button, input")) return;
+    // A layer inside an instance stays where its main component put it.
+    if (e.button !== 0 || id.includes("/") || (e.target as Element).closest("button, input")) return;
     start.current = { x: e.clientX, y: e.clientY };
     const d: TreeDrag = { id, started: false, target: null };
     dragRef.current = d;
@@ -195,7 +219,7 @@ export function Layers({ nodes, selection, open, onToggle, onToggleMany, onSelec
       if (!current.started && Math.hypot(ev.clientX - start.current.x, ev.clientY - start.current.y) < 4) return;
       const row = (document.elementFromPoint(ev.clientX, ev.clientY) as Element | null)?.closest<HTMLElement>("[data-tree-row]");
       let target: TreeDrag["target"] = null;
-      if (row && row.dataset.treeRow && row.dataset.treeRow !== current.id) {
+      if (row && row.dataset.treeRow && row.dataset.treeRow !== current.id && !row.dataset.treeRow.includes("/")) {
         const r = row.getBoundingClientRect();
         const t = (ev.clientY - r.top) / r.height;
         const frame = row.dataset.treeFrame === "";
@@ -217,48 +241,66 @@ export function Layers({ nodes, selection, open, onToggle, onToggleMany, onSelec
     window.addEventListener("pointerup", up);
   };
 
-  const q = filter?.trim().toLocaleLowerCase("tr");
-  const matches = (node: SceneNode): boolean => !q || node.name.toLocaleLowerCase("tr").includes(q) || (isFrameLike(node) && node.children.some(matches));
+  // What a row holds: a frame's children; an instance's, its main component's layers with its overrides.
+  const kidsOf = (node: SceneNode): SceneNode[] => (node.type === "instance" ? resolveInstance(library, node)?.children ?? [] : isFrameLike(node) ? node.children : []);
+  // A row's id: the node's own, or — inside an instance — the instance's id and the name path (as NodeView keys its elements).
+  const idOf = (node: SceneNode, at: InInstance | null) => (at ? `${at.instance}/${at.path ? `${at.path}${PATH_SEP}${node.name}` : node.name}` : node.id);
+  // Where a row's children sit: under an instance (its own or nested), or further down the name path.
+  const belowOf = (node: SceneNode, id: string, at: InInstance | null): InInstance | null =>
+    node.type === "instance" ? { instance: id, path: "" } : at ? { instance: at.instance, path: at.path ? `${at.path}${PATH_SEP}${node.name}` : node.name } : null;
+  const q = filter?.trim().toLowerCase();
+  const matches = (node: SceneNode): boolean => !q || node.name.toLowerCase().includes(q) || kidsOf(node).some(matches);
   // The rows as shown, top to bottom — for ⇧-click's run.
   const visible: string[] = [];
-  const rows = (list: SceneNode[], depth: number, insideSelected: boolean): ReactNode[] =>
+  const rows = (list: SceneNode[], depth: number, insideSelected: boolean, at: InInstance | null): ReactNode[] =>
     [...list].reverse().filter(matches).map((node) => {
-      const frame = isFrameLike(node);
-      const hasKids = frame && node.children.length > 0;
-      const selected = selection.includes(node.id);
-      const isOpen = hasKids && (q ? true : open.has(node.id));
-      visible.push(node.id);
+      const id = idOf(node, at);
+      const kids = kidsOf(node);
+      const hasKids = kids.length > 0;
+      const selected = selection.includes(id);
+      const isOpen = hasKids && (q ? true : open.has(id));
+      const below = belowOf(node, id, at);
+      visible.push(id);
       return (
-        <div key={node.id} className="relative">
+        <div key={id} className="relative">
           {/* The selected layer's block: the lighter tint under everything inside it, rounded as one. */}
-          {selected && isOpen && <div aria-hidden className="absolute top-0 bottom-0 rounded-[5px] bg-[var(--f-bg-selected-secondary)]" style={CELL} />}
+          {selected && isOpen && <div aria-hidden className="absolute top-0 bottom-0 rounded-[5px] bg-[var(--f-bg-row-selected-secondary)]" style={CELL} />}
           <Row
+            id={id}
             node={node}
+            inInstance={Boolean(at)}
             depth={depth}
             selected={selected}
             insideSelected={insideSelected && !selected}
             open={isOpen}
             hasKids={hasKids}
             onToggle={(all) => {
-              if (!all) return onToggle(node.id);
+              if (!all) return onToggle(id);
               const ids: string[] = [];
-              const walk = (n: SceneNode) => { if (isFrameLike(n) && n.children.length) { ids.push(n.id); n.children.forEach(walk); } };
-              walk(node);
-              onToggleMany(ids, !open.has(node.id));
+              const walk = (n: SceneNode, nid: string, where: InInstance | null) => {
+                const ks = kidsOf(n);
+                if (!ks.length) return;
+                ids.push(nid);
+                const under = belowOf(n, nid, where);
+                ks.forEach((k) => walk(k, idOf(k, under), under));
+              };
+              walk(node, id, at);
+              onToggleMany(ids, !open.has(id));
             }}
-            onRename={(name) => onRename(node.id, name)}
-            onToggleHidden={() => onToggleHidden(node.id)}
-            onToggleLocked={() => onToggleLocked(node.id)}
-            target={drag?.target?.id === node.id ? drag.target.place : null}
-            dragging={drag?.id === node.id && Boolean(drag.started)}
-            onPointerDown={(e) => onPointerDown(e, node.id)}
-            onContextMenu={(e) => onContextMenu(node.id, e)}
+            onRename={(name) => onRename(id, name)}
+            onLocate={() => onLocate(id)}
+            onToggleHidden={() => onToggleHidden(id)}
+            onToggleLocked={() => onToggleLocked(id)}
+            target={drag?.target?.id === id ? drag.target.place : null}
+            dragging={drag?.id === id && Boolean(drag.started)}
+            onPointerDown={(e) => onPointerDown(e, id)}
+            onContextMenu={(e) => onContextMenu(id, e)}
           />
-          {frame && isOpen && <div className="relative">{rows(node.children, depth + 1, insideSelected || selected)}</div>}
+          {hasKids && isOpen && <div className="relative">{rows(kids, depth + 1, insideSelected || selected, below)}</div>}
         </div>
       );
     });
-  const tree = rows(nodes, 0, false);
+  const tree = rows(nodes, 0, false, null);
 
   return (
     <div
@@ -276,7 +318,7 @@ export function Layers({ nodes, selection, open, onToggle, onToggleMany, onSelec
       }}
     >
       {tree}
-      {nodes.length === 0 && <p className="px-4 py-4 text-[11px] text-center text-[var(--f-text-secondary)]">Kanvas boş — bir çerçeve çiz (F).</p>}
+      {nodes.length === 0 && <p className="px-4 py-4 text-[11px] text-center text-[var(--f-text-secondary)]">Nothing here yet — draw a frame (F).</p>}
     </div>
   );
 }

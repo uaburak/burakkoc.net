@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import type { DesignVariable } from "@/types/design";
 import { useDesignVariables } from "@/components/project/designVariables";
-import { byIdMap, type FigmaDocument, type FrameNode } from "./model";
+import { byIdMap, libraryOf, type FigmaDocument, type FrameNode } from "./model";
 import { MotionStyle, NodeView, RenderProvider } from "./NodeView";
 
 /**
@@ -16,7 +16,9 @@ export function PageView({ doc, lang = "tr", variables }: { doc: FigmaDocument; 
   const fromContext = useDesignVariables();
   const byId = useMemo(() => byIdMap(variables ?? fromContext), [variables, fromContext]);
   const page = doc.nodes.find((n): n is FrameNode => n.id === doc.pageId && (n.type === "frame" || n.type === "component"));
-  const ctx = useMemo(() => ({ nodes: doc.nodes, byId, lang, play: true }), [doc.nodes, byId, lang]);
+  // Instances find their main components on any page of the file (the Bileşenler page's).
+  const library = useMemo(() => libraryOf(doc), [doc]);
+  const ctx = useMemo(() => ({ nodes: library, byId, lang, play: true }), [library, byId, lang]);
   if (!page) return null;
   // The page frame at the top of the screen: its own place on the canvas doesn't matter here.
   const root: FrameNode = { ...page, x: 0, y: 0, rotation: undefined };

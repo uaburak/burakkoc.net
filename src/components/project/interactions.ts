@@ -17,27 +17,27 @@ import type { DesignComponent, Interaction, InteractionAnimation, InteractionEas
 
 /** Figma's easings as CSS curves — the springs as curves that overshoot. */
 export const EASINGS: Record<InteractionEasing, { label: string; css: string }> = {
-  linear: { label: "Doğrusal", css: "linear" },
-  "ease-in": { label: "Yavaş başla", css: "cubic-bezier(0.42, 0, 1, 1)" },
-  "ease-out": { label: "Yavaş bitir", css: "cubic-bezier(0, 0, 0.58, 1)" },
-  "ease-in-out": { label: "Yavaş başla ve bitir", css: "cubic-bezier(0.42, 0, 0.58, 1)" },
-  "ease-in-back": { label: "Geri çekilerek başla", css: "cubic-bezier(0.3, -0.05, 0.7, -0.5)" },
-  "ease-out-back": { label: "Taşarak bitir", css: "cubic-bezier(0.45, 1.45, 0.8, 1)" },
-  gentle: { label: "Yumuşak yay", css: "cubic-bezier(0.35, 1.25, 0.55, 1)" },
-  bouncy: { label: "Zıplayan yay", css: "cubic-bezier(0.3, 1.8, 0.6, 0.9)" },
+  linear: { label: "Linear", css: "linear" },
+  "ease-in": { label: "Ease in", css: "cubic-bezier(0.42, 0, 1, 1)" },
+  "ease-out": { label: "Ease out", css: "cubic-bezier(0, 0, 0.58, 1)" },
+  "ease-in-out": { label: "Ease in and out", css: "cubic-bezier(0.42, 0, 0.58, 1)" },
+  "ease-in-back": { label: "Ease in back", css: "cubic-bezier(0.3, -0.05, 0.7, -0.5)" },
+  "ease-out-back": { label: "Ease out back", css: "cubic-bezier(0.45, 1.45, 0.8, 1)" },
+  gentle: { label: "Gentle", css: "cubic-bezier(0.35, 1.25, 0.55, 1)" },
+  bouncy: { label: "Bouncy", css: "cubic-bezier(0.3, 1.8, 0.6, 0.9)" },
 };
 
 export const TRIGGERS: Record<InteractionTrigger, string> = {
-  click: "Tıklayınca",
-  hover: "Üzerine gelince",
-  press: "Basılıyken",
-  delay: "Bir süre sonra",
+  click: "On click",
+  hover: "While hovering",
+  press: "While pressing",
+  delay: "After delay",
 };
 
 export const ANIMATIONS: Record<InteractionAnimation, string> = {
-  instant: "Anında",
-  dissolve: "Çözünerek",
-  smart: "Akıllı animasyon",
+  instant: "Instant",
+  dissolve: "Dissolve",
+  smart: "Smart animate",
 };
 
 /** The animations' CSS — put on the page with the design system (see DesignSystemStyle). */
