@@ -664,6 +664,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
         patch(n.id, { textStyle: id } as Partial<SceneNode>);
       }
     },
+    setTextStyle: (st) => system.setTextStyle(st),
+    removeTextStyle: (id) => system.removeTextStyle(id),
     createColorStyle: (hex) => {
       const id = system.addVariable("color");
       let k = variables.filter((v) => v.kind === "color").length + 1;
@@ -680,6 +682,9 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     pageId: doc.pageId,
     addAutoLayout: () => autoLayout(),
     more: (el) => openMenuUnder(el, nodeMenu(selected[0] ?? null), "right"),
+    maskWith: (id) => maskWith(id),
+    // Several layers put at their places at once (the panel's spacing between selected layers).
+    placeMany: (moves) => setNodes((list) => moves.reduce((l, m) => updateNode(l, m.id, (n) => ({ ...n, ...(m.x !== undefined ? { x: m.x } : {}), ...(m.y !== undefined ? { y: m.y } : {}) })), list)),
     menu: (el, entries) => openMenuUnder(el, entries, "right"),
     replaceColor: (from, to, opacity) => {
       const ids = latest.current.selected.filter((id) => !id.includes("/"));
@@ -1212,6 +1217,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       if (mod && shift && is("KeyR")) { handled(); return a.pasteToReplace(); }
       if (mod && !shift && !alt && is("Backspace")) { handled(); return a.ungroup(); }
       if (e.ctrlKey && e.metaKey && is("KeyM") && first) { handled(); return a.maskWith(first.split("/")[0]); }
+      // Figma's ^⌥T / ^⌥V / ^⌥H: tidy up, distribute vertical / horizontal spacing.
+      if (e.ctrlKey && alt && !mod && is("KeyT", "KeyV", "KeyH") && own.length > 1) { handled(); return is("KeyT") ? a.ops.tidy() : a.ops.distribute(is("KeyV") ? "v" : "h"); }
       if (!mod && !alt && is("BracketRight", "BracketLeft")) { handled(); return a.reorder(is("BracketRight") ? "front" : "back"); }
       if (!mod && shift && !alt && is("KeyH", "KeyV") && own.length) { handled(); return a.flip(is("KeyH") ? "H" : "V"); }
       if (mod && alt && is("KeyB")) { handled(); return a.detach(); }

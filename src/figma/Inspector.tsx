@@ -5,13 +5,13 @@ import type { DesignVariable, InteractionAnimation, InteractionEasing, Interacti
 import { cn } from "@/lib/utils";
 import { FigmaIcon, fi, type FigmaIconName } from "@/components/admin/figmaIcons";
 import { ANIMATIONS, EASINGS, TRIGGERS } from "@/components/project/interactions";
-import { boundValue, byGroup, splitName, type ThemeMode } from "@/components/project/designVariables";
+import { boundValue, splitName, type ThemeMode } from "@/components/project/designVariables";
 import { PICKER_WIDTH, VariablePicker, usePopover, type MenuItem } from "@/components/admin/LiveInspector";
 import { weightLabel } from "./css";
 import { type ChevronItem } from "./ui";
 import { BLEND_MODES, EFFECT_LABEL, LAYOUT_GRID_LABEL, PAINT_LABEL, allComponents, componentAround, findComponent, findNode, freePropertyName, getNode, isFrameLike, layerAt, newEffect, newLayoutGrid, nid, numberOf, propertiesOf, propertyValues, setOf, variantName, variantProperties, variantValue, variantsOf, walk, type ComponentProperty, type Effect, type EffectStyle, type ExportSetting, type FrameNode, type LayoutGrid, type NodeOverride, type Paint, type PropertyType, type Reaction, type SceneNode, type StrokeStyle, type TextNode } from "./model";
 import { ColorPicker } from "./ColorPicker";
-import type { MenuEntry } from "@/components/admin/ContextMenu";
+import { keys, type MenuEntry } from "@/components/admin/ContextMenu";
 import { Checkbox, ChevronMenu, Chit, ColorInput, IconButton, NumericInput, Prefix, PropRow, Section, Select, TextInput, hexDigits } from "./ui";
 
 /**
@@ -55,6 +55,10 @@ export interface EditorOps {
   setBackground: (color: string) => void;
   /** The header's "…" menu */
   more: (el: HTMLElement) => void;
+  /** The layer made a mask over what is above it (^⌘M) */
+  maskWith: (id: string) => void;
+  /** Several layers put at their places at once */
+  placeMany: (moves: { id: string; x?: number; y?: number }[]) => void;
   /** A menu under a button (Figma's dark one) */
   menu: (el: HTMLElement, entries: MenuEntry[]) => void;
   /** Every fill and stroke of `from` in the selection turned to `to` (Selection colors) */
@@ -73,6 +77,9 @@ export interface EditorOps {
   removeEffectStyle: (styleId: string) => void;
   /** A text style from a text layer's typography (or a blank one) */
   createTextStyle: (nodeId: string | null) => void;
+  /** A text style as edited in its window; one deleted */
+  setTextStyle: (style: TextStyle) => void;
+  removeTextStyle: (id: string) => void;
   /** A colour variable from a colour */
   createColorStyle: (hex: string) => void;
   exportNode: (id: string, setting: ExportSetting) => void;
@@ -112,8 +119,10 @@ function Labels({ a, b, className }: { a: ReactNode; b?: ReactNode; className?: 
 }
 
 /** A number that may be a variable's: the field, or the variable's pill, the hexagon opening the picker. */
-function BoundNumber({ label, prefix, value, variables, byId, mode, onChange, unit, min, max, fallback, suffix, placeholder, onFocusChange, variableMenu = false }: {
+function BoundNumber({ label, prefix, value, variables, byId, mode, onChange, unit, min, max, fallback, suffix, placeholder, onFocusChange, variableMenu = false, kind = "number" }: {
   label: string;
+  /** Which variables it can bind to (numbers unless said — weights for a font weight) */
+  kind?: "number" | "weight";
   onFocusChange?: (focused: boolean) => void;
   /** The variable is applied and detached from the field's own menu (its suffix): no hexagon, no detach button in the field */
   variableMenu?: boolean;
@@ -134,7 +143,7 @@ function BoundNumber({ label, prefix, value, variables, byId, mode, onChange, un
   const { at, box, toggle, close } = usePopover(PICKER_WIDTH);
   const v = value ?? own(fallback ?? 0);
   const bound = "alias" in v ? byId.get(v.alias) : undefined;
-  const targets = variables.filter((x) => x.kind === "number");
+  const targets = variables.filter((x) => x.kind === kind);
   const hex = <IconButton label="Apply variable" icon={fi("variable.small")} onClick={(e) => toggle(e.currentTarget)} className="opacity-0 group-hover/bound:opacity-100 focus:opacity-100" />;
   const picker = at && <VariablePicker at={at} variables={targets} byId={byId} mode={mode} selectedId={bound?.id} onPick={(id) => { onChange({ alias: id }); close(); }} />;
   if (bound) {
@@ -280,12 +289,230 @@ function GroupButton({ label, icon, active = false, onClick }: { label: string; 
   );
 }
 
-function PositionSection({ node, inAuto, ops, multi }: { node: SceneNode; inAuto: boolean; ops: EditorOps; multi: readonly string[] }) {
+/** A row of the styles list, drawn as a layers row: the tinted cell 8px in on hover, a chevron slot (groups) or an icon slot, the name; 24px further in per level. */
+function StyleRow({ depth, chevron, icon, onClick, children, trailing }: { depth: number; chevron?: ReactNode; icon?: ReactNode; onClick?: () => void; children: ReactNode; trailing?: ReactNode }) {
+  return (
+    <div onClick={onClick} className={cn("group/srow relative h-7 select-none", onClick && "cursor-pointer")}>
+      <div aria-hidden className="absolute top-0 bottom-0 rounded-[5px] group-hover/srow:bg-[var(--f-bg-row-hover)]" style={{ left: 8, right: 8 }} />
+      <div className="relative flex items-center h-7 pr-3" style={{ paddingLeft: 12 + depth * 24 }}>
+        {chevron !== undefined && <span className="flex w-4 h-4 shrink-0 items-center justify-center text-[var(--f-icon-secondary)]">{chevron}</span>}
+        {icon !== undefined && <span className="flex w-6 h-4 shrink-0 items-center justify-center">{icon}</span>}
+        <span className="min-w-0 flex-1 ml-2 truncate text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)]">{children}</span>
+        {trailing}
+      </div>
+    </div>
+  );
+}
+
+/** A text style group: its subgroups (by the names' path segments) and its own styles. */
+interface StyleGroup {
+  groups: Map<string, StyleGroup>;
+  items: TextStyle[];
+}
+
+/**
+ * The text styles as Figma lists them: nested groups from their names'
+ * paths ("Typography/Mobile/H1"), each opened or closed by its chevron,
+ * 24px further in per level; a style as "Ag", its name, its size / line height.
+ */
+function TextStyleTree({ styles, byId, variables, mode, ops }: { styles: TextStyle[]; byId: Map<string, DesignVariable>; variables: DesignVariable[]; mode: ThemeMode; ops: EditorOps }) {
+  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  // The style being edited in its window (Figma's "Edit text style"), opened from the row's adjust button.
+  const [editing, setEditing] = useState<{ id: string; anchor: { top: number; right: number } } | null>(null);
+  const edited = editing ? styles.find((st) => st.id === editing.id) : undefined;
+  const root: StyleGroup = { groups: new Map(), items: [] };
+  for (const st of styles) {
+    const parts = st.name.split("/").map((p) => p.trim()).filter(Boolean);
+    let at = root;
+    for (const part of parts.slice(0, -1)) {
+      let next = at.groups.get(part);
+      if (!next) at.groups.set(part, (next = { groups: new Map(), items: [] }));
+      at = next;
+    }
+    at.items.push(st);
+  }
+  const rows = (group: StyleGroup, depth: number, path: string): ReactNode[] => [
+    ...[...group.groups].map(([name, sub]) => {
+      const key = path ? `${path}/${name}` : name;
+      const open = !closed.has(key);
+      return (
+        <div key={`g:${key}`} className="flex flex-col">
+          <StyleRow depth={depth} chevron={fi(open ? "16.chevron.down" : "16.chevron.right")} onClick={() => setClosed((c) => { const next = new Set(c); if (next.has(key)) next.delete(key); else next.add(key); return next; })}>
+            {name}
+          </StyleRow>
+          {open && rows(sub, depth + 1, key)}
+        </div>
+      );
+    }),
+    ...group.items.map((st) => (
+      <StyleRow key={st.id} depth={depth} icon={<span className="text-[13px] font-[550] leading-4 text-[var(--f-text)]">Ag</span>} trailing={
+        <span data-picker-anchor="" className={cn(editing?.id !== st.id && "opacity-0 group-hover/srow:opacity-100")}>
+          <IconButton label="Edit style" icon={fi("24.adjust.small")} active={editing?.id === st.id} onClick={(e) => setEditing(editing?.id === st.id ? null : { id: st.id, anchor: anchorOf(e.currentTarget) })} />
+        </span>
+      }>
+        {splitName(st.name)[1] || st.name}
+        <span className="text-[var(--f-text-secondary)]"> · {numberOf(st.fontSize, byId, 16)}/{st.lineHeight ? numberOf(st.lineHeight, byId) : "Auto"}</span>
+      </StyleRow>
+    )),
+  ];
+  return (
+    <div className="flex flex-col">
+      {rows(root, 0, "")}
+      {editing && edited && <TextStyleEditor style={edited} anchor={editing.anchor} variables={variables} byId={byId} mode={mode} ops={ops} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+/** A text style's colour: a variable's pill (its picker opens on Libraries) or a colour of its own. */
+function StyleColorRow({ value, variables, byId, mode, ops, onChange }: { value: VariableValue; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; ops: EditorOps; onChange: (value: VariableValue) => void }) {
+  const [picker, setPicker] = useState<{ top: number; right: number } | null>(null);
+  const bound = "alias" in value ? byId.get(value.alias) : undefined;
+  const resolved = String(boundValue(value, mode, byId) ?? "#000000");
+  return (
+    <div className="relative flex flex-1 min-w-0 items-center gap-1">
+      {bound ? (
+        <button type="button" data-picker-anchor="" onClick={(e) => setPicker(picker ? null : anchorOf(e.currentTarget))} className="flex flex-1 min-w-0 items-center h-6 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent hover:border-[var(--f-border)] cursor-pointer">
+          <Chit color={resolved} />
+          <span className="truncate text-[11px] leading-4 text-[var(--f-text)]">{bound.name}</span>
+        </button>
+      ) : (
+        <ColorInput label="Color" color={resolved} opacity={100} onColor={(hex) => onChange(own(hex))} chit={<button type="button" data-picker-anchor="" aria-label="Color picker" onClick={(e) => setPicker(picker ? null : anchorOf(e.currentTarget))} className="cursor-pointer"><Chit color={resolved} /></button>} />
+      )}
+      {bound && <IconButton label="Detach variable" icon={fi("detach.small")} onClick={() => onChange(own(resolved))} />}
+      {picker && <ColorPicker initialTab={bound ? "libraries" : "custom"} color={resolved} opacity={100} anchor={picker} variables={variables} byId={byId} mode={mode} pageColors={ops.pageColors} selectedId={bound?.id} onChange={(hex) => onChange(own(hex))} onVariable={(v) => onChange(v)} onClose={() => setPicker(null)} />}
+    </div>
+  );
+}
+
+/**
+ * Figma's "Edit text style" window, beside the panel: the style previewed
+ * ("Rag 123" in it), its name and description, its properties — weight and
+ * size, line height and letter spacing (each bindable to a variable), its
+ * colour — the bin deleting it.
+ */
+function TextStyleEditor({ style, anchor, variables, byId, mode, ops, onClose }: { style: TextStyle; anchor: { top: number; right: number }; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; ops: EditorOps; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element;
+      if (!ref.current?.contains(t) && !t.closest("[data-picker-anchor]") && !t.closest("[role=menu]")) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => { document.removeEventListener("pointerdown", onDown); window.removeEventListener("keydown", onKey, true); };
+  }, [onClose]);
+  const set = (patch: Partial<TextStyle>) => ops.setTextStyle({ ...style, ...patch });
+  const size = numberOf(style.fontSize, byId, 16);
+  const weight = numberOf(style.fontWeight, byId, 400);
+  const lineHeight = style.lineHeight ? numberOf(style.lineHeight, byId) : Math.round(size * 1.25);
+  const letterSpacing = style.letterSpacing ? numberOf(style.letterSpacing, byId) : 0;
+  const color = String(boundValue(style.color, mode, byId) ?? "#000000");
+  const width = 288;
+  const top = Math.max(8, Math.min(anchor.top, window.innerHeight - 520));
+  const left = Math.max(8, anchor.right - width - 8);
+  const field = (label: string, control: ReactNode) => (
+    <div className="flex items-center gap-2 h-8 pl-4 pr-4">
+      <span className="w-[76px] shrink-0 text-[11px] text-[var(--f-text-secondary)]">{label}</span>
+      <div className="flex flex-1 min-w-0 items-center">{control}</div>
+    </div>
+  );
+  return (
+    <div ref={ref} role="dialog" aria-label="Edit text style" className="fixed z-50 flex flex-col rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_10px_16px_rgba(0,0,0,0.2)] text-[11px] leading-4 text-[var(--f-text)]" style={{ top, left, width }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between h-10 pl-4 pr-2 border-b border-[var(--f-border)]">
+        <span className="font-[550] text-[11px]">Edit text style</span>
+        <div className="flex items-center gap-1">
+          <IconButton label="Delete style" icon={fi("trash")} onClick={() => { ops.removeTextStyle(style.id); onClose(); }} />
+          <IconButton label="Close" icon={fi("close.small")} onClick={onClose} />
+        </div>
+      </div>
+      {/* The preview: the style itself, on the secondary background. */}
+      <div className="flex items-center justify-center h-[120px] bg-[var(--f-bg-secondary)] border-b border-[var(--f-border)] overflow-hidden">
+        <span style={{ fontSize: size, fontWeight: weight, lineHeight: `${lineHeight}px`, letterSpacing, color, fontFamily: "var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif" }}>Rag 123</span>
+      </div>
+      <div className="flex flex-col py-2">
+        {field("Name", <TextInput label="Name" value={style.name} onCommit={(name) => name.trim() && set({ name: name.trim() })} />)}
+        {field("Description", <TextInput label="Description" value={style.description ?? ""} placeholder="What's it for?" onCommit={(description) => set({ description: description.trim() || undefined })} />)}
+      </div>
+      <div className="flex flex-col pb-3 border-t border-[var(--f-border)]">
+        <div className="flex items-center h-10 pl-4 pr-4 font-[550]">Properties</div>
+        <div className="flex items-center gap-2 pl-4 pr-4 pb-2">
+          <div className="flex flex-1 min-w-0 items-center h-6 px-2 rounded-[5px] bg-[var(--f-bg-secondary)] text-[var(--f-text)]"><span className="mr-2 text-[var(--f-icon-secondary)]">{fi("16.text")}</span>Inter</div>
+        </div>
+        <div className="flex items-center gap-2 pl-4 pr-4 pb-2">
+          <BoundNumber label="Font weight" kind="weight" prefix={<Prefix>{fi("16.text")}</Prefix>} value={style.fontWeight} variables={variables} byId={byId} mode={mode} min={100} max={900} onChange={(fontWeight) => set({ fontWeight })} />
+          <BoundNumber label="Font size" prefix={<Prefix><span className="text-[10px]">Aa</span></Prefix>} value={style.fontSize} variables={variables} byId={byId} mode={mode} min={1} onChange={(fontSize) => set({ fontSize })} />
+        </div>
+        <div className="flex items-center gap-2 pl-4 pr-4 pb-2">
+          <BoundNumber label="Line height" prefix={<Prefix>{fi("al.height-min")}</Prefix>} value={style.lineHeight} fallback={lineHeight} variables={variables} byId={byId} mode={mode} min={0} onChange={(lineHeight) => set({ lineHeight })} />
+          <BoundNumber label="Letter spacing" prefix={<Prefix>{fi("al.width-min")}</Prefix>} value={style.letterSpacing} fallback={letterSpacing} variables={variables} byId={byId} mode={mode} min={-20} onChange={(letterSpacing) => set({ letterSpacing })} />
+        </div>
+        <div className="flex items-center gap-2 pl-4 pr-4">
+          <StyleColorRow value={style.color} variables={variables} byId={byId} mode={mode} ops={ops} onChange={(color) => set({ color })} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The colour variables as Figma lists colour styles: grouped by their names' paths, each group opened or closed by its chevron. */
+function ColorStyleTree({ variables, byId, mode, onOpen }: { variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; onOpen: () => void }) {
+  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  interface Group { groups: Map<string, Group>; items: DesignVariable[] }
+  const root: Group = { groups: new Map(), items: [] };
+  for (const v of variables) {
+    const parts = v.name.split("/").map((p) => p.trim()).filter(Boolean);
+    let at = root;
+    for (const part of parts.slice(0, -1)) {
+      let next = at.groups.get(part);
+      if (!next) at.groups.set(part, (next = { groups: new Map(), items: [] }));
+      at = next;
+    }
+    at.items.push(v);
+  }
+  const rows = (group: Group, depth: number, path: string): ReactNode[] => [
+    ...[...group.groups].map(([name, sub]) => {
+      const key = path ? `${path}/${name}` : name;
+      const open = !closed.has(key);
+      return (
+        <div key={`g:${key}`} className="flex flex-col">
+          <StyleRow depth={depth} chevron={fi(open ? "16.chevron.down" : "16.chevron.right")} onClick={() => setClosed((c) => { const next = new Set(c); if (next.has(key)) next.delete(key); else next.add(key); return next; })}>
+            {name}
+          </StyleRow>
+          {open && rows(sub, depth + 1, key)}
+        </div>
+      );
+    }),
+    ...group.items.map((v) => (
+      <StyleRow key={v.id} depth={depth} icon={<span className="w-4 h-4 rounded-full border border-[var(--f-border-translucent)]" style={{ background: String(boundValue(v.light, mode, byId) ?? "#000") }} />} trailing={<IconButton label="Edit variable" icon={fi("24.adjust.small")} onClick={onOpen} className="opacity-0 group-hover/srow:opacity-100" />}>
+        {splitName(v.name)[1] || v.name}
+      </StyleRow>
+    )),
+  ];
+  return <div className="flex flex-col">{rows(root, 0, "")}</div>;
+}
+
+/** Several layers' one value, or null when they differ (the field then reads "Mixed", as Figma's). */
+function sameValue(list: readonly SceneNode[], pick: (n: SceneNode) => number): number | null {
+  if (!list.length) return null;
+  const first = Math.round(pick(list[0]));
+  return list.every((n) => Math.round(pick(n)) === first) ? first : null;
+}
+
+function PositionSection({ node, inAuto, ops, multi, selected }: { node: SceneNode; inAuto: boolean; ops: EditorOps; multi: readonly string[]; selected: readonly SceneNode[] }) {
   const set = (patch: Partial<SceneNode>) => (multi.length > 1 ? ops.patchMany(multi, patch) : ops.patch(node.id, patch));
+  const all = selected.length > 1 ? selected : [node];
+  const xVal = sameValue(all, (n) => n.x);
+  const yVal = sameValue(all, (n) => n.y);
+  const rotVal = sameValue(all, (n) => n.rotation ?? 0);
   return (
     <Section title="Position" icons={inAuto ? <IconButton label={node.absolute ? "Remove absolute position" : "Absolute position"} icon={fi("24.al.absolute-position")} active={Boolean(node.absolute)} onClick={() => ops.patch(node.id, { absolute: node.absolute ? undefined : true })} /> : undefined}>
       {/* Figma's alignment: two boxed groups — left / centre / right, top / middle / bottom; the distribute menu only with several layers selected. */}
-      <PropRow icons={multi.length > 1 ? <IconButton label="Distribute" icon={fi("24.more")} onClick={(e) => ops.menu(e.currentTarget, [{ label: "Distribute horizontal spacing", onSelect: () => ops.distribute("h") }, { label: "Distribute vertical spacing", onSelect: () => ops.distribute("v") }, "-", { label: "Tidy up", onSelect: ops.tidy }])} /> : <span className="w-6" />}>
+      <PropRow icons={multi.length > 1 ? <IconButton label="Distribute" icon={fi("24.layout-distribute-vertical-spacing")} onClick={(e) => ops.menu(e.currentTarget, [
+        { label: "Tidy up", icon: fi("24.layout-tidy-up-grid", 16), shortcut: keys("ctrl", "alt", "t"), onSelect: ops.tidy },
+        { label: "Distribute vertical spacing", icon: fi("24.layout-distribute-vertical-spacing", 16), shortcut: keys("ctrl", "alt", "v"), onSelect: () => ops.distribute("v") },
+        { label: "Distribute horizontal spacing", icon: fi("24.layout-distribute-horizontal-spacing", 16), shortcut: keys("ctrl", "alt", "h"), onSelect: () => ops.distribute("h") },
+      ])} /> : <span className="w-6" />}>
         <ButtonGroup>
           {(["left", "hcenter", "right"] as const).map((k) => <GroupButton key={k} label={ALIGN_LABEL[k]} icon={ALIGN_GLYPH[k]} onClick={() => ops.align(k)} />)}
         </ButtonGroup>
@@ -294,17 +521,60 @@ function PositionSection({ node, inAuto, ops, multi }: { node: SceneNode; inAuto
         </ButtonGroup>
       </PropRow>
       <PropRow icons={<span className="w-6" />}>
-        <NumericInput label="X" prefix="X" value={Math.round(node.x)} onChange={(x) => set({ x })} disabled={inAuto && !node.absolute} />
-        <NumericInput label="Y" prefix="Y" value={Math.round(node.y)} onChange={(y) => set({ y })} disabled={inAuto && !node.absolute} />
+        <NumericInput label="X" prefix="X" value={xVal} placeholder={xVal === null ? "Mixed" : undefined} fallback={Math.round(node.x)} onChange={(x) => set({ x })} disabled={inAuto && !node.absolute} />
+        <NumericInput label="Y" prefix="Y" value={yVal} placeholder={yVal === null ? "Mixed" : undefined} fallback={Math.round(node.y)} onChange={(y) => set({ y })} disabled={inAuto && !node.absolute} />
       </PropRow>
       <PropRow icons={<span className="w-6" />}>
-        <NumericInput label="Rotation" prefix={<Prefix>{fi("24.rotation")}</Prefix>} value={node.rotation ?? 0} min={-360} max={360} unit="°" onChange={(rotation) => set({ rotation: rotation || undefined })} />
+        <NumericInput label="Rotation" prefix={<Prefix>{fi("24.rotation")}</Prefix>} value={rotVal} placeholder={rotVal === null ? "Mixed" : undefined} fallback={node.rotation ?? 0} min={-360} max={360} unit={rotVal === null ? undefined : "°"} onChange={(rotation) => set({ rotation: rotation || undefined })} />
         <ButtonGroup>
           <GroupButton label="Rotate 90°" icon={fi("24.rotate")} onClick={() => set({ rotation: ((node.rotation ?? 0) + 90) % 360 || undefined })} />
           <GroupButton label="Flip horizontal (⇧H)" icon={fi("24.flip.horizontal.small")} active={Boolean(node.flipH)} onClick={() => set({ flipH: node.flipH ? undefined : true })} />
           <GroupButton label="Flip vertical (⇧V)" icon={fi("24.flip.vertical")} active={Boolean(node.flipV)} onClick={() => set({ flipV: node.flipV ? undefined : true })} />
         </ButtonGroup>
       </PropRow>
+    </Section>
+  );
+}
+
+/**
+ * Several layers' Layout, as Figma's: their width and height (or "Mixed"),
+ * and — siblings lined up in a row or a column — the spacing between them,
+ * which places them anew when typed.
+ */
+function MultiLayoutSection({ selected, sameParent, ops }: { selected: readonly SceneNode[]; sameParent: boolean; ops: EditorOps }) {
+  const wVal = sameValue(selected, (n) => n.width);
+  const hVal = sameValue(selected, (n) => n.height);
+  // Which way they line up: the axis along which none overlaps the next (a column, else a row; else the longer span).
+  const byY = [...selected].sort((a, b) => a.y - b.y);
+  const byX = [...selected].sort((a, b) => a.x - b.x);
+  const apart = (list: SceneNode[], vertical: boolean) => list.slice(1).every((n, i) => (vertical ? n.y >= list[i].y + list[i].height - 0.5 : n.x >= list[i].x + list[i].width - 0.5));
+  const spanX = Math.max(...selected.map((n) => n.x + n.width)) - Math.min(...selected.map((n) => n.x));
+  const spanY = Math.max(...selected.map((n) => n.y + n.height)) - Math.min(...selected.map((n) => n.y));
+  const vertical = apart(byY, true) ? true : apart(byX, false) ? false : spanY >= spanX;
+  const list = vertical ? byY : byX;
+  const gaps = list.slice(1).map((n, i) => (vertical ? n.y - (list[i].y + list[i].height) : n.x - (list[i].x + list[i].width)));
+  const gapVal = gaps.length && gaps.every((g) => Math.round(g) === Math.round(gaps[0])) ? Math.round(gaps[0]) : null;
+  const setSpacing = (value: number) => {
+    let end = vertical ? list[0].y + list[0].height : list[0].x + list[0].width;
+    const moves = list.slice(1).map((n) => {
+      const at = Math.round(end + value);
+      end = at + (vertical ? n.height : n.width);
+      return vertical ? { id: n.id, y: at } : { id: n.id, x: at };
+    });
+    ops.placeMany(moves);
+  };
+  return (
+    <Section title="Layout" icons={<IconButton label="Add auto layout (⇧A)" icon={fi("24.autolayout-add-vertical")} onClick={ops.addAutoLayout} />}>
+      <PropRow icons={<span className="w-6" />}>
+        <NumericInput label="Width" prefix="W" value={wVal} placeholder={wVal === null ? "Mixed" : undefined} fallback={Math.round(selected[0].width)} min={0} onChange={(width) => ops.patch(selected[0].id, { width, sizingH: undefined } as Partial<SceneNode>)} />
+        <NumericInput label="Height" prefix="H" value={hVal} placeholder={hVal === null ? "Mixed" : undefined} fallback={Math.round(selected[0].height)} min={0} onChange={(height) => ops.patch(selected[0].id, { height, sizingV: undefined } as Partial<SceneNode>)} />
+      </PropRow>
+      {sameParent && (
+        <PropRow icons={<span className="w-6" />}>
+          <NumericInput label={vertical ? "Vertical spacing" : "Horizontal spacing"} prefix={<Prefix>{fi(vertical ? "al.spacing-vertical" : "al.spacing-horizontal")}</Prefix>} value={gapVal} placeholder={gapVal === null ? "Mixed" : undefined} fallback={gapVal ?? 0} onChange={setSpacing} />
+          <span className="flex-1" />
+        </PropRow>
+      )}
     </Section>
   );
 }
@@ -1299,10 +1569,14 @@ function SelectionColors({ nodes, selection, ops, byId, mode }: { nodes: SceneNo
 
 function PageColor({ background, ops, variables, byId, mode }: { background: string; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode }) {
   const [picker, setPicker] = useState<{ top: number; right: number } | null>(null);
+  // The page colour with its opacity, as Figma's row: kept as #RRGGBBAA when under 100.
+  const hex = background.slice(0, 7);
+  const opacity = background.length === 9 ? Math.round((parseInt(background.slice(7, 9), 16) / 255) * 100) : 100;
+  const withOpacity = (h: string, o: number) => (o >= 100 ? h : `${h}${Math.round((o / 100) * 255).toString(16).padStart(2, "0")}`);
   return (
     <div className="relative flex flex-1">
-      <ColorInput label="Canvas color" color={background} opacity={100} onColor={ops.setBackground} chit={<button type="button" data-picker-anchor="" aria-label="Color picker" onClick={(e) => setPicker(picker ? null : anchorOf(e.currentTarget))} className="cursor-pointer"><Chit color={background} /></button>} />
-      {picker && <ColorPicker color={background} opacity={100} anchor={picker} variables={variables} byId={byId} mode={mode} pageColors={ops.pageColors} onChange={(hex) => ops.setBackground(hex)} onClose={() => setPicker(null)} />}
+      <ColorInput label="Canvas color" color={hex} opacity={opacity} onColor={(h) => ops.setBackground(withOpacity(h, opacity))} onOpacity={(o) => ops.setBackground(withOpacity(hex, o))} chit={<button type="button" data-picker-anchor="" aria-label="Color picker" onClick={(e) => setPicker(picker ? null : anchorOf(e.currentTarget))} className="cursor-pointer"><Chit color={background} /></button>} />
+      {picker && <ColorPicker color={hex} opacity={opacity} anchor={picker} variables={variables} byId={byId} mode={mode} pageColors={ops.pageColors} onChange={(h, o) => ops.setBackground(withOpacity(h, o))} onClose={() => setPicker(null)} />}
     </div>
   );
 }
@@ -1344,7 +1618,6 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
 
   if (!node) {
     if (tab === "prototype") return <PrototypeSection node={null} nodes={nodes} ops={ops} flows={flows} />;
-    const byGroups = [...byGroup(textStyles)];
     const pageFrame = getNode(nodes, ops.pageId);
     return (
       <div className="flex flex-col">
@@ -1353,34 +1626,17 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
             <PageColor background={background} ops={ops} variables={variables} byId={byId} mode={mode} />
           </PropRow>
         </Section>
-        <Section title="Local styles" icons={<IconButton label="Create style" icon={fi("plus.small")} onClick={(e) => ops.menu(e.currentTarget, [{ label: "Create text style", onSelect: () => ops.createTextStyle(null) }, { label: "Create color style", onSelect: () => ops.createColorStyle("#000000") }, { label: "Create effect style", hint: "select a layer", disabled: true }])} />} pb={12}>
+        <Section title="Styles" icons={<IconButton label="Create style" icon={fi("plus.small")} onClick={(e) => ops.menu(e.currentTarget, [{ label: "Create text style", onSelect: () => ops.createTextStyle(null) }, { label: "Create color style", onSelect: () => ops.createColorStyle("#000000") }, { label: "Create effect style", hint: "select a layer", disabled: true }])} />} pb={12}>
           <Labels a="Text styles" />
-          {byGroups.map(([group, list]) =>
-            list.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 h-8 pl-4 pr-2 hover:bg-[var(--f-bg-hover)]">
-                <span className="w-6 shrink-0 text-center text-[13px] font-[550] text-[var(--f-text)]">Ag</span>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">
-                  {(group ? `${group} / ` : "") + (splitName(s.name)[1] || s.name)}
-                  <span className="text-[var(--f-text-secondary)]"> · {numberOf(s.fontSize, byId, 16)}/{s.lineHeight ? numberOf(s.lineHeight, byId) : "Auto"}</span>
-                </span>
-              </div>
-            ))
-          )}
+          <TextStyleTree styles={textStyles} byId={byId} variables={variables} mode={mode} ops={ops} />
           <Labels a="Color styles" className="pt-2" />
-          {variables.filter((v) => v.kind === "color").slice(0, 12).map((v) => (
-            <button key={v.id} type="button" onClick={ops.openVariables} className="flex items-center gap-2 h-8 pl-4 pr-2 text-left hover:bg-[var(--f-bg-hover)] cursor-pointer">
-              <span className="flex w-6 shrink-0 items-center justify-center"><span className="w-4 h-4 rounded-full border border-[var(--f-border-translucent)]" style={{ background: String(boundValue(v.light, mode, byId) ?? "#000") }} /></span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">{v.name}</span>
-            </button>
-          ))}
-          <button type="button" onClick={ops.openVariables} className="flex items-center gap-2 h-8 pl-4 pr-2 text-left text-[11px] text-[var(--f-text-secondary)] hover:text-[var(--f-text)] cursor-pointer">All variables ({variables.length})…</button>
+          <ColorStyleTree variables={variables.filter((v) => v.kind === "color")} byId={byId} mode={mode} onOpen={ops.openVariables} />
+          <StyleRow depth={0} onClick={ops.openVariables}><span className="text-[var(--f-text-secondary)]">All variables ({variables.length})…</span></StyleRow>
           {ops.effectStyles.length > 0 && <Labels a="Effect styles" className="pt-2" />}
           {ops.effectStyles.map((st) => (
-            <div key={st.id} className="group/es flex items-center gap-2 h-8 pl-4 pr-2 hover:bg-[var(--f-bg-hover)]">
-              <span className="flex w-6 shrink-0 items-center justify-center text-[var(--f-icon-secondary)]">{fi("24.effects.small", 16)}</span>
-              <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">{st.name}</span>
-              <IconButton label="Delete style" icon={fi("minus.small")} onClick={() => ops.removeEffectStyle(st.id)} className="opacity-0 group-hover/es:opacity-100" />
-            </div>
+            <StyleRow key={st.id} depth={0} icon={<span className="text-[var(--f-icon-secondary)]">{fi("24.effects.small", 16)}</span>} trailing={<IconButton label="Delete style" icon={fi("minus.small")} onClick={() => ops.removeEffectStyle(st.id)} className="opacity-0 group-hover/srow:opacity-100" />}>
+              {st.name}
+            </StyleRow>
           ))}
         </Section>
         {pageFrame && <ExportSection node={pageFrame} ops={ops} />}
@@ -1391,7 +1647,10 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
   const multi = selection.length > 1;
   const inAuto = Boolean(parent && parent.layoutMode !== "none");
   const purple = node.type === "component" || node.type === "componentSet" || node.type === "instance" || Boolean(composite);
-  const title = multi ? `${selection.length} layers` : KIND[node.type];
+  const title = multi ? `${selection.length} selected` : KIND[node.type];
+  // The selected layers themselves (several: their shared values, or "Mixed"), and whether they share a parent (the spacing between them).
+  const selectedNodes = ownIds.map((id) => findNode(nodes, id)).filter((f): f is NonNullable<typeof f> => Boolean(f));
+  const sameParent = selectedNodes.length > 1 && selectedNodes.every((f) => (f.parent?.id ?? null) === (selectedNodes[0].parent?.id ?? null));
   const headerMenu = multi || composite ? [] : header(node);
 
   return (
@@ -1403,6 +1662,7 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
         </ChevronMenu>
         <div className="flex items-center gap-2">
           {!composite && !multi && node.type === "frame" && <IconButton label="Create component (⌥⌘K)" icon={fi("component.small")} onClick={ops.createComponent} />}
+          {multi && <IconButton label={`Use as mask (${"^" + keys("mod", "m")})`} icon={fi("24.mask")} onClick={() => ops.maskWith(ownIds[0])} />}
           <IconButton label="More" icon={<span className="text-[var(--f-icon)]">{fi("24.more")}</span>} onClick={(e) => ops.more(e.currentTarget)} />
         </div>
       </div>
@@ -1420,12 +1680,16 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
         </>
       ) : (
         <>
-          {node.type === "instance" && <InstanceSection node={node} nodes={nodes} ops={ops} lang={lang} />}
-          {node.type === "component" && <ComponentSection node={node} nodes={nodes} ops={ops} />}
-          {node.type === "component" && !setOf(nodes, node.id) && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
-          {node.type === "componentSet" && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
-          <PositionSection node={node} inAuto={inAuto} ops={ops} multi={selection} />
-          <LayoutSection node={node} parent={parent} ops={ops} variables={variables} byId={byId} mode={mode} />
+          {!multi && node.type === "instance" && <InstanceSection node={node} nodes={nodes} ops={ops} lang={lang} />}
+          {!multi && node.type === "component" && <ComponentSection node={node} nodes={nodes} ops={ops} />}
+          {!multi && node.type === "component" && !setOf(nodes, node.id) && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
+          {!multi && node.type === "componentSet" && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
+          <PositionSection node={node} inAuto={inAuto} ops={ops} multi={selection} selected={selectedNodes.map((f) => f.node)} />
+          {multi && selectedNodes.length > 1 ? (
+            <MultiLayoutSection selected={selectedNodes.map((f) => f.node)} sameParent={sameParent} ops={ops} />
+          ) : (
+            <LayoutSection node={node} parent={parent} ops={ops} variables={variables} byId={byId} mode={mode} />
+          )}
           <AppearanceSection node={node} nodes={nodes} ops={ops} variables={variables} byId={byId} mode={mode} />
           {node.type === "text" && <TextSection node={node} nodes={nodes} ops={ops} variables={variables} byId={byId} mode={mode} textStyles={textStyles} lang={lang} />}
           {node.type !== "line" && <FillSection node={node} ops={ops} variables={variables} byId={byId} mode={mode} />}

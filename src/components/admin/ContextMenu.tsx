@@ -36,11 +36,11 @@ export type MenuEntry = ContextMenuItem | "-";
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 /** An action's keys, as Figma writes them — ⇧⌘H on a Mac, Ctrl+Shift+H elsewhere (`mod`: ⌘ / Ctrl). */
-export function keys(...parts: ("mod" | "shift" | "alt" | "backspace" | string)[]) {
-  const order = ["shift", "alt", "mod"];
+export function keys(...parts: ("mod" | "shift" | "alt" | "ctrl" | "backspace" | string)[]) {
+  const order = ["ctrl", "shift", "alt", "mod"];
   const sorted = [...parts].sort((a, b) => (order.includes(a) ? order.indexOf(a) : 9) - (order.includes(b) ? order.indexOf(b) : 9));
-  const mac: Record<string, string> = { mod: "⌘", shift: "⇧", alt: "⌥", backspace: "⌫" };
-  const other: Record<string, string> = { mod: "Ctrl", shift: "Shift", alt: "Alt", backspace: "Del" };
+  const mac: Record<string, string> = { mod: "⌘", shift: "⇧", alt: "⌥", ctrl: "^", backspace: "⌫" };
+  const other: Record<string, string> = { mod: "Ctrl", shift: "Shift", alt: "Alt", ctrl: "Ctrl", backspace: "Del" };
   return IS_MAC ? sorted.map((p) => mac[p] ?? p.toUpperCase()).join("") : sorted.map((p) => other[p] ?? p.toUpperCase()).join("+");
 }
 

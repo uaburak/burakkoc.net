@@ -57,6 +57,8 @@ export interface TextStyle extends Typography {
   id: string;
   /** Its name: "Etiket" — "/" makes groups, as a variable's */
   name: string;
+  /** What it is for (Figma's description) */
+  description?: string;
   /** Below 640px (a phone): its size, line height and letter spacing there — the web's one breakpoint */
   small?: Partial<Pick<Typography, "fontSize" | "lineHeight" | "letterSpacing">>;
 }
