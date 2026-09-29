@@ -97,6 +97,8 @@ export interface EditableTextProps {
   layer?: string;
   /** The text style giving it its look (see TextStyle), as `data-text-style` — its typography comes from there */
   textStyle?: string;
+  /** Its layer in its component (see TextLayer), as `data-layer-id` */
+  layerId?: string;
   style?: CSSProperties;
 }
 
@@ -114,6 +116,7 @@ export function EditableText({
   display,
   layer,
   textStyle,
+  layerId,
   style,
 }: EditableTextProps) {
   const [editing, setEditing] = useState(autoEdit);
@@ -139,7 +142,7 @@ export function EditableText({
 
   if (!onChange) {
     if (!value) return null;
-    return <Tag data-text-style={textStyle} className={className} style={style}>{content}</Tag>;
+    return <Tag data-text-style={textStyle} data-layer-id={layerId} className={className} style={style}>{content}</Tag>;
   }
 
   // The two modes are separate elements (distinct keys). The editing element's
@@ -151,6 +154,7 @@ export function EditableText({
         key="view"
         data-text-layer={layer}
         data-text-style={textStyle}
+        data-layer-id={layerId}
         className={className}
         style={style}
         onDoubleClick={(e: React.MouseEvent) => {
@@ -183,6 +187,7 @@ export function EditableText({
       ref={ref}
       data-text-layer={layer}
       data-text-style={textStyle}
+      data-layer-id={layerId}
       style={style}
       contentEditable={PLAINTEXT_ONLY ? "plaintext-only" : true}
       suppressContentEditableWarning

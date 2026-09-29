@@ -48,6 +48,15 @@ export const STARTING_VARIABLES: DesignVariable[] = [
   scale("weight-regular", "Yazı kalınlığı/Normal", 400, "weight"),
   scale("weight-medium", "Yazı kalınlığı/Orta", 500, "weight"),
   scale("radius-card", "Köşe/Kart", 22),
+  // The rest of the sizes the site's components draw with (see STARTING_COMPONENTS).
+  scale("font-size-xs", "Yazı boyutu/Çok küçük", 13),
+  scale("font-size-l", "Yazı boyutu/Büyük", 22),
+  scale("font-size-xl", "Yazı boyutu/Çok büyük", 28),
+  scale("line-height-xl", "Satır aralığı/Çok geniş", 36),
+  scale("radius-panel", "Köşe/Panel", 32),
+  scale("radius-media", "Köşe/Görsel", 24),
+  scale("radius-inner", "Köşe/İç kart", 18),
+  scale("radius-pill", "Köşe/Hap", 9999),
 ];
 
 /** The site's variables: the starting ones — as stored, when changed — in their place, then the added ones. */

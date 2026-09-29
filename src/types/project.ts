@@ -1,4 +1,5 @@
-import type { FrameLook, InstanceOverrides } from "@/types/design";
+import type { FrameLook, InstanceOverrides, TextField } from "@/types/design";
+import type { FigmaDocument } from "@/figma/model";
 
 // ── Block Types (divider removed — it's now a top-level PageItem) ─────────────
 
@@ -68,6 +69,11 @@ export interface BlockEntry {
    * the component it repeats (the Künye's Kart): what it changes of it.
    */
   overrides?: InstanceOverrides;
+  /**
+   * …and, when that component is a set's variant, the variant this item is
+   * (Figma's variant properties on an instance) — the repeated one's when unset.
+   */
+  component?: string;
 }
 
 // ── List Block ───────────────────────────────────────────────────────────────
@@ -224,6 +230,13 @@ export interface GridSettings {
    */
   justify?: GridAlign;
   align?: GridAlign;
+  /** Side by side: children line up on their first text's baseline (Figma's baseline alignment) */
+  baseline?: boolean;
+  /**
+   * Below 640px (a phone) — inside a component: its grid's columns (that
+   * many Fill ones) and its padding. The web's one breakpoint; Figma has none.
+   */
+  small?: { columns?: number; paddingX?: number; paddingY?: number };
 }
 
 // ── Block ─────────────────────────────────────────────────────────────────────
@@ -297,8 +310,8 @@ export interface Block {
    * (Figma's instance swap); its type's own one when unset (or gone).
    */
   component?: string;
-  /** A text layer (a heading, a subtitle, a paragraph): its text style — its type's when unset (see pageTextStyle) */
-  textStyle?: string;
+  /** An instance's own texts' styles, over its main component's text layers' (Figma's overrides) */
+  styles?: Partial<Record<TextField, string>>;
   // EN
   contentEn?: string;
   subheadingEn?: string;
@@ -411,4 +424,6 @@ export interface ProjectData {
   theme?: ProjectTheme;
   /** The frame holding its sections and dividers (see PageFrame) */
   frame?: PageFrame;
+  /** The Figma editor's file: the canvas whose page frame is what the site shows (see FigmaDocument) */
+  canvas?: FigmaDocument;
 }

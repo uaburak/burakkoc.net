@@ -377,28 +377,27 @@ export const GROUP_TONE = "var(--edit-group)";
 
 // ── Layers, as Figma draws them (the live editor) ─────────────────────────────
 //
-// Frames (the page, a Bölüm, a Blok), texts and images are Figma's blue;
-// components and their instances its purple.
+// Frames (the page, a Bölüm, a Blok) and texts are Figma's blue; components
+// and their instances — every layer the page holds — its purple.
 
 export const FRAME_TONE = "var(--edit-accent)";
 export const COMPONENT_TONE = "var(--edit-component)";
 
 /**
- * What a component on the page is as a Figma layer: a heading or a text is a
- * text layer, an image an image; everything else is an instance of a
- * component — drawn by the site's code, or from a main component.
+ * What a component on the page is as a Figma layer: an instance of its main
+ * component — every one of them (see DesignComponent).
  */
-export type LayerKind = "text" | "image" | "instance";
+export type LayerKind = "instance";
 
 export function layerKind(type: BlockType): LayerKind {
-  if (type === "heading" || type === "subheading" || type === "text") return "text";
-  return type === "image" ? "image" : "instance";
+  void type;
+  return "instance";
 }
 
-/** A layer's colour: blue for texts and images, purple for instances. */
+/** A layer's colour: an instance's purple. */
 export const layerTone = (type: BlockType) => (layerKind(type) === "instance" ? COMPONENT_TONE : FRAME_TONE);
 
-const LAYER_ICON: Record<LayerKind, FigmaIconName> = { text: "16.text", image: "16.image", instance: "16.instance" };
+const LAYER_ICON: Record<LayerKind, FigmaIconName> = { instance: "16.instance" };
 
 /** A layer's icon, as Figma's layer tree draws it (16px). */
 export const layerIcon = (type: BlockType) => <FigmaIcon name={LAYER_ICON[layerKind(type)]} />;

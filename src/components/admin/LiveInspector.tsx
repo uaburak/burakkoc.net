@@ -15,7 +15,7 @@ import { TYPOGRAPHY_KINDS } from "@/components/project/textStyles";
 import { TextStyleSample, textStyleMetrics } from "@/components/admin/textStyleSample";
 import { FigmaIcon, type FigmaIconName } from "@/components/admin/figmaIcons";
 import { useTheme } from "@/context/ThemeContext";
-import type { BlendMode, Corners, DesignComponent, DesignVariable, FrameLook, InstanceLayer, Stroke, Paint, SpacingKey, StrokeAlign, TextLayer, TextStyle, Typography, VariableKind, VariableValue } from "@/types/design";
+import type { BlendMode, Corners, DesignComponent, DesignVariable, FrameLayer, FrameLook, InstanceLayer, PartLayer, Stroke, Paint, SpacingKey, StrokeAlign, TextAlign, TextLayer, TextStyle, Typography, VariableKind, VariableValue } from "@/types/design";
 import { MAX_COLUMNS, MAX_ROWS, columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, withColumnCount, withRowCount, withTrack, type Cell } from "@/lib/projectLayout";
 
 /**
@@ -52,7 +52,7 @@ export function Group({ title, actions, muted = false, children }: { title: stri
   return (
     <section className={cn("flex flex-col gap-2 px-4 border-b border-[var(--border)]", muted ? "py-2.5" : "pt-2.5 pb-4")}>
       <div className="flex items-center justify-between gap-2 h-7">
-        <h3 className={cn("text-[12px] font-semibold leading-4 select-none", muted ? "text-[var(--text-subtitle)]" : "text-[var(--text-title)]")}>{title}</h3>
+        <h3 className={cn("text-[11px] font-semibold leading-4 select-none", muted ? "text-[var(--text-subtitle)]" : "text-[var(--text-title)]")}>{title}</h3>
         {actions && <div className="flex items-center -mr-2">{actions}</div>}
       </div>
       {children}
@@ -72,7 +72,7 @@ export function FieldRow({ icon, wide = false, children }: { icon?: ReactNode; w
   return (
     <div className="flex items-start gap-2 -mr-2">
       <div className={cn("grid flex-1 min-w-0 gap-2", wide ? "grid-cols-1" : "grid-cols-2")}>{children}</div>
-      <div className="flex w-7 shrink-0 justify-center">{icon}</div>
+      <div className="flex w-6 shrink-0 justify-center">{icon}</div>
     </div>
   );
 }
@@ -80,17 +80,17 @@ export function FieldRow({ icon, wide = false, children }: { icon?: ReactNode; w
 /** A labelled line: the label on the left, the control filling the rest, its icon in the icon column (see FieldRow). */
 export function Row({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 min-h-7 -mr-2">
-      <span className="w-[72px] shrink-0 text-[12px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
+    <div className="flex items-center gap-2 min-h-6 -mr-2">
+      <span className="w-[72px] shrink-0 text-[11px] leading-4 text-[var(--text-subtitle)] select-none">{label}</span>
       <div className="flex flex-1 min-w-0 items-center">{children}</div>
-      <div className="flex w-7 shrink-0 justify-center">{icon}</div>
+      <div className="flex w-6 shrink-0 justify-center">{icon}</div>
     </div>
   );
 }
 
 /** The grey box every field sits in (`group/field`: marks at its end show on its hover, see Bindable). */
 export const FIELD =
-  "group/field h-7 rounded-[6px] bg-[var(--bg-4)] border border-transparent hover:border-[var(--border-hover)] focus-within:border-[var(--text-subtitle)] transition-colors";
+  "group/field h-6 rounded-[5px] bg-[var(--bg-4)] border border-transparent hover:border-[var(--border-hover)] focus-within:border-[var(--edit-accent)] transition-colors";
 
 /** The chosen option of a segmented control: raised (white; a step lighter in the dark theme). */
 const RAISED = "bg-[var(--bg-1)] [[data-theme=dark]_&]:bg-[var(--bg-5)] text-[var(--text-title)] shadow-[0_1px_2px_rgba(0,0,0,0.08)]";
@@ -102,7 +102,7 @@ export function Choice<T>({ value, options, onChange }: {
   onChange: (value: T) => void;
 }) {
   return (
-    <div role="radiogroup" className="flex w-full h-7 gap-0.5 p-0.5 rounded-[6px] bg-[var(--bg-4)]">
+    <div role="radiogroup" className="flex w-full h-6 gap-0.5 p-0.5 rounded-[5px] bg-[var(--bg-4)]">
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -115,7 +115,7 @@ export function Choice<T>({ value, options, onChange }: {
             title={o.icon ? o.label : undefined}
             onClick={() => onChange(o.value)}
             className={cn(
-              "flex flex-1 min-w-0 items-center justify-center px-1.5 rounded-[5px] text-[11px] font-medium truncate transition-colors cursor-pointer",
+              "flex flex-1 min-w-0 items-center justify-center px-1.5 rounded-[4px] text-[11px] font-medium truncate transition-colors cursor-pointer",
               active ? RAISED : "text-[var(--text-subtitle)] hover:text-[var(--text-title)]"
             )}
           >
@@ -210,7 +210,7 @@ export function NumberField({ label, prefix, value, min, max, suffix, placeholde
             setDraft(null);
           }
         }}
-        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none tabular-nums"
+        className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none tabular-nums"
       />
       {suffix && <span className="shrink-0 text-[11px] text-[var(--text-subtitle)] tabular-nums select-none">{suffix}</span>}
     </div>
@@ -236,7 +236,7 @@ export function TextField({ label, value, onChange, placeholder, type = "text", 
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
+        className="min-w-0 flex-1 bg-transparent text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
       />
       {suffix}
     </div>
@@ -258,7 +258,7 @@ export function SelectField({ label, value, options, placeholder, suffix, onChan
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={cn("w-full h-full pl-2 appearance-none bg-transparent text-[12px] text-[var(--text-title)] outline-none cursor-pointer", suffix ? "pr-12" : "pr-6")}
+        className={cn("w-full h-full pl-2 appearance-none bg-transparent text-[11px] text-[var(--text-title)] outline-none cursor-pointer", suffix ? "pr-12" : "pr-6")}
       >
         {placeholder !== undefined && <option value="">{placeholder}</option>}
         {options.map((o) => (
@@ -279,7 +279,7 @@ export function SquareButton({ label, onClick, children }: { label: string; onCl
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="flex shrink-0 items-center justify-center w-7 h-7 rounded-[6px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+      className="flex shrink-0 items-center justify-center w-6 h-6 rounded-[5px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
     >
       {children}
     </button>
@@ -297,7 +297,7 @@ export function ToggleButton({ label, pressed, disabled = false, onClick, childr
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex shrink-0 items-center justify-center w-7 h-7 rounded-[6px] transition-colors cursor-pointer disabled:opacity-35 disabled:cursor-default",
+        "flex shrink-0 items-center justify-center w-6 h-6 rounded-[5px] transition-colors cursor-pointer disabled:opacity-35 disabled:cursor-default",
         pressed
           ? "bg-[color-mix(in_srgb,var(--edit-accent)_14%,transparent)] text-[var(--edit-accent)]"
           : "text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-4)]"
@@ -902,13 +902,16 @@ interface SpacingBinding {
   onBind: (key: SpacingKey, variableId: string | null) => void;
 }
 
-export function GridFields({ grid, measure, size, heightModes, onSize, cells, onAlign, onChange, bind, clip }: {
+export function GridFields({ grid, measure, size, widthModes, heightModes, lockable, onSize, cells, onAlign, onChange, bind, clip }: {
   grid?: GridSettings;
   /** Finds its frame on the canvas, for its W / H and the sizes its columns and rows have now */
   measure: string;
   /** Its own size (W / H), right under the direction — as in Figma's Auto layout; none without `onSize` */
   size?: Sizing;
+  widthModes?: SizeMode[];
   heightModes?: SizeMode[];
+  /** Its proportions can be kept (see SizeFields) */
+  lockable?: boolean;
   onSize?: (size: Sizing) => void;
   /** Its children's cells (layoutCells) */
   cells: Cell[];
@@ -980,7 +983,7 @@ export function GridFields({ grid, measure, size, heightModes, onSize, cells, on
       >
         <Choice value={flow} options={FLOWS} onChange={(next) => onChange({ ...grid, flow: next === "grid" ? undefined : next })} />
       </FieldRow>
-      {onSize && <SizeFields size={size} measure={measure} heightModes={heightModes} onChange={onSize} />}
+      {onSize && <SizeFields size={size} measure={measure} widthModes={widthModes} heightModes={heightModes} lockable={lockable} onChange={onSize} />}
       {flow === "grid" && (
         <FieldRow>
           <NumberField label="Sütun sayısı" prefix={Glyphs.columns} value={count} min={1} max={MAX_COLUMNS} suffix="sütun" onChange={setCount} />
@@ -1071,7 +1074,7 @@ export function GridFields({ grid, measure, size, heightModes, onSize, cells, on
 /** Figma's checkbox with its label (Clip content). */
 export function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="flex items-center gap-2 h-7 w-fit cursor-pointer select-none">
+    <label className="flex items-center gap-2 h-6 w-fit cursor-pointer select-none">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
       <span
         aria-hidden
@@ -1081,7 +1084,7 @@ export function CheckRow({ label, checked, onChange }: { label: string; checked:
           <FigmaIcon name="16.check" />
         )}
       </span>
-      <span className="text-[12px] text-[var(--text-title)]">{label}</span>
+      <span className="text-[11px] text-[var(--text-title)]">{label}</span>
     </label>
   );
 }
@@ -1112,7 +1115,8 @@ function useRenderedSize(selector: string, revision: string) {
     const el = document.querySelector(`main ${selector}`);
     if (!el) return;
     const measure = () => {
-      const r = el.getBoundingClientRect();
+      // Its own size, not as drawn: the Bileşenler page's zoom scales it.
+      const r = el instanceof HTMLElement ? { width: el.offsetWidth, height: el.offsetHeight } : el.getBoundingClientRect();
       setSize((prev) => (prev.width === Math.round(r.width) && prev.height === Math.round(r.height) ? prev : { width: Math.round(r.width), height: Math.round(r.height) }));
     };
     const resize = new ResizeObserver(measure);
@@ -1192,7 +1196,7 @@ export function FieldMenu({ label, items, children }: {
         aria-label={label}
         title={label}
         onClick={(e) => toggle(e.currentTarget)}
-        className="flex items-center gap-1 h-6 pl-1.5 pr-1 -mr-1 rounded-[4px] text-[12px] text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
+        className="flex items-center gap-1 h-6 pl-1.5 pr-1 -mr-1 rounded-[4px] text-[11px] text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
       >
         {children}
         <FigmaIcon name="16.chevron.down" className="-mx-1 text-[var(--text-subtitle)]" />
@@ -1224,7 +1228,7 @@ export function MenuList({ at, width, items, onClose }: { at: PopoverAt; width: 
             className="flex items-center gap-2 w-full h-8 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer"
           >
             <span className="flex w-4 shrink-0 text-[var(--text-title)]">{item.checked && <FigmaIcon name="16.check" />}</span>
-            <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{item.label}</span>
+            <span className="shrink-0 text-[11px] font-medium text-[var(--text-title)]">{item.label}</span>
             {item.hint && <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)]">{item.hint}</span>}
           </button>
         </div>
@@ -1248,7 +1252,7 @@ export function InspectorHeader({ icon, tone, title, menu = [], actions }: {
 }) {
   const { at, box, toggle, close } = usePopover(220);
   return (
-    <div className="shrink-0 flex items-center justify-between gap-2 h-12 pl-2.5 pr-2 border-b border-[var(--border)]">
+    <div className="shrink-0 flex items-center justify-between gap-2 h-10 pl-2.5 pr-2 border-b border-[var(--border)]">
       <div ref={box} className="relative flex min-w-0 items-center">
         <button
           type="button"
@@ -1256,10 +1260,10 @@ export function InspectorHeader({ icon, tone, title, menu = [], actions }: {
           aria-expanded={menu.length > 0 ? Boolean(at) : undefined}
           disabled={menu.length === 0}
           onClick={(e) => toggle(e.currentTarget, "left")}
-          className="flex min-w-0 items-center gap-1.5 h-8 px-1.5 rounded-[6px] enabled:hover:bg-[var(--bg-4)] enabled:cursor-pointer transition-colors"
+          className="flex min-w-0 items-center gap-1.5 h-6 px-1.5 rounded-[5px] enabled:hover:bg-[var(--bg-4)] enabled:cursor-pointer transition-colors"
         >
           {icon && <span className="flex shrink-0 items-center" style={{ color: tone }}>{icon}</span>}
-          <span className="min-w-0 truncate text-[13px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</span>
+          <span className="min-w-0 truncate text-[11px] font-semibold leading-4 text-[var(--text-title)] select-none">{title}</span>
           {menu.length > 0 && (
             <FigmaIcon name="16.chevron.down" className="-ml-1 shrink-0 text-[var(--text-subtitle)]" />
           )}
@@ -1484,7 +1488,7 @@ function ChildRow({ icon, tone, label, detail, onClick }: { icon: ReactNode; ton
       className="group/item flex items-center gap-2 w-[calc(100%+16px)] h-8 -mx-2 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
     >
       <span className="flex items-center justify-center w-4 h-4 shrink-0" style={{ color: tone }}>{icon}</span>
-      <span className="shrink-0 text-[12px] font-medium text-[var(--text-title)]">{label}</span>
+      <span className="shrink-0 text-[11px] font-medium text-[var(--text-title)]">{label}</span>
       <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-subtitle)]">{detail}</span>
       <span className="shrink-0 text-[var(--text-subtitle)] opacity-0 group-hover/item:opacity-100 transition-opacity">{Glyphs.chevron}</span>
     </button>
@@ -1556,18 +1560,30 @@ export function GroupInspector({ group, variables, onChange, onAlign }: {
 
 // ── Components and instances (see DesignComponent) ────────────────────────────
 
+/** A variant property of an instance's component set, as the instance shows it: its value, and the ones it can have. */
+export interface InstanceProperty {
+  name: string;
+  value: string;
+  values: string[];
+}
+
 /**
  * Figma's instance section, first in an instance's properties: the component
  * it is — swapped from the menu (the main components it can be), opened with
- * the arrow (Go to main component) — and, once it changes anything of it,
- * "Reset all changes".
+ * the arrow (Go to main component) — its variant properties, when it is a
+ * component set's (each value picks the variant that has it), and, once it
+ * changes anything of it, "Reset all changes".
  */
-export function InstanceGroup({ name, swaps, current, onSwap, onGoToMain, overridden = false, onReset, note }: {
+export function InstanceGroup({ name, swaps, current, onSwap, properties = [], onProperty, onGoToMain, overridden = false, onReset, note }: {
   name: string;
   /** The main components it can be swapped to */
   swaps?: { id: string; name: string; hint?: string }[];
   current?: string;
   onSwap?: (id: string) => void;
+  /** Its component set's properties (see InstanceProperty) */
+  properties?: InstanceProperty[];
+  /** A property set to a value: the instance becomes the variant with it */
+  onProperty?: (name: string, value: string) => void;
   /** Opens its main component — none for one the site's code draws */
   onGoToMain?: () => void;
   /** It changes something of its main component (see hasOverrides) */
@@ -1584,12 +1600,24 @@ export function InstanceGroup({ name, swaps, current, onSwap, onGoToMain, overri
       <FieldRow wide icon={onGoToMain && <SquareButton label="Ana bileşene git" onClick={onGoToMain}>{Glyphs.goTo}</SquareButton>}>
         <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
           <span className="shrink-0 text-[var(--edit-component)]">{Glyphs.instance}</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{name}</span>
+          <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-title)]">{name}</span>
           {swaps && swaps.length > 1 && onSwap && (
             <FieldMenu label="Örneği değiştir" items={swaps.map((c) => ({ label: c.name, hint: c.hint, checked: c.id === current, onSelect: () => onSwap(c.id) }))} />
           )}
         </div>
       </FieldRow>
+      {onProperty &&
+        properties.map((p) => (
+          <Row key={p.name} label={p.name}>
+            <SelectField
+              label={p.name}
+              value={p.value}
+              options={p.values.map((v) => ({ value: v, label: v }))}
+              placeholder={p.values.includes(p.value) ? undefined : "—"}
+              onChange={(value) => value && onProperty(p.name, value)}
+            />
+          </Row>
+        ))}
       {overridden && <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">Bu örnek ana bileşeninden farklı — değişiklikler yalnızca burada.</p>}
       {note && <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">{note}</p>}
     </Group>
@@ -1607,7 +1635,7 @@ export function StylePicker({ value, styles, byId, onChange }: {
   return (
     <div className={cn("flex w-full min-w-0 items-center gap-2 px-2", FIELD)}>
       {style && <TextStyleSample styleId={style.id} />}
-      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{style?.name ?? "Stil yok"}</span>
+      <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-title)]">{style?.name ?? "Stil yok"}</span>
       {style && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{textStyleMetrics(style, byId)}</span>}
       <FieldMenu
         label="Metin stilini değiştir"
@@ -1617,12 +1645,23 @@ export function StylePicker({ value, styles, byId, onChange }: {
   );
 }
 
-/** Figma's Typography section: the text's style — swapped from the menu, edited with the pen (every text in it changes). */
-export function TypographyGroup({ styleId, styles, variables, note, onChange, onEditStyle }: {
+const TEXT_ALIGNS: { value: TextAlign; label: string }[] = [
+  { value: "left", label: "Sola" },
+  { value: "center", label: "Ortaya" },
+  { value: "right", label: "Sağa" },
+];
+
+/**
+ * Figma's Typography section: the text's style — swapped from the menu,
+ * edited with the pen (every text in it changes) — and, with `align`, how
+ * the text lines up in its box.
+ */
+export function TypographyGroup({ styleId, styles, variables, note, align, onChange, onEditStyle }: {
   styleId?: string;
   styles: TextStyle[];
   variables: DesignVariable[];
   note?: string;
+  align?: { value?: TextAlign; onChange: (value: TextAlign | undefined) => void };
   onChange: (styleId: string) => void;
   onEditStyle: (styleId: string, under: Element) => void;
 }) {
@@ -1635,13 +1674,111 @@ export function TypographyGroup({ styleId, styles, variables, note, onChange, on
           <StylePicker value={styleId} styles={styles} byId={byId} onChange={onChange} />
         </FieldRow>
       </div>
+      {align && (
+        <FieldRow wide>
+          <Choice value={align.value ?? "left"} options={TEXT_ALIGNS} onChange={(value) => align.onChange(value === "left" ? undefined : value)} />
+        </FieldRow>
+      )}
       {note && <p className="text-[11px] leading-4 text-[var(--text-subtitle)]">{note}</p>}
     </Group>
   );
 }
 
+/** A text of an instance, in the Metinler section: its name, and its style (see InstanceTextsGroup). */
+function InstanceTextRow({ layer, styleId, overridden, styles, byId, onStyle, onEditStyle }: {
+  layer: TextLayer;
+  styleId?: string;
+  overridden: boolean;
+  styles: TextStyle[];
+  byId: Map<string, DesignVariable>;
+  onStyle: (layer: TextLayer, styleId: string) => void;
+  onEditStyle: (styleId: string, under: Element) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={ref} className="flex flex-col gap-1">
+      <span className="flex items-center gap-1.5 text-[11px] leading-4 text-[var(--text-subtitle)] select-none">
+        {layer.name}
+        {overridden && <span className="w-1.5 h-1.5 rounded-full bg-[var(--edit-component)]" title="Bu örneğe özel" />}
+      </span>
+      <FieldRow wide icon={styleId && <SquareButton label="Metin stilini düzenle" onClick={() => ref.current && onEditStyle(styleId, ref.current)}>{Glyphs.editStyle}</SquareButton>}>
+        <StylePicker value={styleId} styles={styles} byId={byId} onChange={(id) => onStyle(layer, id)} />
+      </FieldRow>
+    </div>
+  );
+}
+
+/**
+ * An instance's own texts (its main component's text layers showing the
+ * instance's texts), each with its style — this instance's own, over its
+ * layer's (an override, as in Figma; a dot marks it) — swapped from the menu.
+ */
+export function InstanceTextsGroup({ texts, styles, variables, onStyle, onEditStyle }: {
+  texts: { layer: TextLayer; styleId?: string; overridden: boolean }[];
+  styles: TextStyle[];
+  variables: DesignVariable[];
+  onStyle: (layer: TextLayer, styleId: string) => void;
+  onEditStyle: (styleId: string, under: Element) => void;
+}) {
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  if (texts.length === 0) return null;
+  return (
+    <Group title="Metinler">
+      {texts.map((text) => (
+        <InstanceTextRow key={text.layer.id} {...text} styles={styles} byId={byId} onStyle={onStyle} onEditStyle={onEditStyle} />
+      ))}
+    </Group>
+  );
+}
+
+/**
+ * A frame inside a main component, as Figma's: its auto layout — spacing
+ * bindable to variables, its W / H in the frame holding it, Clip content —
+ * and its look.
+ */
+export function FrameLayerInspector({ frame, variables, measure, onChange }: {
+  frame: FrameLayer;
+  variables: DesignVariable[];
+  measure: string;
+  onChange: (frame: FrameLayer) => void;
+}) {
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  const layout = componentLayout(frame, byId);
+  const setLook = (look: FrameLook) => onChange({ ...frame, ...look });
+  return (
+    <div className="flex flex-col">
+      <GridFields
+        grid={layout}
+        measure={measure}
+        size={frame.size}
+        onSize={(size) => onChange({ ...frame, size })}
+        cells={cellsOf(frame.layers.map(() => ({})), layout)}
+        onAlign={(justify, align) => onChange({ ...frame, layout: { ...frame.layout, justify, align } })}
+        onChange={(next) => onChange({ ...frame, layout: next })}
+        bind={componentBinding(frame, variables, layout, (next) => onChange(next as FrameLayer))}
+        clip={clipOf(frame, setLook)}
+      />
+      <LookFields look={frame} variables={variables} canHide onChange={setLook} />
+    </div>
+  );
+}
+
+/**
+ * A part the site's code draws (an image, an avatar, a bar…), as a nested
+ * instance of a library component: its W / H in the frame holding it — its
+ * inside isn't edited here.
+ */
+export function PartLayerInspector({ layer, measure, onChange }: { layer: PartLayer; measure: string; onChange: (layer: PartLayer) => void }) {
+  return (
+    <div className="flex flex-col">
+      <InstanceGroup name={layer.name} note="Sitenin kodunun çizdiği bir parça: bir kütüphane bileşeni gibi, içi burada değişmez. Yeri ve boyutu değişir." />
+      <SizeGroup size={layer.size} measure={measure} onChange={(size) => onChange({ ...layer, size })} />
+    </div>
+  );
+}
+
 /** Spacing of a main component bound to variables (see SpacingBinding): binding one, or letting go of it keeping its value. */
-function componentBinding(component: DesignComponent, variables: DesignVariable[], layout: GridSettings, onChange: (component: DesignComponent) => void): SpacingBinding {
+function componentBinding<C extends Pick<DesignComponent, "layout" | "spacing">>(component: C, variables: DesignVariable[], layout: GridSettings, onChange: (component: C) => void): SpacingBinding {
   return {
     bound: component.spacing ?? {},
     variables: variables.filter((v) => v.kind === "number"),
@@ -1662,13 +1799,20 @@ function componentBinding(component: DesignComponent, variables: DesignVariable[
  * used. Every instance changes with it, on every page, except for what an
  * instance changes itself.
  */
-export function ComponentInspector({ component, variables, measure, kind, uses, onChange }: {
+export function ComponentInspector({ component, variables, measure, kind, identity, placement, size, onSize, uses, onChange }: {
   component: DesignComponent;
   variables: DesignVariable[];
   /** Finds it on the canvas */
   measure: string;
   /** What it is, in words */
   kind: string;
+  /** In place of its name and kind: what it is otherwise (a variant's values — see VariantGroup) */
+  identity?: ReactNode;
+  /** Where it sits on the Bileşenler page (see PositionGroup) */
+  placement?: ReactNode;
+  /** Its W / H there (Fixed W, Fixed or Hug H) — in its Yerleşim, as a frame's */
+  size?: Sizing;
+  onSize?: (size: Sizing) => void;
   uses: DesignUse[];
   onChange: (component: DesignComponent) => void;
 }) {
@@ -1677,17 +1821,25 @@ export function ComponentInspector({ component, variables, measure, kind, uses, 
   const setLook = (look: FrameLook) => onChange({ ...component, ...look });
   return (
     <div className="flex flex-col">
-      <Group title="Bileşen">
-        <Field label="Ad">
-          <TextField label="Ad" value={component.name} onChange={(name) => onChange({ ...component, name })} placeholder="grup/ad" />
-        </Field>
-        <Row label="Tür">
-          <span className="min-w-0 text-[12px] leading-4 text-[var(--text-title)]">{kind}</span>
-        </Row>
-      </Group>
+      {identity ?? (
+        <Group title="Bileşen">
+          <Field label="Ad">
+            <TextField label="Ad" value={component.name} onChange={(name) => onChange({ ...component, name })} placeholder="grup/ad" />
+          </Field>
+          <Row label="Tür">
+            <span className="min-w-0 text-[11px] leading-4 text-[var(--text-title)]">{kind}</span>
+          </Row>
+        </Group>
+      )}
+      {placement}
       <GridFields
         grid={layout}
         measure={measure}
+        size={size}
+        widthModes={["fixed"]}
+        heightModes={["fixed", "hug"]}
+        lockable={false}
+        onSize={onSize}
         cells={cellsOf(component.layers.map(() => ({})), layout)}
         onAlign={(justify, align) => onChange({ ...component, layout: { ...component.layout, justify, align } })}
         onChange={(next) => onChange({ ...component, layout: next })}
@@ -1720,7 +1872,14 @@ export function ComponentTextInspector({ layer, measure, styles, variables, onCh
           <OpacityField value={layer.opacity} onChange={(opacity) => onChange({ ...layer, opacity })} />
         </FieldRow>
       </Group>
-      <TypographyGroup styleId={layer.style} styles={styles} variables={variables} onChange={(style) => onChange({ ...layer, style })} onEditStyle={onEditStyle} />
+      <TypographyGroup
+        styleId={layer.style}
+        styles={styles}
+        variables={variables}
+        align={{ value: layer.textAlign, onChange: (textAlign) => onChange({ ...layer, textAlign }) }}
+        onChange={(style) => onChange({ ...layer, style })}
+        onEditStyle={onEditStyle}
+      />
     </div>
   );
 }
@@ -1730,12 +1889,17 @@ export function ComponentTextInspector({ layer, measure, styles, variables, onCh
  * the component they are — swapped from the menu, opened with the arrow —
  * and each one's W / H in the component.
  */
-export function InstanceLayerInspector({ layer, component, swaps, measure, onChange, onGoToMain }: {
+export function InstanceLayerInspector({ layer, component, swaps, current, properties, onProperty, measure, onChange, onGoToMain }: {
   layer: InstanceLayer;
   /** The component they are */
   component: DesignComponent;
-  /** The components they can be */
+  /** The components they can be (a set as its first variant) */
   swaps: DesignComponent[];
+  /** The one of them they are — their set's, for a variant */
+  current: string;
+  /** Their component set's properties, and picking a value (see InstanceGroup) */
+  properties?: InstanceProperty[];
+  onProperty?: (name: string, value: string) => void;
   measure: string;
   onChange: (layer: InstanceLayer) => void;
   onGoToMain: (id: string) => void;
@@ -1745,8 +1909,10 @@ export function InstanceLayerInspector({ layer, component, swaps, measure, onCha
       <InstanceGroup
         name={component.name}
         swaps={swaps.map((c) => ({ id: c.id, name: c.name, hint: c.layers.map((l) => l.name).join(" + ") }))}
-        current={component.id}
+        current={current}
         onSwap={(id) => onChange({ ...layer, component: id, name: swaps.find((c) => c.id === id)?.name ?? layer.name })}
+        properties={properties}
+        onProperty={onProperty}
         onGoToMain={() => onGoToMain(component.id)}
         note="Her örneğin her öğesi bunun bir örneği."
       />
@@ -1852,7 +2018,7 @@ export function VariablePicker({ at, variables, byId, mode, selectedId, onPick }
           placeholder="Ara"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full h-7 px-2 rounded-[6px] bg-[var(--bg-4)] text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
+          className="w-full h-6 px-2 rounded-[6px] bg-[var(--bg-4)] text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none"
         />
       </div>
       <div className="min-h-0 overflow-y-auto overscroll-contain p-1">
@@ -1869,10 +2035,10 @@ export function VariablePicker({ at, variables, byId, mode, selectedId, onPick }
                   aria-checked={v.id === selectedId}
                   title={v.name}
                   onClick={() => onPick(v.id)}
-                  className="flex items-center gap-2 w-full h-7 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+                  className="flex items-center gap-2 w-full h-6 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
                 >
                   {v.kind === "color" ? <Swatch color={value} /> : <FigmaIcon name="16.number" className="-m-px shrink-0 text-[var(--text-subtitle)]" />}
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{splitName(v.name)[1] || v.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-title)]">{splitName(v.name)[1] || v.name}</span>
                   {v.kind !== "color" && <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{value ?? "—"}</span>}
                   <span className="flex w-4 shrink-0 text-[var(--text-title)]">{v.id === selectedId && <FigmaIcon name="16.check" />}</span>
                 </button>
@@ -1958,7 +2124,7 @@ export function Bindable({ kind, value, targets, byId, mode, prefix, onChange, c
         onClick={open}
         aria-label={`${bound?.name ?? "Bulunamayan değişken"} — değiştir`}
         className={cn(
-          "min-w-0 truncate text-left text-[12px] text-[var(--text-title)] cursor-pointer",
+          "min-w-0 truncate text-left text-[11px] text-[var(--text-title)] cursor-pointer",
           kind === "color" ? "flex-1" : "h-5 px-1.5 rounded-[4px] bg-[var(--bg-5)] hover:brightness-95 transition-[filter]"
         )}
       >
@@ -2402,7 +2568,7 @@ export function ProjectInspector({ project, slug, companies, onChange }: {
           />
         </Row>
         <Row label="Adres">
-          <span className="min-w-0 truncate text-[12px] text-[var(--text-subtitle)] tabular-nums">/projects/{slug}</span>
+          <span className="min-w-0 truncate text-[11px] text-[var(--text-subtitle)] tabular-nums">/projects/{slug}</span>
         </Row>
       </Group>
     </div>
@@ -2568,7 +2734,7 @@ function ItemList({ block, lang, onSelect }: { block: Block; lang: Lang; onSelec
             ) : (
               <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded-[4px] bg-[var(--bg-4)] text-[10px] font-medium text-[var(--text-subtitle)] tabular-nums">{i + 1}</span>
             )}
-            <span className={cn("min-w-0 flex-1 truncate text-[12px]", preview ? "text-[var(--text-title)]" : "text-[var(--text-subtitle)]")}>
+            <span className={cn("min-w-0 flex-1 truncate text-[11px]", preview ? "text-[var(--text-title)]" : "text-[var(--text-subtitle)]")}>
               {preview || `${spec?.noun ?? "Öğe"} ${i + 1}`}
             </span>
             <span className="shrink-0 text-[var(--text-subtitle)] opacity-0 group-hover/item:opacity-100 transition-opacity">{Glyphs.chevron}</span>
@@ -2597,7 +2763,7 @@ export function AutoTextarea({ label, value, onChange, placeholder }: { label: s
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
       rows={Math.min(8, Math.max(2, value.split("\n").length))}
-      className="w-full resize-none rounded-[6px] border border-transparent bg-[var(--bg-4)] px-2 py-1.5 text-[12px] leading-[18px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] hover:border-[var(--border-hover)] focus:outline-none focus:border-[var(--text-subtitle)] transition-colors"
+      className="w-full resize-none rounded-[6px] border border-transparent bg-[var(--bg-4)] px-2 py-1.5 text-[11px] leading-[18px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] hover:border-[var(--border-hover)] focus:outline-none focus:border-[var(--text-subtitle)] transition-colors"
     />
   );
 }

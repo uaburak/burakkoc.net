@@ -1,25 +1,20 @@
 "use client";
 
-import { useId, useRef, useState, type CSSProperties, type ElementType, type ReactNode } from "react";
-import { AspectRatio, Block, BlockEntry, BlockType, ItemTextField, LinkIconType } from "@/types/project";
-import type { TextLayer } from "@/types/design";
-import ScrollReveal from "@/components/ScrollReveal";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { AspectRatio, Block, BlockEntry, BlockType, LinkIconType } from "@/types/project";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { cn } from "@/lib/utils";
 import { isSafeHref, renderRichText } from "./RichText";
 import { EditableText } from "./Editable";
-import { SortableGroup, SortableItem } from "./Sortable";
-import type { BlockEditApi, EntryTextKey } from "./editing";
-import { instanceStyles, useInstance } from "./components";
-import { useDesignVariables } from "./designVariables";
+import { Entries } from "./Entries";
+import type { BlockEditApi } from "./editing";
 
 /**
- * Case-study blocks: info, stats, cards, steps, quote, gallery, compare, links,
- * tags, callout, accordion, mockup, split, table, bars, persona, team, palette.
- *
- * With an `edit` API (live editor) every text is inline editable, entries can
- * be reordered by press-and-hold, removed and added; empty fields show
- * placeholders. Without it the blocks render exactly as on the public page.
+ * The pieces the site's code draws inside the case-study components (see
+ * PartLayer, ComponentView): an image at its aspect ratio, the Önce / Sonra
+ * slider, device frames, a table, an avatar, a bar, a colour swatch, icons
+ * and marks. Each takes its layer's size and place in its component's auto
+ * layout (`style`) and marks itself with its layer (`data-layer-id`).
  */
 
 export const CASE_STUDY_BLOCK_TYPES = [
@@ -33,14 +28,22 @@ export function isCaseStudyBlock(type: BlockType): type is CaseStudyBlockType {
   return (CASE_STUDY_BLOCK_TYPES as readonly BlockType[]).includes(type);
 }
 
-// ── Shared bits ───────────────────────────────────────────────────────────────
-
-interface RenderProps {
+/** What a part gets: its instance (and item), and its layer's place in the component. */
+export interface PartProps {
   block: Block;
-  /** Editing: show empty entries and placeholders */
+  /** The item it belongs to — in a component the instance repeats */
+  entry?: BlockEntry;
+  /** Its item's place among them */
+  index: number;
+  count: number;
+  /** Editing: placeholders, no links */
   preview: boolean;
   edit?: BlockEditApi;
+  style: CSSProperties;
+  layerId: string;
 }
+
+// ── Shared bits ───────────────────────────────────────────────────────────────
 
 const ASPECT_CSS: Record<AspectRatio, string> = {
   "16/9": "16 / 9",
@@ -54,25 +57,8 @@ function aspectStyle(ratio: AspectRatio | undefined, fallback: AspectRatio): CSS
   return { aspectRatio: ASPECT_CSS[ratio ?? fallback] ?? ASPECT_CSS[fallback] };
 }
 
-function isPortrait(ratio: AspectRatio | undefined) {
+export function isPortrait(ratio: AspectRatio | undefined) {
   return ratio === "3/4" || ratio === "9/16";
-}
-
-/** Setter for one entry field, or undefined outside the editor (renders static text). */
-function entrySetter(edit: BlockEditApi | undefined, entry: BlockEntry, key: EntryTextKey) {
-  return edit ? (v: string) => edit.setEntryText(entry.id, key, v) : undefined;
-}
-
-function Caption({ block, edit }: { block: Block; edit?: BlockEditApi }) {
-  return (
-    <EditableText
-      as="p"
-      className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full"
-      value={block.caption}
-      onChange={edit && ((v) => edit.setText("caption", v))}
-      placeholder="Açıklama ekle (opsiyonel)"
-    />
-  );
 }
 
 /** `side` keeps the two compare placeholders in their own half so the labels don't overlap. */
@@ -98,271 +84,38 @@ function BlockImage({ src, alt, editing, className }: { src: string; alt?: strin
   return <ZoomableImage src={src} alt={alt ?? ""} className={className} />;
 }
 
-/** Keeps entries that have any of the given fields filled; while editing keeps all. */
-function visibleEntries(block: Block, preview: boolean, ...fields: (keyof BlockEntry)[]) {
-  const entries = block.entries ?? [];
-  if (preview) return entries;
-  return entries.filter((e) => fields.some((f) => typeof e[f] === "string" && (e[f] as string).trim() !== ""));
-}
+// ── Images ────────────────────────────────────────────────────────────────────
 
-const GRID_SM_COLS: Record<2 | 3 | 4, string> = {
-  2: "sm:grid-cols-2",
-  3: "sm:grid-cols-3",
-  4: "sm:grid-cols-4",
-};
-
-/**
- * A block's entries. Static list on the page; in the editor a sortable group
- * (drag to move). Entries are added and removed from the inspector (or with
- * Delete once selected).
- */
-function Entries({
-  entries, edit, as: Tag = "div", className, style, designed = false, component, itemAs: ItemTag = "div", itemClassName, itemStyle, strategy = "grid", render,
-}: {
-  entries: BlockEntry[];
-  edit?: BlockEditApi;
-  as?: ElementType;
-  className?: string;
-  style?: CSSProperties;
-  /** Drawn from its main component (see instanceStyles): the editor measures it as the instance's frame (`data-component-frame`). */
-  designed?: boolean;
-  /** The component its items are instances of (see DesignComponent), as their `data-component` */
-  component?: string;
-  itemAs?: ElementType;
-  itemClassName?: string | ((entry: BlockEntry, index: number) => string);
-  /** Each item's style — its own one, for items that are instances with their overrides */
-  itemStyle?: CSSProperties | ((entry: BlockEntry) => CSSProperties);
-  strategy?: "grid" | "vertical";
-  render: (entry: BlockEntry, index: number) => ReactNode;
-}) {
-  const cls = (e: BlockEntry, i: number) => (typeof itemClassName === "function" ? itemClassName(e, i) : itemClassName);
-  const css = (e: BlockEntry) => (typeof itemStyle === "function" ? itemStyle(e) : itemStyle);
-
-  if (!edit) {
-    return (
-      <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
-        {entries.map((e, i) => <ItemTag key={e.id} data-component={component} className={cls(e, i)} style={css(e)}>{render(e, i)}</ItemTag>)}
-      </Tag>
-    );
-  }
-
+/** A Galeri görseli's image: its box at the gallery's aspect ratio. */
+export function ItemImage({ block, entry, preview, edit, style, layerId }: PartProps) {
   return (
-    <SortableGroup ids={entries.map((e) => e.id)} onMove={edit.moveEntry} strategy={strategy}>
-      <Tag className={className} style={style} data-component-frame={designed ? "" : undefined}>
-        {entries.map((e, i) => (
-          <SortableItem key={e.id} id={e.id} as={ItemTag} component={component} className={cls(e, i)} style={css(e)}>
-            {render(e, i)}
-          </SortableItem>
-        ))}
-      </Tag>
-    </SortableGroup>
-  );
-}
-
-/** A text of an item: the element it is, and how it is typed in. */
-interface ItemText {
-  as: ElementType;
-  placeholder: string;
-  rich?: boolean;
-  className?: string;
-}
-
-/**
- * An item's texts: its component's text layers (see instanceStyles), each
- * showing one of the item's `texts` in its style — the others (a component
- * made for more texts) show nothing.
- */
-function itemTexts(entry: BlockEntry, styles: ReturnType<typeof instanceStyles>, layers: TextLayer[], texts: Partial<Record<ItemTextField, ItemText>>, edit?: BlockEditApi) {
-  return layers.map((layer) => {
-    const text = texts[layer.field];
-    if (!text) return null;
-    const { style, textStyle } = styles.text(layer, entry);
-    return (
-      <EditableText key={layer.id} as={text.as} layer={layer.field} textStyle={textStyle} rich={text.rich} className={text.className} style={style}
-        value={entry[layer.field]} onChange={entrySetter(edit, entry, layer.field)} placeholder={text.placeholder} />
-    );
-  });
-}
-
-// ── Info (proje künyesi) ──────────────────────────────────────────────────────
-
-/** A Proje Künyesi item's texts: a term and its definition. */
-const INFO_TEXTS: Partial<Record<ItemTextField, ItemText>> = {
-  label: { as: "dt", placeholder: "Etiket" },
-  value: { as: "dd", placeholder: "Değer", rich: true, className: "break-words" },
-};
-
-function InfoBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "label", "value");
-  const instance = useInstance(block);
-  const variables = useDesignVariables();
-  if (!instance?.item || (!entries.length && !edit)) return null;
-  const styles = instanceStyles(instance, variables);
-  const layers = instance.item.component.layers.filter((layer): layer is TextLayer => layer.kind === "text");
-  return (
-    <Entries
-      entries={entries}
-      edit={edit}
-      as="dl"
-      designed
-      component={instance.item.component.id}
-      style={styles.frame}
-      itemClassName="min-w-0"
-      itemStyle={styles.item}
-      render={(e) => itemTexts(e, styles, layers, INFO_TEXTS, edit)}
-    />
-  );
-}
-
-// ── Stats (metrikler) ─────────────────────────────────────────────────────────
-
-function StatsBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "value", "label");
-  if (!entries.length && !edit) return null;
-  const cols = block.columns ?? 3;
-  return (
-    <Entries
-      entries={entries}
-      edit={edit}
-      className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}
-      itemClassName="flex flex-col gap-1 px-5 py-5 rounded-[22px] bg-[var(--bg-4)] min-w-0"
-      render={(e) => (
-        <>
-          <EditableText className="text-[28px] font-medium leading-9 tracking-[-0.02em] text-[var(--text-title)] tabular-nums break-words"
-            value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="%00" />
-          <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)]"
-            value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Metrik açıklaması" />
-        </>
+    <div
+      data-layer-id={layerId}
+      className="relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
+      style={{ ...style, ...aspectStyle(block.aspectRatio, "4/3") }}
+    >
+      {entry?.src ? (
+        <BlockImage src={entry.src} alt={entry.alt} editing={Boolean(edit)} className="w-full h-full object-cover" />
+      ) : (
+        <MediaPlaceholder label={entry?.alt} preview={preview} />
       )}
-    />
+    </div>
   );
 }
 
-// ── Cards (özellik / sorun / çözüm kartları) ──────────────────────────────────
-
-function CardsBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "title", "text");
-  if (!entries.length && !edit) return null;
-  const cols = block.columns ?? 2;
+/** The Görsel + Metin component's image — on the right from 640px up when the block says so. */
+export function SplitImage({ block, preview, edit, style, layerId }: PartProps) {
   return (
-    <Entries
-      entries={entries}
-      edit={edit}
-      className={cn("grid grid-cols-1 gap-2.5 w-full", GRID_SM_COLS[cols])}
-      itemClassName="flex flex-col gap-2 p-5 rounded-[22px] bg-[var(--bg-4)] min-w-0"
-      render={(e) => (
-        <>
-          {(e.eyebrow || edit) && (
-            <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)] tabular-nums"
-              value={e.eyebrow} onChange={entrySetter(edit, e, "eyebrow")} placeholder="Üst etiket (opsiyonel)" />
-          )}
-          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
-            value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Kart başlığı" />
-          <EditableText as="p" rich multiline className="text-base font-light leading-6 text-[var(--text-p)] whitespace-pre-wrap"
-            value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Kısa açıklama…" />
-        </>
+    <div
+      data-layer-id={layerId}
+      className={cn("relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden", block.variant === "right" && "sm:order-2")}
+      style={{ ...style, ...aspectStyle(block.aspectRatio, "4/3") }}
+    >
+      {block.src ? (
+        <BlockImage src={block.src} alt={block.alt} editing={Boolean(edit)} className="w-full h-full object-cover" />
+      ) : (
+        <MediaPlaceholder label={block.alt} preview={preview} />
       )}
-    />
-  );
-}
-
-// ── Steps (süreç / zaman çizelgesi) ───────────────────────────────────────────
-
-function StepsBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "title", "text");
-  if (!entries.length && !edit) return null;
-  return (
-    <Entries
-      entries={entries}
-      edit={edit}
-      as="ol"
-      className="flex flex-col w-full"
-      itemAs="li"
-      itemClassName="relative flex gap-4 pb-8 last:pb-0"
-      strategy="vertical"
-      render={(e, i) => (
-        <>
-          {i < entries.length - 1 && (
-            <span aria-hidden className="absolute left-4 top-10 bottom-2 w-px bg-[var(--border-hover)]" />
-          )}
-          <span className="relative shrink-0 flex items-center justify-center w-8 h-8 rounded-full border border-[var(--border-hover)] bg-[var(--bg-2)] text-sm font-medium text-[var(--text-title)] tabular-nums">
-            {i + 1}
-          </span>
-          <div className="flex flex-col gap-1 min-w-0 pt-1">
-            <div className="flex flex-wrap items-baseline gap-x-2">
-              <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
-                value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Adım başlığı" />
-              {(e.eyebrow || edit) && (
-                <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)]"
-                  value={e.eyebrow} onChange={entrySetter(edit, e, "eyebrow")} placeholder="Zaman (opsiyonel)" />
-              )}
-            </div>
-            <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
-              value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Bu adımda ne yapıldı?" />
-          </div>
-        </>
-      )}
-    />
-  );
-}
-
-// ── Quote (alıntı / öne çıkan ifade) ──────────────────────────────────────────
-
-function QuoteBlock({ block, preview, edit }: RenderProps) {
-  if (!block.content && !preview) return null;
-  return (
-    <figure className="flex flex-col gap-5 w-full px-6 py-7 sm:px-8 sm:py-8 rounded-[32px] bg-[var(--bg-4)]">
-      <span aria-hidden className="block h-5 text-[48px] font-medium leading-[0.9] text-[var(--text-subtitle)] select-none">
-        &ldquo;
-      </span>
-      <EditableText as="blockquote" rich multiline
-        className="text-[20px] sm:text-[22px] font-normal leading-8 sm:leading-9 tracking-[-0.01em] text-[var(--text-title)] whitespace-pre-wrap"
-        value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Alıntı ya da öne çıkan ifade…" />
-      {(block.author || block.authorRole || edit) && (
-        <figcaption className="flex flex-col">
-          <EditableText className="text-base font-medium leading-5 text-[var(--text-title)]"
-            value={block.author} onChange={edit && ((v) => edit.setText("author", v))} placeholder="Kişi (opsiyonel)" />
-          <EditableText className="text-base font-normal leading-6 text-[var(--text-subtitle)]"
-            value={block.authorRole} onChange={edit && ((v) => edit.setText("authorRole", v))} placeholder="Unvan / şirket (opsiyonel)" />
-        </figcaption>
-      )}
-    </figure>
-  );
-}
-
-// ── Gallery (çoklu görsel) ────────────────────────────────────────────────────
-
-function GalleryBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "src");
-  if (!entries.length && !edit) return null;
-  const cols = block.columns ?? 2;
-  const portrait = isPortrait(block.aspectRatio);
-  return (
-    <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <Entries
-        entries={entries}
-        edit={edit}
-        className={cn("grid gap-3 w-full", portrait ? "grid-cols-2" : "grid-cols-1", GRID_SM_COLS[cols])}
-        itemAs="figure"
-        itemClassName="flex flex-col gap-3 min-w-0 rounded-[24px]"
-        render={(e) => (
-          <>
-            <div
-              className="relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
-              style={aspectStyle(block.aspectRatio, "4/3")}
-            >
-              {e.src ? (
-                <BlockImage src={e.src} alt={e.alt} editing={Boolean(edit)} className="w-full h-full object-cover" />
-              ) : (
-                <MediaPlaceholder label={e.alt} preview={preview} />
-              )}
-            </div>
-            <EditableText as="figcaption" className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center"
-              value={e.caption} onChange={entrySetter(edit, e, "caption")} placeholder="Görsel altı (opsiyonel)" />
-          </>
-        )}
-      />
-      <Caption block={block} edit={edit} />
     </div>
   );
 }
@@ -384,13 +137,12 @@ function CompareLabel({ entry, fallback, edit, side }: { entry?: BlockEntry; fal
   );
 }
 
-function CompareBlock({ block, preview, edit }: RenderProps) {
+/** The Önce / Sonra component's slider: the two images, the handle and their labels, at the block's aspect ratio. */
+export function CompareSlider({ block, preview, edit, style, layerId }: PartProps) {
   const [before, after] = [block.entries?.[0], block.entries?.[1]];
   const [pos, setPos] = useState(50);
   const frameRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
-
-  if (!preview && !before?.src && !after?.src) return null;
 
   function moveTo(clientX: number) {
     const rect = frameRef.current?.getBoundingClientRect();
@@ -410,9 +162,9 @@ function CompareBlock({ block, preview, edit }: RenderProps) {
   const afterLabel = after?.label || "Sonra";
 
   return (
-    <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
       <div
         ref={frameRef}
+        data-layer-id={layerId}
         role="slider"
         tabIndex={0}
         // The slider owns its pointer; in the editor the block is moved from its handle instead.
@@ -431,7 +183,7 @@ function CompareBlock({ block, preview, edit }: RenderProps) {
         onPointerUp={() => { draggingRef.current = false; }}
         onPointerCancel={() => { draggingRef.current = false; }}
         className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden select-none cursor-ew-resize outline-none focus-visible:border-[var(--border-hover)]"
-        style={{ ...aspectStyle(block.aspectRatio, "16/9"), touchAction: "pan-y" }}
+        style={{ ...style, ...aspectStyle(block.aspectRatio, "16/9"), touchAction: "pan-y" }}
       >
         {/* After — full frame */}
         {after?.src ? (
@@ -463,275 +215,6 @@ function CompareBlock({ block, preview, edit }: RenderProps) {
         <CompareLabel entry={before} fallback="Önce" edit={edit} side="left" />
         <CompareLabel entry={after} fallback="Sonra" edit={edit} side="right" />
       </div>
-      <Caption block={block} edit={edit} />
-    </div>
-  );
-}
-
-// ── Links (bağlantılar) ───────────────────────────────────────────────────────
-
-function LinkIcon({ icon }: { icon?: LinkIconType }) {
-  const common = { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true } as const;
-  switch (icon) {
-    case "web":
-      return (
-        <svg {...common}>
-          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
-          <path d="M2 8h12M8 2c1.7 1.8 2.5 3.8 2.5 6S9.7 12.2 8 14c-1.7-1.8-2.5-3.8-2.5-6S6.3 3.8 8 2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-        </svg>
-      );
-    case "appstore":
-      return (
-        <svg {...common}>
-          <rect x="1.75" y="1.75" width="12.5" height="12.5" rx="3.5" stroke="currentColor" strokeWidth="1.3" />
-          <path d="M6.2 10.8L8.9 5.2M9.8 10.8L7.1 5.2M5 9.2h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-        </svg>
-      );
-    case "playstore":
-      return (
-        <svg {...common}>
-          <path d="M3.5 2.5v11l9-5.5-9-5.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-        </svg>
-      );
-    case "github":
-      return (
-        <svg {...common}>
-          <path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5M9 3l-2 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    case "figma":
-      return (
-        <svg {...common}>
-          <path d="M5.5 5.5a2 2 0 1 0 0-4h2.5v4H5.5zm0 5a2 2 0 1 0 0-4h2.5v4H5.5zm0 4.25a2 2 0 0 0 2-2V10.5H5.5a2 2 0 1 0 0 4.25zm5-9.25a2 2 0 1 0-2-2v4h2a2 2 0 1 0 0-4zm-2 6.75a2 2 0 0 0 2-2H8v2z" fill="currentColor" />
-        </svg>
-      );
-    case "behance":
-      return (
-        <svg {...common}>
-          <path d="M2 4h3.2a1.8 1.8 0 010 3.6H2V4zm0 3.6h3.6a2 2 0 010 4H2V7.6zM9.5 9.2h4.5a2.25 2.25 0 10-.6 1.8M10 4.8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    default:
-      return (
-        <svg {...common}>
-          <path d="M9 3h4v4M13 3L7 9M6 4H4a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-  }
-}
-
-const LINK_PILL = "inline-flex items-center gap-2 h-10 px-4 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-[14px] font-medium leading-5 text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-[0.97]";
-
-function LinksBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "href");
-  if (!entries.length && !edit) return null;
-  if (!edit) {
-    return (
-      <div className="flex flex-wrap gap-2 w-full">
-        {entries.map((e) => (
-          <a key={e.id} href={e.href && isSafeHref(e.href) ? e.href : undefined} target="_blank" rel="noopener noreferrer" className={LINK_PILL}>
-            <LinkIcon icon={e.icon} />
-            {e.label || e.href}
-          </a>
-        ))}
-      </div>
-    );
-  }
-  // Editor: pills are not links (the address is set in the settings panel).
-  return (
-    <Entries
-      entries={entries}
-      edit={edit}
-      className="flex flex-wrap gap-2 w-full"
-      itemAs="span"
-      itemClassName={cn(LINK_PILL, "rounded-full")}
-      render={(e) => (
-        <>
-          <LinkIcon icon={e.icon} />
-          <EditableText value={e.label} onChange={entrySetter(edit, e, "label")} placeholder={e.href || "Bağlantı"} />
-        </>
-      )}
-    />
-  );
-}
-
-// ── Tags (etiketler) ──────────────────────────────────────────────────────────
-
-function TagsBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "label");
-  if (!entries.length && !edit) return null;
-  return (
-    <Entries
-      entries={entries}
-      edit={edit}
-      as="ul"
-      className="flex flex-wrap gap-2 w-full"
-      itemAs="li"
-      itemClassName="inline-flex items-center h-8 px-3.5 rounded-full bg-[var(--bg-4)] text-[13px] font-medium leading-5 text-[var(--text-p)]"
-      render={(e) => <EditableText value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Etiket" />}
-    />
-  );
-}
-
-// ── Shared: avatar with initials fallback ─────────────────────────────────────
-
-function Avatar({ src, name, size }: { src?: string; name?: string; size: number }) {
-  const initials = (name ?? "")
-    .split(/\s+/)
-    .filter((w) => /^\p{L}/u.test(w)) // "Ayşe, 34" → A, not A3
-    .slice(0, 2)
-    .map((w) => w[0]?.toLocaleUpperCase("tr"))
-    .join("");
-  return (
-    <span
-      className="relative shrink-0 flex items-center justify-center rounded-full overflow-hidden border border-[var(--border)] bg-[var(--bg-1)] font-medium text-[var(--text-subtitle)] select-none"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}
-    >
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name ?? ""} draggable={false} className="absolute inset-0 w-full h-full object-cover" />
-      ) : (
-        initials || "?"
-      )}
-    </span>
-  );
-}
-
-function ExternalGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 text-[var(--text-subtitle)]">
-      <path d="M9 3h4v4M13 3L7 9M6 4H4a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-// ── Callout (not / içgörü / ipucu / dikkat) ───────────────────────────────────
-
-type CalloutVariant = "note" | "insight" | "tip" | "warning";
-
-const CALLOUT: Record<CalloutVariant, { label: string; icon: ReactNode }> = {
-  note: {
-    label: "Not",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <circle cx="10" cy="10" r="7.25" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M10 9v4.5M10 6.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  insight: {
-    label: "İçgörü",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <path d="M7.5 14.5h5M8.25 17h3.5M10 3a5 5 0 00-3 9c.6.45 1 1.1 1 1.85v.15h4v-.15c0-.75.4-1.4 1-1.85A5 5 0 0010 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  tip: {
-    label: "İpucu",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <path d="M10 2.75l1.6 4.15 4.15 1.6-4.15 1.6L10 14.25 8.4 10.1 4.25 8.5 8.4 6.9 10 2.75zM15.5 13.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  warning: {
-    label: "Dikkat",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-        <path d="M8.7 3.75a1.5 1.5 0 012.6 0l6 10.5a1.5 1.5 0 01-1.3 2.25H4a1.5 1.5 0 01-1.3-2.25l6-10.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        <path d="M10 8v3.5M10 14v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-};
-
-function CalloutBlock({ block, preview, edit }: RenderProps) {
-  if (!preview && !block.content && !block.title) return null;
-  const variant: CalloutVariant = block.variant && block.variant in CALLOUT ? (block.variant as CalloutVariant) : "note";
-  const meta = CALLOUT[variant];
-  return (
-    <aside className="flex gap-3.5 w-full p-5 rounded-[22px] bg-[var(--bg-4)]">
-      <span className="shrink-0 mt-0.5 text-[var(--project-accent,var(--text-title))]">{meta.icon}</span>
-      <div className="flex flex-col gap-1 min-w-0 flex-1">
-        {edit ? (
-          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
-            value={block.title} onChange={(v) => edit.setText("title", v)} placeholder={meta.label} />
-        ) : (
-          <span className="text-base font-medium leading-6 text-[var(--text-title)]">{block.title || meta.label}</span>
-        )}
-        <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
-          value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Not metni…" />
-      </div>
-    </aside>
-  );
-}
-
-// ── Accordion (açılır detaylar) ───────────────────────────────────────────────
-
-function AccordionBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "title", "text");
-  const [openId, setOpenId] = useState<string | null>(null);
-  const baseId = useId();
-  if (!entries.length && !edit) return null;
-
-  // Editor: every item open so its content can be edited in place.
-  if (edit) {
-    return (
-      <Entries
-        entries={entries}
-        edit={edit}
-        className="flex flex-col gap-2.5 w-full"
-        itemClassName="rounded-[22px] bg-[var(--bg-4)]"
-        strategy="vertical"
-        render={(e) => (
-          <div className="flex flex-col gap-1 px-5 py-3.5">
-            <EditableText className="text-base font-normal leading-6 text-[var(--text-title)]"
-              value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Başlık" />
-            <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
-              value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Açılınca görünecek içerik…" />
-          </div>
-        )}
-      />
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2.5 w-full">
-      {entries.map((e) => {
-        const isOpen = openId === e.id;
-        const panelId = `${baseId}-${e.id}`;
-        return (
-          <div key={e.id} className="rounded-[22px] bg-[var(--bg-4)]">
-            <button
-              type="button"
-              aria-expanded={isOpen}
-              aria-controls={panelId}
-              onClick={() => setOpenId(isOpen ? null : e.id)}
-              className="flex w-full items-center justify-between gap-4 px-5 py-3.5 text-left cursor-pointer"
-            >
-              <span className="text-base font-normal leading-6 text-[var(--text-title)]">{e.title}</span>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden
-                className={cn("shrink-0 text-[var(--text-subtitle)] transition-transform duration-300", isOpen && "rotate-180")}>
-                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <div
-              id={panelId}
-              role="region"
-              inert={!isOpen}
-              className={cn("grid transition-[grid-template-rows] duration-300 ease-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}
-            >
-              <div className="overflow-hidden">
-                <p className="px-5 pb-4 text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-                  {e.text ? renderRichText(e.text) : null}
-                </p>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -789,58 +272,26 @@ function DeviceFrame({ variant, entry, preview, edit }: { variant: MockupVariant
   );
 }
 
-function MockupBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "src");
-  if (!entries.length && !edit) return null;
+/** The Cihaz Çerçevesi component's devices: its screens side by side (phones, tablets) or stacked (browsers). */
+export function DevicesRow({ block, preview, edit, style, layerId }: PartProps) {
+  const entries = block.entries ?? [];
+  const shown = preview ? entries : entries.filter((e) => e.src?.trim());
   const variant: MockupVariant = block.variant === "browser" || block.variant === "tablet" ? block.variant : "phone";
   return (
-    <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className="w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-4)] overflow-hidden p-4 sm:p-10">
-        <Entries
-          entries={entries}
-          edit={edit}
-          className={cn(
-            "flex w-full",
-            variant === "browser" ? "flex-col gap-6" : "items-center justify-center gap-3 sm:gap-6 py-4 sm:py-2"
-          )}
-          itemClassName={variant === "phone" ? "flex-1 min-w-0 max-w-[220px] rounded-[36px]" : variant === "tablet" ? "flex-1 min-w-0 max-w-[460px] rounded-[28px]" : "w-full rounded-[16px]"}
-          strategy={variant === "browser" ? "vertical" : "grid"}
-          render={(e) => <DeviceFrame variant={variant} entry={e} preview={preview} edit={edit} />}
-        />
-      </div>
-      <Caption block={block} edit={edit} />
-    </div>
+    <Entries
+      items={shown}
+      onMove={edit?.moveEntry}
+      frame={{ "data-layer-id": layerId }}
+      style={style}
+      className={cn("flex w-full", variant === "browser" ? "flex-col gap-6" : "items-center justify-center gap-3 sm:gap-6 py-4 sm:py-2")}
+      itemClassName={variant === "phone" ? "flex-1 min-w-0 max-w-[220px] rounded-[36px]" : variant === "tablet" ? "flex-1 min-w-0 max-w-[460px] rounded-[28px]" : "w-full rounded-[16px]"}
+      strategy={variant === "browser" ? "vertical" : "grid"}
+      render={(e) => <DeviceFrame variant={variant} entry={e} preview={preview} edit={edit} />}
+    />
   );
 }
 
-// ── Split (görsel + metin yan yana) ───────────────────────────────────────────
-
-function SplitBlock({ block, preview, edit }: RenderProps) {
-  if (!preview && !block.src && !block.title && !block.content) return null;
-  const imageRight = block.variant === "right";
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 items-center w-full py-6">
-      <div
-        className={cn("relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden", imageRight && "sm:order-2")}
-        style={aspectStyle(block.aspectRatio, "4/3")}
-      >
-        {block.src ? (
-          <BlockImage src={block.src} alt={block.alt} editing={Boolean(edit)} className="w-full h-full object-cover" />
-        ) : (
-          <MediaPlaceholder label={block.alt} preview={preview} />
-        )}
-      </div>
-      <div className="flex flex-col gap-2 min-w-0">
-        <EditableText as="h3" className="text-base font-medium leading-6 text-[var(--text-title)]"
-          value={block.title} onChange={edit && ((v) => edit.setText("title", v))} placeholder="Başlık" />
-        <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
-          value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Görseli destekleyen kısa metin…" />
-      </div>
-    </div>
-  );
-}
-
-// ── Table (karşılaştırma / rakip analizi) ─────────────────────────────────────
+// ── Table ─────────────────────────────────────────────────────────────────────
 
 const CHECK_TOKENS = new Set(["✓", "✔", "✅"]);
 const CROSS_TOKENS = new Set(["✗", "✕", "×", "❌"]);
@@ -864,10 +315,9 @@ function tableCellDisplay(value: string): ReactNode {
   return renderRichText(value);
 }
 
-function TableBlock({ block, preview, edit }: RenderProps) {
+/** The Tablo component's table: its header row, its rows — ✓ / ✗ drawn as marks — scrolling sideways when narrow. */
+export function TableView({ block, edit, style, layerId }: PartProps) {
   const rows = block.tableRows ?? [];
-  const hasContent = rows.some((r) => r.cells.some((c) => c.trim() !== ""));
-  if (!rows.length || (!preview && !hasContent)) return null;
 
   const colCount = Math.max(1, ...rows.map((r) => r.cells.length));
   const pad = (cells: string[]) => Array.from({ length: colCount }, (_, i) => cells[i] ?? "");
@@ -883,8 +333,7 @@ function TableBlock({ block, preview, edit }: RenderProps) {
     );
 
   return (
-    <div className="flex flex-col gap-6 items-center w-full py-4">
-      <div className="w-full overflow-x-auto rounded-[22px] border border-[var(--border)]">
+      <div data-layer-id={layerId} className="w-full overflow-x-auto rounded-[22px] border border-[var(--border)]" style={style}>
         <table className="w-full min-w-[480px] border-collapse text-left">
           {head && (
             <thead>
@@ -916,76 +365,241 @@ function TableBlock({ block, preview, edit }: RenderProps) {
           </tbody>
         </table>
       </div>
-      <Caption block={block} edit={edit} />
-    </div>
   );
 }
 
-// ── Bars (anket / test sonucu grafiği) ────────────────────────────────────────
+// ── Marks and icons ───────────────────────────────────────────────────────────
 
-function parsePercent(raw?: string): number | null {
+/** The Alıntı component's opening quote mark. */
+export function QuoteMark({ style, layerId }: PartProps) {
+  return (
+    <span data-layer-id={layerId} aria-hidden className="block h-5 text-[48px] font-medium leading-[0.9] text-[var(--text-subtitle)] select-none" style={style}>
+      &ldquo;
+    </span>
+  );
+}
+
+export type CalloutVariant = "note" | "insight" | "tip" | "warning";
+
+export const CALLOUT: Record<CalloutVariant, { label: string; icon: ReactNode }> = {
+  note: {
+    label: "Not",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <circle cx="10" cy="10" r="7.25" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M10 9v4.5M10 6.5v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  insight: {
+    label: "İçgörü",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <path d="M7.5 14.5h5M8.25 17h3.5M10 3a5 5 0 00-3 9c.6.45 1 1.1 1 1.85v.15h4v-.15c0-.75.4-1.4 1-1.85A5 5 0 0010 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  tip: {
+    label: "İpucu",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <path d="M10 2.75l1.6 4.15 4.15 1.6-4.15 1.6L10 14.25 8.4 10.1 4.25 8.5 8.4 6.9 10 2.75zM15.5 13.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  warning: {
+    label: "Dikkat",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <path d="M8.7 3.75a1.5 1.5 0 012.6 0l6 10.5a1.5 1.5 0 01-1.3 2.25H4a1.5 1.5 0 01-1.3-2.25l6-10.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        <path d="M10 8v3.5M10 14v.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+};
+
+/** A callout's kind of the block (its variant), a note unless set. */
+export const calloutOf = (block: Block): CalloutVariant => (block.variant && block.variant in CALLOUT ? (block.variant as CalloutVariant) : "note");
+
+/** The Not Kutusu component's icon: its kind's, in the project's accent. */
+export function CalloutIcon({ block, style, layerId }: PartProps) {
+  return (
+    <span data-layer-id={layerId} className="shrink-0 mt-0.5 text-[var(--project-accent,var(--text-title))]" style={style}>
+      {CALLOUT[calloutOf(block)].icon}
+    </span>
+  );
+}
+
+/** An Adım's number, in its ring. */
+export function StepNumber({ index, style, layerId }: PartProps) {
+  return (
+    <span
+      data-layer-id={layerId}
+      className="relative shrink-0 flex items-center justify-center w-8 h-8 rounded-full border border-[var(--border-hover)] bg-[var(--bg-2)] text-sm font-medium text-[var(--text-title)] tabular-nums"
+      style={style}
+    >
+      {index + 1}
+    </span>
+  );
+}
+
+/** The line from an Adım's number down to the next one's — laid over the step, out of its auto layout (none after the last). */
+export function StepLine({ index, count, layerId }: PartProps) {
+  if (index >= count - 1) return null;
+  return <span data-layer-id={layerId} aria-hidden className="absolute left-4 top-10 -bottom-6 w-px bg-[var(--border-hover)]" />;
+}
+
+function LinkGlyph({ icon }: { icon?: LinkIconType }) {
+  const common = { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true } as const;
+  switch (icon) {
+    case "web":
+      return (
+        <svg {...common}>
+          <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M2 8h12M8 2c1.7 1.8 2.5 3.8 2.5 6S9.7 12.2 8 14c-1.7-1.8-2.5-3.8-2.5-6S6.3 3.8 8 2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+        </svg>
+      );
+    case "appstore":
+      return (
+        <svg {...common}>
+          <rect x="1.75" y="1.75" width="12.5" height="12.5" rx="3.5" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M6.2 10.8L8.9 5.2M9.8 10.8L7.1 5.2M5 9.2h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+      );
+    case "playstore":
+      return (
+        <svg {...common}>
+          <path d="M3.5 2.5v11l9-5.5-9-5.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+        </svg>
+      );
+    case "github":
+      return (
+        <svg {...common}>
+          <path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5M9 3l-2 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    case "figma":
+      return (
+        <svg {...common}>
+          <path d="M5.5 5.5a2 2 0 1 0 0-4h2.5v4H5.5zm0 5a2 2 0 1 0 0-4h2.5v4H5.5zm0 4.25a2 2 0 0 0 2-2V10.5H5.5a2 2 0 1 0 0 4.25zm5-9.25a2 2 0 1 0-2-2v4h2a2 2 0 1 0 0-4zm-2 6.75a2 2 0 0 0 2-2H8v2z" fill="currentColor" />
+        </svg>
+      );
+    case "behance":
+      return (
+        <svg {...common}>
+          <path d="M2 4h3.2a1.8 1.8 0 010 3.6H2V4zm0 3.6h3.6a2 2 0 010 4H2V7.6zM9.5 9.2h4.5a2.25 2.25 0 10-.6 1.8M10 4.8h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...common}>
+          <path d="M9 3h4v4M13 3L7 9M6 4H4a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
+  }
+}
+
+/** A Bağlantı's icon: its kind's (web, App Store, GitHub…). */
+export function LinkIcon({ entry, style, layerId }: PartProps) {
+  return (
+    <span data-layer-id={layerId} className="flex shrink-0" style={style}>
+      <LinkGlyph icon={entry?.icon} />
+    </span>
+  );
+}
+
+function AvatarCircle({ src, name, size }: { src?: string; name?: string; size: number }) {
+  const initials = (name ?? "")
+    .split(/\s+/)
+    .filter((w) => /^\p{L}/u.test(w)) // "Ayşe, 34" → A, not A3
+    .slice(0, 2)
+    .map((w) => w[0]?.toLocaleUpperCase("tr"))
+    .join("");
+  return (
+    <span
+      className="relative shrink-0 flex items-center justify-center rounded-full overflow-hidden border border-[var(--border)] bg-[var(--bg-1)] font-medium text-[var(--text-subtitle)] select-none"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={name ?? ""} draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+      ) : (
+        initials || "?"
+      )}
+    </span>
+  );
+}
+
+function ExternalGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 text-[var(--text-subtitle)]">
+      <path d="M9 3h4v4M13 3L7 9M6 4H4a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** An avatar at its layer's width: a Persona's (the block's image and name) or a Kişi's (its item's). */
+export function Avatar({ block, entry, style, layerId, size }: PartProps & { size: number }) {
+  const src = entry ? entry.src : block.src;
+  const name = entry ? entry.title : block.title;
+  return (
+    <span data-layer-id={layerId} className="flex shrink-0" style={style}>
+      <AvatarCircle src={src} name={name} size={size} />
+    </span>
+  );
+}
+
+/** A Kişi's link mark — only when it links somewhere. */
+export function ExternalMark({ entry, style, layerId }: PartProps) {
+  if (!entry?.href || !isSafeHref(entry.href)) return null;
+  return (
+    <span data-layer-id={layerId} className="flex shrink-0" style={style}>
+      <ExternalGlyph />
+    </span>
+  );
+}
+
+/** A Madde's arrow — turned while it is open. */
+export function Chevron({ style, layerId, open }: PartProps & { open: boolean }) {
+  return (
+    <svg data-layer-id={layerId} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden style={style}
+      className={cn("shrink-0 text-[var(--text-subtitle)] transition-transform duration-300", open && "rotate-180")}>
+      <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// ── Bars, swatches ────────────────────────────────────────────────────────────
+
+export function parsePercent(raw?: string): number | null {
   if (!raw) return null;
   const n = parseFloat(raw.replace("%", "").replace(",", ".").trim());
   return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null;
 }
 
-function formatPercent(raw: string) {
+export function formatPercent(raw: string) {
   const pct = parsePercent(raw);
   return pct === null ? raw : `%${pct.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}`;
 }
 
-function BarsBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "label", "value");
-  if (!entries.length && !edit) return null;
+/** A Çubuk's bar: its value's share of the track, in the project's accent. */
+export function Bar({ entry, style, layerId }: PartProps) {
+  const pct = parsePercent(entry?.value);
   return (
-    <div className="flex flex-col gap-6 items-center w-full py-4">
-      <div className="flex flex-col gap-4 w-full p-5 rounded-[22px] bg-[var(--bg-4)]">
-        {(block.title || edit) && (
-          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
-            value={block.title} onChange={edit && ((v) => edit.setText("title", v))} placeholder="Soru / başlık (opsiyonel)" />
-        )}
-        <Entries
-          entries={entries}
-          edit={edit}
-          className="flex flex-col gap-4 w-full"
-          itemClassName="flex flex-col gap-2 rounded-[8px]"
-          strategy="vertical"
-          render={(e) => {
-            const pct = parsePercent(e.value);
-            return (
-              <>
-                <div className="flex items-baseline justify-between gap-4">
-                  <EditableText className="text-sm font-normal leading-5 text-[var(--text-p)]"
-                    value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Seçenek" />
-                  {edit ? (
-                    <EditableText className="text-sm font-medium leading-5 text-[var(--text-title)] tabular-nums"
-                      value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="%0" display={formatPercent} />
-                  ) : (
-                    <span className="text-sm font-medium leading-5 text-[var(--text-title)] tabular-nums">
-                      {pct === null ? "—" : formatPercent(e.value ?? "")}
-                    </span>
-                  )}
-                </div>
-                <div aria-hidden className="h-2 w-full rounded-full bg-[var(--progress-track)] overflow-hidden">
-                  <div className="h-full rounded-full bg-[var(--project-accent,var(--text-title))] transition-[width] duration-300" style={{ width: `${pct ?? 0}%` }} />
-                </div>
-                {(e.text || edit) && (
-                  <EditableText className="text-sm font-light leading-5 text-[var(--text-subtitle)]"
-                    value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Not (opsiyonel)" />
-                )}
-              </>
-            );
-          }}
-        />
-      </div>
-      <Caption block={block} edit={edit} />
+    <div data-layer-id={layerId} aria-hidden className="h-2 w-full rounded-full bg-[var(--progress-track)] overflow-hidden" style={style}>
+      <div className="h-full rounded-full bg-[var(--project-accent,var(--text-title))] transition-[width] duration-300" style={{ width: `${pct ?? 0}%` }} />
     </div>
   );
 }
 
+/** A Renk's swatch: its colour, over a hairline. */
+export function Swatch({ entry, style, layerId }: PartProps) {
+  return <div data-layer-id={layerId} className="h-24 shadow-[inset_0_-1px_0_var(--border)]" style={{ ...style, backgroundColor: entry?.value || "transparent" }} />;
+}
+
 // ── Persona ───────────────────────────────────────────────────────────────────
 
-function personaItems(text: string): ReactNode {
+export function personaItems(text: string): ReactNode {
   const items = text.split("\n").map((l) => l.trim()).filter(Boolean);
   return (
     // Fit-content, so the live editor's hover tint only reacts over the lines themselves.
@@ -1000,153 +614,3 @@ function personaItems(text: string): ReactNode {
   );
 }
 
-function PersonaBlock({ block, preview, edit }: RenderProps) {
-  const groups = visibleEntries(block, preview, "label", "text");
-  if (!preview && !block.title && !groups.length) return null;
-  return (
-    <div className="flex flex-col gap-5 w-full p-5 sm:p-6 rounded-[32px] bg-[var(--bg-4)]">
-      <div className="flex items-center gap-4">
-        <Avatar src={block.src} name={block.title} size={64} />
-        <div className="flex flex-col min-w-0">
-          <EditableText className="text-base font-medium leading-6 text-[var(--text-title)]"
-            value={block.title} onChange={edit && ((v) => edit.setText("title", v))} placeholder="Persona adı" />
-          <EditableText className="text-base font-normal leading-6 text-[var(--text-subtitle)]"
-            value={block.subheading} onChange={edit && ((v) => edit.setText("subheading", v))} placeholder="Yaş · meslek · şehir" />
-        </div>
-      </div>
-      <EditableText as="p" rich multiline className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap"
-        value={block.content} onChange={edit && ((v) => edit.setText("content", v))} placeholder="Kısa tanım ya da persona sözü (opsiyonel)" />
-      {(groups.length > 0 || edit) && (
-        <Entries
-          entries={groups}
-          edit={edit}
-          className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full"
-          itemClassName="flex flex-col gap-2 p-4 rounded-[18px] bg-[var(--bg-1)] min-w-0"
-          render={(g) => (
-            <>
-              <EditableText className="text-sm font-medium leading-5 text-[var(--text-title)]"
-                value={g.label} onChange={entrySetter(edit, g, "label")} placeholder="Grup başlığı" />
-              <EditableText as="div" multiline className="text-sm font-light leading-6 text-[var(--text-p)]"
-                value={g.text} onChange={entrySetter(edit, g, "text")} placeholder="Her satır bir madde" display={personaItems} />
-            </>
-          )}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── Team (ekip / katkıda bulunanlar) ──────────────────────────────────────────
-
-function TeamBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "title");
-  if (!entries.length && !edit) return null;
-  const cls = "flex items-center gap-3 p-3 pr-4 rounded-[22px] bg-[var(--bg-4)] min-w-0";
-
-  if (edit) {
-    return (
-      <Entries
-        entries={entries}
-        edit={edit}
-        className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full"
-        itemClassName={cls}
-        render={(e) => (
-          <>
-            <Avatar src={e.src} name={e.title} size={44} />
-            <div className="flex flex-col min-w-0 flex-1">
-              <EditableText className="text-base font-medium leading-6 text-[var(--text-title)] truncate"
-                value={e.title} onChange={entrySetter(edit, e, "title")} placeholder="Ad Soyad" />
-              <EditableText className="text-sm font-normal leading-5 text-[var(--text-subtitle)] truncate"
-                value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Rol" />
-            </div>
-            {e.href && isSafeHref(e.href) && <ExternalGlyph />}
-          </>
-        )}
-      />
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
-      {entries.map((e) => {
-        const inner = (
-          <>
-            <Avatar src={e.src} name={e.title} size={44} />
-            <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-base font-medium leading-6 text-[var(--text-title)] truncate">{e.title}</span>
-              <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] truncate">{e.text}</span>
-            </div>
-            {e.href && isSafeHref(e.href) && <ExternalGlyph />}
-          </>
-        );
-        return e.href && isSafeHref(e.href) ? (
-          <a key={e.id} href={e.href} target="_blank" rel="noopener noreferrer"
-            className={cn(cls, "transition-colors duration-200 hover:bg-[var(--bg-5)]")}>
-            {inner}
-          </a>
-        ) : (
-          <div key={e.id} className={cls}>{inner}</div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Palette (renk paleti) ─────────────────────────────────────────────────────
-
-function PaletteBlock({ block, preview, edit }: RenderProps) {
-  const entries = visibleEntries(block, preview, "value");
-  if (!entries.length && !edit) return null;
-  const cols = block.columns ?? 4;
-  return (
-    <Entries
-      entries={entries}
-      edit={edit}
-      className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}
-      itemClassName="flex flex-col rounded-[22px] bg-[var(--bg-4)] overflow-hidden min-w-0"
-      render={(e) => (
-        <>
-          <div className="h-24 shadow-[inset_0_-1px_0_var(--border)]" style={{ backgroundColor: e.value || "transparent" }} />
-          <div className="flex flex-col gap-0.5 px-4 py-3 min-w-0">
-            <EditableText className="text-sm font-medium leading-5 text-[var(--text-title)] truncate"
-              value={e.label} onChange={entrySetter(edit, e, "label")} placeholder="Renk adı" />
-            <EditableText className="text-[13px] font-normal leading-5 text-[var(--text-subtitle)] tabular-nums truncate"
-              value={e.value} onChange={entrySetter(edit, e, "value")} placeholder="#1A1A1A" />
-            <EditableText className="text-[13px] font-light leading-5 text-[var(--text-subtitle)]"
-              value={e.text} onChange={entrySetter(edit, e, "text")} placeholder="Kullanım (opsiyonel)" />
-          </div>
-        </>
-      )}
-    />
-  );
-}
-
-// ── Entry point ───────────────────────────────────────────────────────────────
-
-const RENDERERS: Record<CaseStudyBlockType, (props: RenderProps) => ReactNode> = {
-  info: InfoBlock,
-  stats: StatsBlock,
-  cards: CardsBlock,
-  steps: StepsBlock,
-  quote: QuoteBlock,
-  gallery: GalleryBlock,
-  compare: CompareBlock,
-  links: LinksBlock,
-  tags: TagsBlock,
-  callout: CalloutBlock,
-  accordion: AccordionBlock,
-  mockup: MockupBlock,
-  split: SplitBlock,
-  table: TableBlock,
-  bars: BarsBlock,
-  persona: PersonaBlock,
-  team: TeamBlock,
-  palette: PaletteBlock,
-};
-
-export function CaseStudyBlock({ block, animate = false, edit }: { block: Block; animate?: boolean; edit?: BlockEditApi }) {
-  if (!isCaseStudyBlock(block.type)) return null;
-  const Renderer = RENDERERS[block.type];
-  const content = <Renderer block={block} preview={Boolean(edit)} edit={edit} />;
-  return animate ? <ScrollReveal className="w-full">{content}</ScrollReveal> : content;
-}

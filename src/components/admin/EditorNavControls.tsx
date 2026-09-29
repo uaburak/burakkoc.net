@@ -91,7 +91,7 @@ function ErrorIcon() {
 
 // ── Nav controls (rendered in the top nav) ───────────────────────────────────
 
-export function EditorNavControls() {
+export function EditorNavControls({ size = "md" }: { size?: "sm" | "md" }) {
   const { editLang, setEditLang, saveStatus, triggerSave } = useEditorContext();
 
   async function handleSave() {
@@ -114,12 +114,12 @@ export function EditorNavControls() {
         options={["TR", "EN"]}
         value={editLang.toUpperCase()}
         onChange={(v) => setEditLang(v.toLowerCase() as "tr" | "en")}
-        size="md"
+        size={size}
       />
 
       {/* ── Save button using shared PillButton sm=32px ── */}
       <PillButton
-        size="md"
+        size={size}
         variant={saveVariant}
         startIcon={saveIcon}
         onClick={handleSave}

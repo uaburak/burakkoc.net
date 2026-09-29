@@ -39,6 +39,13 @@ export const Icons = {
   goTo: icon("go.to.main.component.small"),
 };
 
+/**
+ * The tree's icons, as Figma's: grey for frames, texts, images and drawings —
+ * only components and instances carry a colour (COMPONENT_TONE). The canvas
+ * keeps its own colours for the lines (FRAME_TONE, layerTone).
+ */
+export const TREE_TONE = "var(--text-subtitle)";
+
 // ── Size badge ────────────────────────────────────────────────────────────────
 
 /**
@@ -118,11 +125,24 @@ export function LayerButton({ label, onClick, disabled = false, children }: { la
       disabled={disabled}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       onDoubleClick={(e) => e.stopPropagation()}
-      className="flex items-center justify-center w-6 h-6 rounded-[6px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
+      className="flex items-center justify-center w-6 h-6 rounded-[4px] text-[var(--text-subtitle)] hover:text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
     >
       {children}
     </button>
   );
+}
+
+const RENAME_EVENT = "layer-rename";
+
+/**
+ * Starts renaming the row whose `renameKey` is `key` (Figma's ⌘R, the context
+ * menu's "Yeniden adlandır") — once it is in the tree: call it after the row
+ * shows. False when there is no such row.
+ */
+export function requestRename(key: string) {
+  const row = document.querySelector(`[data-rename-key="${CSS.escape(key)}"]`);
+  row?.dispatchEvent(new Event(RENAME_EVENT));
+  return Boolean(row);
 }
 
 /**
@@ -130,11 +150,11 @@ export function LayerButton({ label, onClick, disabled = false, children }: { la
  * chevron for containers, the level's icon — the only thing in colour
  * (`tone`); the rest stays in the theme's greys — and the layer's name.
  * Click selects; double-click renames (Enter / leaving the field keeps it,
- * Esc drops it, an empty name goes back to the default); the edit icon on
- * hover opens the inspector. The row is dragged with its node (listeners sit
- * on the node).
+ * Esc drops it, an empty name goes back to the default) — so does
+ * requestRename with its `renameKey`; the edit icon on hover opens the
+ * inspector. The row is dragged with its node (listeners sit on the node).
  */
-export function LayerRow({ depth, tone, nameTone, icon, name, selected, hidden = false, onToggleHidden, open, onToggle, hover, onSelect, onInspect, onRename, children }: {
+export function LayerRow({ depth, tone, nameTone, icon, name, selected, hidden = false, onToggleHidden, open, onToggle, hover, onSelect, onInspect, onRename, renameKey, children }: {
   depth: number;
   tone: string;
   /** Its name's colour too — a component's or an instance's purple, as Figma's */
@@ -155,6 +175,8 @@ export function LayerRow({ depth, tone, nameTone, icon, name, selected, hidden =
   onInspect: () => void;
   /** Renamable layers: the new name (undefined: back to the default) */
   onRename?: (name: string | undefined) => void;
+  /** Its key for requestRename */
+  renameKey?: string;
   /** Hover actions before the edit icon */
   children?: ReactNode;
 }) {
@@ -165,6 +187,18 @@ export function LayerRow({ depth, tone, nameTone, icon, name, selected, hidden =
     ended.current = false;
     setRenaming(true);
   };
+  const row = useRef<HTMLDivElement>(null);
+  const renamable = Boolean(onRename);
+  useEffect(() => {
+    const el = row.current;
+    if (!el || !renamable) return;
+    const start = () => {
+      ended.current = false;
+      setRenaming(true);
+    };
+    el.addEventListener(RENAME_EVENT, start);
+    return () => el.removeEventListener(RENAME_EVENT, start);
+  }, [renamable]);
   /** Keeps `value` as the name (undefined: Esc, the name stays). */
   const finish = (value?: string) => {
     if (ended.current) return;
@@ -175,15 +209,19 @@ export function LayerRow({ depth, tone, nameTone, icon, name, selected, hidden =
 
   return (
     <div
+      ref={row}
+      data-rename-key={renameKey}
+      // The selected row: the panel keeps it in view (see LiveEditor).
+      data-selected-row={selected ? "" : undefined}
       onClick={(e) => { e.stopPropagation(); onSelect(); }}
       onDoubleClick={(e) => { e.stopPropagation(); if (onRename) startRename(); else onInspect(); }}
       onMouseEnter={() => hover && hoverOnCanvas(hover, true)}
       onMouseLeave={() => hover && hoverOnCanvas(hover, false)}
       style={{ paddingLeft: 4 + depth * 16 }}
       className={cn(
-        "group/layer flex items-center gap-1 h-8 pr-1 rounded-[8px] text-[12px] leading-4 cursor-default select-none transition-colors",
-        // Selected: the theme's #f2f2f2 (bg-4); hovered: a lighter tone of it.
-        selected ? "bg-[var(--bg-4)]" : "hover:bg-[color-mix(in_srgb,var(--bg-4)_60%,transparent)]"
+        "group/layer flex items-center gap-1 h-8 pr-1 rounded-[6px] text-[11px] leading-4 cursor-default select-none transition-colors",
+        // Selected: Figma's light blue; hovered: the theme's grey.
+        selected ? "bg-[var(--edit-selected,color-mix(in_srgb,var(--edit-accent)_14%,transparent))]" : "hover:bg-[var(--bg-4)]"
       )}
     >
       {open === undefined ? (
@@ -216,10 +254,10 @@ export function LayerRow({ depth, tone, nameTone, icon, name, selected, hidden =
           }}
           onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
-          className="min-w-0 flex-1 h-6 ml-0.5 px-1.5 rounded-[6px] border border-[var(--border-hover)] bg-[var(--bg-1)] text-[12px] font-medium text-[var(--text-title)] outline-none select-text"
+          className="min-w-0 flex-1 h-6 ml-0.5 px-1.5 rounded-[4px] border border-[var(--edit-accent)] bg-[var(--bg-1)] text-[11px] text-[var(--text-title)] outline-none select-text"
         />
       ) : (
-        <span className={cn("min-w-0 truncate pl-0.5 font-medium text-[var(--text-title)]", hidden && "opacity-40")} style={nameTone ? { color: nameTone } : undefined}>{name}</span>
+        <span className={cn("min-w-0 truncate pl-0.5 text-[var(--text-title)]", hidden && "opacity-40")} style={nameTone ? { color: nameTone } : undefined}>{name}</span>
       )}
       {!renaming && (
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
@@ -262,8 +300,8 @@ export function DropLine({ place, depth }: { place: TreeDrop["place"] | null; de
 /** The subtree of a selected layer is tinted too (lighter), as in Figma. */
 export const layerNode = (selected: boolean, dragging: boolean) =>
   cn(
-    "relative flex flex-col rounded-[8px]",
-    selected && "bg-[color-mix(in_srgb,var(--bg-4)_50%,transparent)]",
+    "relative flex flex-col rounded-[6px]",
+    selected && "bg-[color-mix(in_srgb,var(--edit-accent)_6%,transparent)]",
     // The dragged row stays where it is, dimmed — only the line moves.
     dragging && "opacity-40"
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -536,6 +536,8 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
   const [insertion, setInsertion] = useState<Insertion | null>(null);
   const tree = variant === "tree";
   const [treeDrop, setTreeDrop] = useState<TreeDrop | null>(null);
+  // The same array while the items are the same: a new one would change the sortable context, and every draggable with it.
+  const itemIds = useMemo(() => items.map((i) => itemDndId(i.id)), [items]);
 
   return (
     <DndContext
@@ -651,7 +653,7 @@ export function ProjectDndProvider({ items, onItemsChange, activation, variant =
           <InsertionContext.Provider value={insertion}>
             <TreeContext.Provider value={tree}>
               <TreeDropContext.Provider value={treeDrop}>
-                <SortableContext items={items.map((i) => itemDndId(i.id))} strategy={tree ? stayPut : verticalListSortingStrategy}>
+                <SortableContext items={itemIds} strategy={tree ? stayPut : verticalListSortingStrategy}>
                   {children}
                 </SortableContext>
               </TreeDropContext.Provider>
@@ -682,8 +684,9 @@ function strategyFor(grid: GridSettings | undefined, children: { row?: number; c
 /** The groups (Blok) of one section as a sortable list. */
 export function SectionGroups({ section, children }: { section: PageSection; children: ReactNode }) {
   const tree = useContext(TreeContext);
+  const ids = useMemo(() => section.groups.map((g) => groupDndId(g.id)), [section.groups]);
   return (
-    <SortableContext items={section.groups.map((g) => groupDndId(g.id))} strategy={tree ? stayPut : strategyFor(section.grid, section.groups)}>
+    <SortableContext items={ids} strategy={tree ? stayPut : strategyFor(section.grid, section.groups)}>
       {children}
     </SortableContext>
   );
@@ -692,8 +695,9 @@ export function SectionGroups({ section, children }: { section: PageSection; chi
 /** The components (Bileşen) of one group as a sortable list. */
 export function GroupBlocks({ group, children }: { group: Group; children: ReactNode }) {
   const tree = useContext(TreeContext);
+  const ids = useMemo(() => group.blocks.map((b) => blockDndId(b.id)), [group.blocks]);
   return (
-    <SortableContext items={group.blocks.map((b) => blockDndId(b.id))} strategy={tree ? stayPut : strategyFor(group.grid, group.blocks)}>
+    <SortableContext items={ids} strategy={tree ? stayPut : strategyFor(group.grid, group.blocks)}>
       {children}
     </SortableContext>
   );

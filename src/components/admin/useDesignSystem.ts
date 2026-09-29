@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { DesignComponent, DesignVariable, TextStyle, VariableKind } from "@/types/design";
-import { loadDesignComponents, loadDesignVariables, loadTextStyles, saveDesignComponents, saveDesignVariables, saveTextStyles } from "@/lib/firestore";
+import { useEffect, useMemo, useState } from "react";
+import type { CanvasNode, DesignComponent, DesignVariable, TextStyle, VariableKind } from "@/types/design";
+import { loadCanvasNodes, loadDesignComponents, loadDesignVariables, loadTextStyles, saveCanvasNodes, saveDesignComponents, saveDesignVariables, saveTextStyles } from "@/lib/firestore";
 import { STARTING_VARIABLES, withStartingVariables } from "@/components/project/designVariables";
 import { STARTING_TEXT_STYLES, newTextStyle, withStartingTextStyles } from "@/components/project/textStyles";
 import { STARTING_COMPONENTS, copyComponent, isStartingComponent, withStartingComponents } from "@/components/project/components";
@@ -38,17 +38,39 @@ export interface DesignSystem {
   isStartingComponent: (id: string) => boolean;
   /** Changes a main component — every instance of it, on every page */
   setComponent: (component: DesignComponent) => void;
+  /** Changes (or adds) several at once — a component set's variants */
+  setComponents: (components: DesignComponent[]) => void;
+  /** Deletes several added ones at once (a set's variants) — a starting one among them goes back to its look */
+  removeComponents: (ids: string[]) => void;
   /** Adds a copy of a component, to change on its own; returns its id */
   copyComponent: (id: string) => string;
   /** Deletes an added component (its instances go back to their type's own) — a starting one goes back to its look */
   removeComponent: (id: string) => void;
+  /** What is drawn on the Bileşenler page on its own (see CanvasNode) */
+  nodes: CanvasNode[];
+  /** Changes them (functional: drags and typing never overwrite each other) */
+  setNodes: (update: (nodes: CanvasNode[]) => CanvasNode[]) => void;
   /** Writes the parts that changed since the last save */
   save: () => Promise<void>;
   /** Changes with every edit (and save): effects holding `save` depend on it */
   revision: number;
+  /** Everything is loaded: edits from here on are the user's (see the editor's undo) */
+  loaded: boolean;
+  /** What is stored, as it is now — the same objects until something changes (see restore) */
+  stored: DesignSnapshot;
+  /** Back to a snapshot (undo, redo): kept in memory, written only with the next save */
+  restore: (snapshot: DesignSnapshot) => void;
 }
 
-type Part = "variables" | "textStyles" | "components";
+/** The design system's own part of an undo step: what is stored, each list as it was. */
+export interface DesignSnapshot {
+  variables: DesignVariable[];
+  textStyles: TextStyle[];
+  components: DesignComponent[];
+  nodes: CanvasNode[];
+}
+
+type Part = "variables" | "textStyles" | "components" | "canvas";
 
 /** `base`, or `base 2`, `base 3`… — the first name no other has. */
 function freeName(base: string, taken: { name: string }[]) {
@@ -74,28 +96,39 @@ export function useDesignSystem(): DesignSystem {
   const [storedVariables, setStoredVariables] = useState<DesignVariable[]>([]);
   const [storedTextStyles, setStoredTextStyles] = useState<TextStyle[]>([]);
   const [storedComponents, setStoredComponents] = useState<DesignComponent[]>([]);
+  const [nodes, setStoredNodes] = useState<CanvasNode[]>([]);
   const [changed, setChanged] = useState<ReadonlySet<Part>>(() => new Set());
   const [revision, setRevision] = useState(0);
+  // The four lists loaded (whatever each found).
+  const [loads, setLoads] = useState(0);
+  const loadedOne = () => setLoads((n) => n + 1);
   const touch = (part: Part) => {
     setChanged((prev) => (prev.has(part) ? prev : new Set([...prev, part])));
     setRevision((r) => r + 1);
   };
 
   useEffect(() => {
-    loadDesignVariables().then(setStoredVariables);
-    loadTextStyles().then(setStoredTextStyles);
+    loadDesignVariables().then((list) => { setStoredVariables(list); loadedOne(); });
+    loadTextStyles().then((list) => { setStoredTextStyles(list); loadedOne(); });
+    loadCanvasNodes().then((list) => { setStoredNodes(list); loadedOne(); });
     // Before any component was stored they come from the legacy designs — stored with the next save.
     loadDesignComponents().then(({ components, fromLegacy }) => {
       setStoredComponents(components);
+      loadedOne();
       if (!fromLegacy) return;
       setChanged((prev) => new Set([...prev, "components"]));
       setRevision((r) => r + 1);
     });
   }, []);
 
-  const variables = withStartingVariables(storedVariables);
-  const textStyles = withStartingTextStyles(storedTextStyles);
-  const components = withStartingComponents(storedComponents);
+  // The same arrays while what is stored is the same: they are context values, read by every layer on the page.
+  const variables = useMemo(() => withStartingVariables(storedVariables), [storedVariables]);
+  const textStyles = useMemo(() => withStartingTextStyles(storedTextStyles), [storedTextStyles]);
+  const components = useMemo(() => withStartingComponents(storedComponents), [storedComponents]);
+  const stored = useMemo<DesignSnapshot>(
+    () => ({ variables: storedVariables, textStyles: storedTextStyles, components: storedComponents, nodes }),
+    [storedVariables, storedTextStyles, storedComponents, nodes]
+  );
 
   const setVariable = (variable: DesignVariable) => {
     setStoredVariables((list) => upsert(list, variable));
@@ -138,6 +171,14 @@ export function useDesignSystem(): DesignSystem {
     components,
     isStartingComponent,
     setComponent,
+    setComponents: (list) => {
+      setStoredComponents((stored) => list.reduce((all, component) => upsert(all, component), stored));
+      touch("components");
+    },
+    removeComponents: (ids) => {
+      setStoredComponents((stored) => stored.filter((c) => !ids.includes(c.id)));
+      touch("components");
+    },
     copyComponent: (id) => {
       const from = components.find((c) => c.id === id) ?? STARTING_COMPONENTS[0];
       const copy = copyComponent(from, uid(), freeName(`${from.name} kopyası`, components));
@@ -148,11 +189,20 @@ export function useDesignSystem(): DesignSystem {
       setStoredComponents((list) => list.filter((c) => c.id !== id));
       touch("components");
     },
+    nodes,
+    setNodes: (update) => {
+      setStoredNodes((list) => {
+        const next = update(list);
+        return next === list ? list : next;
+      });
+      touch("canvas");
+    },
     save: async () => {
       const parts: [Part, () => Promise<void>][] = [
         ["variables", () => saveDesignVariables(storedVariables)],
         ["textStyles", () => saveTextStyles(storedTextStyles)],
         ["components", () => saveDesignComponents(storedComponents)],
+        ["canvas", () => saveCanvasNodes(nodes)],
       ];
       for (const [part, write] of parts) {
         if (!changed.has(part)) continue;
@@ -162,5 +212,16 @@ export function useDesignSystem(): DesignSystem {
       setRevision((r) => r + 1);
     },
     revision,
+    loaded: loads >= 4,
+    stored,
+    restore: (snapshot) => {
+      setStoredVariables(snapshot.variables);
+      setStoredTextStyles(snapshot.textStyles);
+      setStoredComponents(snapshot.components);
+      setStoredNodes(snapshot.nodes);
+      // Whatever it was, the next save writes it.
+      setChanged(new Set<Part>(["variables", "textStyles", "components", "canvas"]));
+      setRevision((r) => r + 1);
+    },
   };
 }

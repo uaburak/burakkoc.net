@@ -31,6 +31,7 @@
   --edit-media: #ea580c;
   --edit-data: #db2777;
   --edit-research: #a16207;
+  --edit-snap: #ff00ff; /* Smart guides: Figma's own magenta, dragging one thing near another */
 
   /* Progress Bar */
   --progress-track: #e6e6e6;
@@ -70,6 +71,7 @@
   --edit-media: #ff8a3d;
   --edit-data: #f0619e;
   --edit-research: #d69e2e;
+  --edit-snap: #ff00ff;
 
   /* Progress Bar */
   --progress-track: #1e1e1e;

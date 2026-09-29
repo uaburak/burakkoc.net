@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, type CSSProperties, type ElementType, type ReactNode, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createContext, useContext, useEffect, useMemo, type CSSProperties, type ElementType, type ReactNode, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -152,15 +152,19 @@ const ACTIVATION = {
   press: { distance: 4 },
 } as const;
 
+const bypassOnHandle = ({ event }: { event: Event }) => onHandle(event);
+const KEYBOARD_OPTIONS: KeyboardSensorOptions = { coordinateGetter: sortableKeyboardCoordinates };
+
 export function useEditorSensors(activation?: DragActivation) {
   const fromContext = useContext(DragActivationContext);
-  return useSensors(
-    useSensor(EditorPointerSensor, {
-      activationConstraint: ACTIVATION[activation ?? fromContext],
-      bypassActivationConstraint: ({ event }) => onHandle(event),
-    }),
-    useSensor(HandleKeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  const mode = activation ?? fromContext;
+  // The same options object while the activation is the same: a new one each render would give dnd-kit new
+  // sensors on every render of the editor, and with them a new context — every draggable would redraw.
+  const pointerOptions = useMemo<PointerSensorOptions>(
+    () => ({ activationConstraint: ACTIVATION[mode], bypassActivationConstraint: bypassOnHandle }),
+    [mode]
   );
+  return useSensors(useSensor(EditorPointerSensor, pointerOptions), useSensor(HandleKeyboardSensor, KEYBOARD_OPTIONS));
 }
 
 /**

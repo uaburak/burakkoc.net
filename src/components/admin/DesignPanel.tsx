@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, type ReactNode } from "react";
-import type { DesignVariable, TextStyle } from "@/types/design";
+import type { DesignVariable, TextStyle, VariableKind } from "@/types/design";
+import { useTheme } from "@/context/ThemeContext";
 import type { ProjectData, ProjectTheme } from "@/types/project";
 import { cn } from "@/lib/utils";
-import { byGroup, splitName } from "@/components/project/designVariables";
+import { byGroup, resolvedValue, splitName } from "@/components/project/designVariables";
 import { ACCENT_PRESETS, RADIUS_OPTIONS, cleanTheme } from "@/components/admin/ProjectThemeFields";
 import { FigmaIcon } from "@/components/admin/figmaIcons";
 import { TextStyleSample, textStyleMetrics } from "@/components/admin/textStyleSample";
-import { ColorField, Glyphs, Group, InspectorHeader, ProjectInspector, Row, SelectField, SquareButton, TextStyleFields, type DesignUse } from "@/components/admin/LiveInspector";
+import { ColorField, Glyphs, Group, InspectorHeader, ProjectInspector, Row, SelectField, SquareButton, Swatch, TextStyleFields, type DesignUse } from "@/components/admin/LiveInspector";
 import type { ProjectMeta } from "@/components/admin/editorActions";
 
 const THEME_COLORS: { key: Exclude<keyof ProjectTheme, "radius">; label: string }[] = [
@@ -23,7 +24,7 @@ const THEME_COLORS: { key: Exclude<keyof ProjectTheme, "radius">; label: string 
  * and its colours — each a field with its swatch (the colour picker), empty
  * for the site's own; the accent with the site's presets under it.
  */
-function ThemeFields({ theme, onChange }: { theme?: ProjectTheme; onChange: (theme: ProjectTheme | undefined) => void }) {
+export function ThemeFields({ theme, onChange }: { theme?: ProjectTheme; onChange: (theme: ProjectTheme | undefined) => void }) {
   const current = theme ?? {};
   const set = (key: keyof ProjectTheme, value: string | undefined) => onChange(cleanTheme({ ...current, [key]: value || undefined }));
   return (
@@ -101,30 +102,104 @@ export function PageDesignPanel({ project, slug, companies, variables, textStyle
           className="flex items-center gap-2 w-[calc(100%+16px)] h-8 -mx-2 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
         >
           <FigmaIcon name="16.variable" className="shrink-0 text-[var(--text-subtitle)]" />
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">Değişkenleri aç</span>
+          <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-title)]">Değişkenleri aç</span>
           <span className="shrink-0 text-[11px] text-[var(--text-subtitle)] tabular-nums">{variables.length}</span>
         </button>
       </Group>
       <Group title="Metin stilleri" actions={<SquareButton label="Metin stili oluştur" onClick={onAddTextStyle}>{Glyphs.plus}</SquareButton>}>
-        {[...byGroup(textStyles)].map(([group, list]) => (
-          <div key={group || "—"} className="flex flex-col">
-            {group && <p className="h-6 flex items-center text-[11px] text-[var(--text-subtitle)] select-none">{group}</p>}
-            {list.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={(e) => onEditTextStyle(s.id, e.currentTarget)}
-                className="group/style flex items-center gap-2 w-[calc(100%+16px)] h-8 -mx-2 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
-              >
-                <TextStyleSample styleId={s.id} className="-ml-0.5" />
-                <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{splitName(s.name)[1] || "Adsız"}</span>
-                <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{textStyleMetrics(s, byId)}</span>
-              </button>
-            ))}
-          </div>
-        ))}
+        <TextStyleRows textStyles={textStyles} byId={byId} onEdit={onEditTextStyle} />
       </Group>
       <ProjectInspector project={project} lang="tr" slug={slug} companies={companies} onChange={onMeta} />
+    </div>
+  );
+}
+
+/** The text styles, by group: each its sample, name and size — a click edits it (see TextStylePopover). */
+function TextStyleRows({ textStyles, byId, onEdit }: { textStyles: TextStyle[]; byId: Map<string, DesignVariable>; onEdit: (id: string, under: Element) => void }) {
+  return (
+    <>
+      {[...byGroup(textStyles)].map(([group, list]) => (
+        <div key={group || "—"} className="flex flex-col">
+          {group && <p className="h-6 flex items-center text-[11px] text-[var(--text-subtitle)] select-none">{group}</p>}
+          {list.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={(e) => onEdit(s.id, e.currentTarget)}
+              className="group/style flex items-center gap-2 w-[calc(100%+16px)] h-8 -mx-2 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+            >
+              <TextStyleSample styleId={s.id} className="-ml-0.5" />
+              <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-title)]">{splitName(s.name)[1] || "Adsız"}</span>
+              <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-subtitle)]">{textStyleMetrics(s, byId)}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** The rail's Metin stilleri panel: the site's text styles — a click edits one beside the panel. */
+export function TextStylesPanel({ textStyles, variables, onEdit }: { textStyles: TextStyle[]; variables: DesignVariable[]; onEdit: (id: string, under: Element) => void }) {
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  return (
+    <div className="flex flex-col px-4 py-3">
+      <TextStyleRows textStyles={textStyles} byId={byId} onEdit={onEdit} />
+    </div>
+  );
+}
+
+/** Figma's kinds of variables, to make one of. */
+const NEW_KINDS: { kind: VariableKind; label: string }[] = [
+  { kind: "color", label: "Renk" },
+  { kind: "number", label: "Sayı" },
+  { kind: "weight", label: "Kalınlık" },
+];
+
+/**
+ * The rail's Değişkenler panel: the site's variables by group — a colour's
+ * swatch, a number's value — each opening Figma's variables table (see
+ * VariablesModal), where they are edited; "+" makes one there.
+ */
+export function VariablesPanel({ variables, onOpen, onAdd }: { variables: DesignVariable[]; onOpen: () => void; onAdd: (kind: VariableKind) => void }) {
+  const { theme } = useTheme();
+  const byId = new Map(variables.map((v) => [v.id, v]));
+  return (
+    <div className="flex flex-col px-4 py-3 gap-3">
+      <div className="grid grid-cols-3 gap-1">
+        {NEW_KINDS.map((k) => (
+          <button
+            key={k.kind}
+            type="button"
+            onClick={() => onAdd(k.kind)}
+            className="flex items-center justify-center gap-1 h-6 rounded-[5px] bg-[var(--bg-4)] text-[11px] font-medium text-[var(--text-title)] hover:bg-[var(--bg-5)] transition-colors cursor-pointer"
+          >
+            {Glyphs.plus}
+            {k.label}
+          </button>
+        ))}
+      </div>
+      {[...byGroup(variables)].map(([group, list]) => (
+        <div key={group || "—"} className="flex flex-col">
+          {group && <p className="h-6 flex items-center text-[11px] text-[var(--text-subtitle)] select-none">{group}</p>}
+          {list.map((v) => {
+            const value = resolvedValue(v, theme, byId);
+            return (
+              <button
+                key={v.id}
+                type="button"
+                title={v.name}
+                onClick={onOpen}
+                className="flex items-center gap-2 w-[calc(100%+16px)] h-8 -mx-2 px-2 rounded-[6px] text-left hover:bg-[var(--bg-4)] transition-colors cursor-pointer"
+              >
+                {v.kind === "color" ? <Swatch color={value} /> : <FigmaIcon name="16.number" className="-m-px shrink-0 text-[var(--text-subtitle)]" />}
+                <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-title)]">{splitName(v.name)[1] || v.name}</span>
+                <span className="shrink-0 max-w-[40%] truncate text-[11px] tabular-nums text-[var(--text-subtitle)]">{v.kind === "color" ? String(value ?? "—") : (value ?? "—")}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }

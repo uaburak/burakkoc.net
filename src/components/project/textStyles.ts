@@ -1,8 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { DesignVariable, TextStyle, Typography, VariableKind } from "@/types/design";
-import type { Block, BlockType, ItemTextField } from "@/types/project";
+import type { DesignVariable, TextField, TextStyle, Typography, VariableKind } from "@/types/design";
 import { cssValue } from "./designVariables";
 
 /**
@@ -12,46 +11,45 @@ import { cssValue } from "./designVariables";
  * (`data-text-style`), inside `[data-design-scope]`.
  */
 
-const style = (id: string, name: string, fontSize: string, fontWeight: string, lineHeight: string, color: string): TextStyle => ({
+const style = (id: string, name: string, fontSize: string, fontWeight: string, lineHeight: string, color: string, letterSpacing?: number): TextStyle => ({
   id,
   name,
   fontSize: { alias: fontSize },
   fontWeight: { alias: fontWeight },
   lineHeight: { alias: lineHeight },
   color: { alias: color },
+  ...(letterSpacing !== undefined ? { letterSpacing: { value: letterSpacing } } : {}),
 });
 
 /**
- * The typography the site's texts already have (CoreBlocks, CaseStudyBlocks),
- * as the first text styles — so nothing changes until they are edited: a
- * Bölüm's heading and its subtitle, a paragraph, and the Künye's texts.
+ * The typography the site's texts already have (the components' texts, see
+ * STARTING_COMPONENTS), as the first text styles — so nothing changes until
+ * they are edited.
  */
 export const STARTING_TEXT_STYLES: TextStyle[] = [
   style("section-title", "Bölüm başlığı", "font-size-m", "weight-medium", "line-height-s", "text-title"),
   style("subtitle", "Alt başlık", "font-size-m", "weight-regular", "line-height-m", "text-subtitle"),
   style("heading", "Başlık", "font-size-m", "weight-medium", "line-height-m", "text-title"),
+  style("strong", "Vurgulu", "font-size-m", "weight-medium", "line-height-m", "text-title"),
   style("text", "Metin", "font-size-m", "weight-light", "line-height-l", "text-p"),
+  style("body", "Gövde", "font-size-m", "weight-light", "line-height-m", "text-p"),
   style("label", "Etiket", "font-size-s", "weight-regular", "line-height-s", "text-subtitle"),
   style("value", "Değer", "font-size-m", "weight-regular", "line-height-m", "text-title"),
   style("caption", "Açıklama", "font-size-s", "weight-light", "line-height-s", "text-subtitle"),
+  style("metric", "Metrik", "font-size-xl", "weight-medium", "line-height-xl", "text-title", -0.56),
+  { ...style("quote", "Alıntı", "font-size-l", "weight-regular", "line-height-xl", "text-title", -0.22), small: { fontSize: { value: 20 }, lineHeight: { value: 32 }, letterSpacing: { value: -0.2 } } },
+  style("small", "Küçük", "font-size-s", "weight-regular", "line-height-s", "text-p"),
+  style("small-strong", "Küçük vurgulu", "font-size-s", "weight-medium", "line-height-s", "text-title"),
+  style("small-light", "Küçük ince", "font-size-s", "weight-light", "line-height-m", "text-p"),
+  style("chip", "Çip", "font-size-xs", "weight-medium", "line-height-s", "text-p"),
+  style("micro", "Mikro", "font-size-xs", "weight-regular", "line-height-s", "text-subtitle"),
+  style("micro-light", "Mikro ince", "font-size-xs", "weight-light", "line-height-s", "text-subtitle"),
 ];
 
 /** The style a text showing that field starts with — for a text layer whose style is gone. */
-export function startingStyle(field: ItemTextField): string {
-  const byField: Partial<Record<ItemTextField, string>> = { label: "label", value: "value", title: "heading", eyebrow: "label", caption: "caption" };
+export function startingStyle(field: TextField): string {
+  const byField: Partial<Record<TextField, string>> = { label: "label", value: "value", title: "strong", eyebrow: "label", caption: "caption", subheading: "subtitle", author: "section-title", authorRole: "subtitle" };
   return byField[field] ?? "text";
-}
-
-/** The style a text layer of the page starts with — its type's look (a heading, a subtitle, a paragraph). */
-export const PAGE_TEXT_STYLES: Partial<Record<BlockType, string>> = { heading: "section-title", subheading: "subtitle", text: "text" };
-
-/**
- * The style a text layer of the page is in: its own (Block.textStyle) when it
- * is one of `styles`, else its type's.
- */
-export function pageTextStyle(block: Pick<Block, "type" | "textStyle">, styles: readonly TextStyle[]): string | undefined {
-  const own = block.textStyle && styles.some((s) => s.id === block.textStyle) ? block.textStyle : undefined;
-  return own ?? PAGE_TEXT_STYLES[block.type];
 }
 
 /** The site's text styles: the starting ones — as stored, when changed — in their place, then the added ones. */
@@ -73,6 +71,7 @@ export const TYPOGRAPHY_KINDS: Record<keyof Typography, VariableKind> = {
   fontWeight: "weight",
   lineHeight: "number",
   color: "color",
+  letterSpacing: "number",
 };
 
 const CSS_PROPERTY: Record<keyof Typography, string> = {
@@ -80,6 +79,7 @@ const CSS_PROPERTY: Record<keyof Typography, string> = {
   fontWeight: "font-weight",
   lineHeight: "line-height",
   color: "color",
+  letterSpacing: "letter-spacing",
 };
 
 /**
@@ -95,7 +95,12 @@ export function textStylesCss(styles: TextStyle[], variables: DesignVariable[]):
         const value = textStyle[key] ? cssValue(textStyle[key], TYPOGRAPHY_KINDS[key], byId) : null;
         return value ? `${CSS_PROPERTY[key]}: ${value};` : "";
       };
-      return `${at} { ${set("fontSize")} ${set("fontWeight")} ${set("lineHeight")} }\n${at}:not([contenteditable]) { ${set("color")} }`;
+      const small = (key: "fontSize" | "lineHeight" | "letterSpacing") => {
+        const value = textStyle.small?.[key] ? cssValue(textStyle.small[key]!, "number", byId) : null;
+        return value ? `${CSS_PROPERTY[key]}: ${value};` : "";
+      };
+      const phone = textStyle.small ? `\n@media (max-width: 639px) { ${at} { ${small("fontSize")} ${small("lineHeight")} ${small("letterSpacing")} } }` : "";
+      return `${at} { ${set("fontSize")} ${set("fontWeight")} ${set("lineHeight")} ${set("letterSpacing")} }\n${at}:not([contenteditable]) { ${set("color")} }${phone}`;
     })
     .join("\n");
 }

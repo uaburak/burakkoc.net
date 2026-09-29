@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import type { DesignVariable, FrameLook, Stroke } from "@/types/design";
-import { cssValue, useDesignVariables } from "./designVariables";
+import { boundValue, cssValue, useDesignVariables } from "./designVariables";
 
 /**
  * A frame's look (see FrameLook) as styles — the page's, a Bölüm's, a Blok's,
@@ -28,7 +28,9 @@ function strokeShadow(stroke: Stroke | undefined, byId: Map<string, DesignVariab
 /**
  * Its corners as CSS: each corner's own (independent corners), else its
  * radius — `projectRadius`: a project's own corner radius (its theme) wins
- * over the radius, not over corners given one by one.
+ * over the radius, as over the site's other surfaces (globals.css): a large
+ * one's (30px and up) takes the theme's, a card's (16–29px) the theme's
+ * smaller one; a pill's and corners given one by one stay.
  */
 export function radiusCss(look: FrameLook, byId: Map<string, DesignVariable>, { projectRadius = false } = {}): string | null {
   if (look.corners) {
@@ -36,7 +38,11 @@ export function radiusCss(look: FrameLook, byId: Map<string, DesignVariable>, { 
     return corners.every((c) => c === "0px" || c === "0") ? null : corners.join(" ");
   }
   const radius = look.radius ? cssValue(look.radius, "number", byId) : null;
-  return radius ? (projectRadius ? `var(--project-radius-sm, ${radius})` : radius) : null;
+  if (!radius || !projectRadius || !look.radius) return radius;
+  const px = Number(boundValue(look.radius, "light", byId));
+  if (px >= 30 && px < 100) return `var(--project-radius, ${radius})`;
+  if (px >= 16 && px < 30) return `var(--project-radius-sm, ${radius})`;
+  return radius;
 }
 
 /** Figma's blend modes as CSS: pass through blends nothing itself; normal keeps its children's blending inside it. */

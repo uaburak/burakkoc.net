@@ -1,6 +1,6 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { Block, BlockType, GridAlign, GridSettings, Group, PageItem, PageSection, ProjectData } from "@/types/project";
-import { cloneBlock, cloneGroup, makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
+import { cloneBlock, cloneGroup, cloneItem, makeBlock, makeDivider, makeGroup, makeSection, uid } from "@/components/admin/blockCatalog";
 import { findBlock, findGroup, gridColumns, gridRows, placedByHand, mapBlock, mapGroup, mapSection, placeBlock, placeGroup, swapBlocks, swapCells, swapGroups } from "@/lib/projectLayout";
 
 /**
@@ -50,6 +50,54 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         return next === p.items ? p : { ...p, items: next };
       });
 
+    /** Puts a group (new, or a pasted copy) in a section, after `afterGroupId` — or at its end; returns its id. */
+    const insertGroup = (sectionId: string, group: Group, afterGroupId?: string) => {
+      setItems((items) => mapSection(items, sectionId, (s) => ({ ...s, groups: insertAfter(s.groups, group, afterGroupId) })));
+      return group.id;
+    };
+
+    /** Puts a component (new, or a pasted copy) in a group — after `afterBlockId`, else at its end; returns its id. */
+    const insertBlock = (groupId: string, block: Block, afterBlockId?: string) => {
+      setItems((items) => mapGroup(items, groupId, (g) => ({ ...g, blocks: insertAfter(g.blocks, block, afterBlockId) })));
+      return block.id;
+    };
+
+    /** …at the end of a section's last group (a new one if it has none). */
+    const insertBlockInSection = (sectionId: string, block: Block) => {
+      setItems((items) =>
+        mapSection(items, sectionId, (s) => {
+          const last = s.groups[s.groups.length - 1];
+          if (!last) return { ...s, groups: [makeGroup([block])] };
+          return { ...s, groups: s.groups.map((g) => (g === last ? { ...g, blocks: [...g.blocks, block] } : g)) };
+        })
+      );
+      return block.id;
+    };
+
+    /** …at the end of the page: the last section's last group, a new section after a trailing divider. */
+    const insertBlockAtEnd = (block: Block) => {
+      setItems((items) => {
+        const last = items[items.length - 1];
+        if (!last || last.kind === "divider") return [...items, makeSection([block])];
+        return mapSection(items, last.id, (s) => {
+          const lastGroup = s.groups[s.groups.length - 1];
+          if (!lastGroup) return { ...s, groups: [makeGroup([block])] };
+          return { ...s, groups: s.groups.map((g) => (g === lastGroup ? { ...g, blocks: [...g.blocks, block] } : g)) };
+        });
+      });
+      return block.id;
+    };
+
+    /** A group at the end of the last section (a new section after a trailing divider, or on an empty page). */
+    const insertGroupAtEnd = (group: Group) => {
+      setItems((items) => {
+        const last = items[items.length - 1];
+        if (!last || last.kind === "divider") return [...items, { ...makeSection(), groups: [group] }];
+        return mapSection(items, last.id, (s) => ({ ...s, groups: [...s.groups, group] }));
+      });
+      return group.id;
+    };
+
     return {
       setItems,
 
@@ -79,6 +127,22 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
         setItems((items) => items.filter((i) => i.id !== itemId));
       },
 
+      /** Puts a section or divider (a pasted copy) after `afterItemId` — or at the end. */
+      insertItem(item: PageItem, afterItemId?: string) {
+        setItems((items) => insertAfter(items, item, afterItemId));
+        return item.id;
+      },
+
+      /** A copy of a section (fresh ids all the way down) or a divider, right after it; returns its id. */
+      duplicateItem(itemId: string) {
+        const id = uid();
+        setItems((items) => {
+          const item = items.find((i) => i.id === itemId);
+          return item ? insertAfter(items, { ...cloneItem(item), id }, itemId) : items;
+        });
+        return id;
+      },
+
       moveItemBy(itemId: string, delta: number) {
         setItems((items) => moveBy(items, items.findIndex((i) => i.id === itemId), delta));
       },
@@ -87,10 +151,10 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
 
       /** Adds an empty group after `afterGroupId` (or at the section's end) and returns its id. */
       addGroup(sectionId: string, afterGroupId?: string) {
-        const group = makeGroup();
-        setItems((items) => mapSection(items, sectionId, (s) => ({ ...s, groups: insertAfter(s.groups, group, afterGroupId) })));
-        return group.id;
+        return insertGroup(sectionId, makeGroup(), afterGroupId);
       },
+
+      insertGroup,
 
       updateGroup(groupId: string, patch: Partial<Omit<Group, "id" | "blocks">>) {
         setItems((items) => mapGroup(items, groupId, (g) => ({ ...g, ...patch })));
@@ -153,49 +217,29 @@ export function useEditorActions(setProject: Dispatch<SetStateAction<ProjectData
 
       /** Adds a component to a group — after `afterBlockId`, else at its end — and returns its id. */
       addBlock(groupId: string, type: BlockType, extras?: Partial<Block>, afterBlockId?: string) {
-        const block = makeBlock(type, extras);
-        setItems((items) => mapGroup(items, groupId, (g) => ({ ...g, blocks: insertAfter(g.blocks, block, afterBlockId) })));
-        return block.id;
+        return insertBlock(groupId, makeBlock(type, extras), afterBlockId);
       },
 
       /** Adds a component at the end of a section's last group (a new one if it has none); returns its id. */
       addBlockToSection(sectionId: string, type: BlockType, extras?: Partial<Block>) {
-        const block = makeBlock(type, extras);
-        setItems((items) =>
-          mapSection(items, sectionId, (s) => {
-            const last = s.groups[s.groups.length - 1];
-            if (!last) return { ...s, groups: [makeGroup([block])] };
-            return { ...s, groups: s.groups.map((g) => (g === last ? { ...g, blocks: [...g.blocks, block] } : g)) };
-          })
-        );
-        return block.id;
+        return insertBlockInSection(sectionId, makeBlock(type, extras));
       },
 
       /** Global "Ekle → Bileşen": appends to the last section, creating one after a trailing divider. */
       addBlockToEnd(type: BlockType, extras?: Partial<Block>) {
-        const block = makeBlock(type, extras);
-        setItems((items) => {
-          const last = items[items.length - 1];
-          if (!last || last.kind === "divider") return [...items, makeSection([block])];
-          return mapSection(items, last.id, (s) => {
-            const lastGroup = s.groups[s.groups.length - 1];
-            if (!lastGroup) return { ...s, groups: [makeGroup([block])] };
-            return { ...s, groups: s.groups.map((g) => (g === lastGroup ? { ...g, blocks: [...g.blocks, block] } : g)) };
-          });
-        });
-        return block.id;
+        return insertBlockAtEnd(makeBlock(type, extras));
       },
+
+      insertBlock,
+      insertBlockInSection,
+      insertBlockAtEnd,
 
       /** Global "Ekle → Blok": an empty group at the end of the last section (or a new section). */
       addGroupToEnd() {
-        const group = makeGroup();
-        setItems((items) => {
-          const last = items[items.length - 1];
-          if (!last || last.kind === "divider") return [...items, { ...makeSection(), groups: [group] }];
-          return mapSection(items, last.id, (s) => ({ ...s, groups: [...s.groups, group] }));
-        });
-        return group.id;
+        return insertGroupAtEnd(makeGroup());
       },
+
+      insertGroupAtEnd,
 
       deleteBlock(blockId: string) {
         setItems((items) => {

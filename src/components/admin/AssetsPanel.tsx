@@ -5,7 +5,7 @@ import { useDndMonitor } from "@dnd-kit/core";
 import type { BlockType } from "@/types/project";
 import type { DesignComponent } from "@/types/design";
 import { cn } from "@/lib/utils";
-import { DESIGNED_TYPES } from "@/components/project/components";
+import { DESIGNED_TYPES, topComponents, variantsOf } from "@/components/project/components";
 import { byGroup, splitName } from "@/components/project/designVariables";
 import { FigmaIcon } from "@/components/admin/figmaIcons";
 import { BLOCK_DEFS, BLOCK_GROUPS, BLOCK_LABELS, layerIcon, layerTone, uid } from "@/components/admin/blockCatalog";
@@ -45,7 +45,7 @@ function AssetRow({ ref, icon, tone, name, hint, dragging = false, action, class
       )}
     >
       <span className="flex shrink-0" style={{ color: tone }}>{icon}</span>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-title)]">{name}</span>
+      <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-title)]">{name}</span>
       {hint && <span className="shrink-0 max-w-[45%] truncate text-[11px] text-[var(--text-subtitle)] group-hover/asset:hidden">{hint}</span>}
       {action && <span className="hidden group-hover/asset:flex shrink-0 -mr-1">{action}</span>}
     </div>
@@ -56,10 +56,12 @@ function AssetRow({ ref, icon, tone, name, hint, dragging = false, action, class
  * Something to put on the page: `blockId` is the id the next one gets — a
  * fresh one after every drag, so the editor can select it.
  */
-function DraggableAsset({ type, component, onAdd, action }: {
+function DraggableAsset({ type, component, variants = 0, onAdd, action }: {
   type: BlockType;
   /** One of the site's components of that type */
   component?: DesignComponent;
+  /** A component set's: how many variants it has */
+  variants?: number;
   onAdd: (type: BlockType, componentId?: string) => void;
   action?: ReactNode;
 }) {
@@ -78,8 +80,8 @@ function DraggableAsset({ type, component, onAdd, action }: {
       icon={component ? <FigmaIcon name="16.component" /> : layerIcon(type)}
       tone={component ? "var(--edit-component)" : layerTone(type)}
       name={component ? splitName(component.name)[1] || component.name : BLOCK_LABELS[type]}
-      // A copy of a page component (Proje Künyesi 2): the kind it is.
-      hint={component && component.name !== BLOCK_LABELS[type] ? BLOCK_LABELS[type] : undefined}
+      // A component set: its variants; a copy of a page component (Proje Künyesi 2): the kind it is.
+      hint={variants > 1 ? `${variants} varyant` : component && component.name !== BLOCK_LABELS[type] ? BLOCK_LABELS[type] : undefined}
       title={def?.description}
       dragging={isDragging}
       action={action}
@@ -121,7 +123,8 @@ export function AssetsPanel({ components, target, onAdd, onGoToMain }: {
   const [query, setQuery] = useState("");
   const q = query.trim().toLocaleLowerCase("tr");
   const matches = (text: string) => !q || text.toLocaleLowerCase("tr").includes(q);
-  const local = components.filter((c) => matches(c.name));
+  // A component set once, as its first variant (an instance's properties pick the others).
+  const local = topComponents(components).filter((c) => matches(c.name));
   const library = BLOCK_GROUPS.map((kind) => ({
     ...kind,
     // The ones drawn from a main component are among the local components.
@@ -137,7 +140,7 @@ export function AssetsPanel({ components, target, onAdd, onGoToMain }: {
           placeholder="Varlıklarda ara"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full h-8 px-2.5 rounded-[6px] bg-[var(--bg-4)] text-[12px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none border border-transparent focus:border-[var(--edit-accent)]"
+          className="w-full h-7 px-2.5 rounded-[5px] bg-[var(--bg-4)] text-[11px] text-[var(--text-title)] placeholder:text-[var(--text-subtitle)] outline-none border border-transparent focus:border-[var(--edit-accent)]"
         />
       </div>
       <p className="px-3 text-[11px] leading-4 text-[var(--text-subtitle)]">
@@ -155,6 +158,7 @@ export function AssetsPanel({ components, target, onAdd, onGoToMain }: {
                   key={c.id}
                   type={c.type}
                   component={c}
+                  variants={variantsOf(c.id, components).length}
                   onAdd={onAdd}
                   action={<RowButton label="Ana bileşene git" onClick={() => onGoToMain(c.id)}>{Glyphs.goTo}</RowButton>}
                 />
@@ -175,7 +179,7 @@ export function AssetsPanel({ components, target, onAdd, onGoToMain }: {
             )}
           </div>
         ))}
-        {local.length === 0 && <p className="px-2 py-1 text-[12px] text-[var(--text-subtitle)]">Eşleşen bileşen yok.</p>}
+        {local.length === 0 && <p className="px-2 py-1 text-[11px] text-[var(--text-subtitle)]">Eşleşen bileşen yok.</p>}
       </section>
 
       <section className="flex flex-col">
@@ -187,7 +191,7 @@ export function AssetsPanel({ components, target, onAdd, onGoToMain }: {
             {kind.types.map((type) => <DraggableAsset key={type} type={type} onAdd={onAdd} />)}
           </div>
         ))}
-        {library.length === 0 && <p className="px-2 py-1 text-[12px] text-[var(--text-subtitle)]">Eşleşen bileşen yok.</p>}
+        {library.length === 0 && <p className="px-2 py-1 text-[11px] text-[var(--text-subtitle)]">Eşleşen bileşen yok.</p>}
       </section>
     </div>
   );

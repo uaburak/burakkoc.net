@@ -5,6 +5,7 @@ import type { DesignComponent, DesignVariable, TextStyle } from "@/types/design"
 import { DesignComponentsContext, withStartingComponents } from "./components";
 import { DesignVariablesContext, useDesignVariables, variablesCss, withStartingVariables } from "./designVariables";
 import { TextStylesContext, textStylesCss, useTextStyles, withStartingTextStyles } from "./textStyles";
+import { MOTION_CSS } from "./interactions";
 
 /**
  * The site's design system — its variables, text styles and components — for
@@ -36,9 +37,9 @@ export function DesignSystemProvider({ variables, textStyles, components, childr
   );
 }
 
-/** Puts the variables and the text styles on the page: render it inside the element carrying `data-design-scope`. */
+/** Puts the variables, the text styles and the prototypes' animations on the page: render it inside the element carrying `data-design-scope`. */
 export function DesignSystemStyle() {
   const variables = useDesignVariables();
   const textStyles = useTextStyles();
-  return <style>{`${variablesCss(variables)}\n${textStylesCss(textStyles, variables)}`}</style>;
+  return <style>{`${variablesCss(variables)}\n${textStylesCss(textStyles, variables)}\n${MOTION_CSS}`}</style>;
 }

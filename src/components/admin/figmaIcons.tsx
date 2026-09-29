@@ -6,6 +6,8 @@
  * (the box is the button); the 16 ones are the layer tree's.
  */
 
+import { KIT, type KitIcon } from "./figmaKitIcons";
+
 type Icon = { size: 16 | 24; d: string[] };
 
 const i24 = (...d: string[]): Icon => ({ size: 24, d });
@@ -96,6 +98,10 @@ const ICONS = {
   "16.image": i16("M4.5 3C3.67 3 3 3.67 3 4.5V11.5C3 12.33 3.67 13 4.5 13H11.5C12.33 13 13 12.33 13 11.5V4.5C13 3.67 12.33 3 11.5 3H4.5ZM4 4.5C4 4.22 4.22 4 4.5 4H11.5C11.78 4 12 4.22 12 4.5V9.29L10.35 7.65C10.16 7.45 9.84 7.45 9.65 7.65L6.5 10.79L5.85 10.15C5.66 9.95 5.34 9.95 5.15 10.15L4 11.29V4.5ZM4.71 12H11.5C11.78 12 12 11.78 12 11.5V10.71L10 8.71L6.85 11.85C6.66 12.05 6.34 12.05 6.15 11.85L5.5 11.21L4.71 12ZM6.5 7C7.05 7 7.5 6.55 7.5 6C7.5 5.45 7.05 5 6.5 5C5.95 5 5.5 5.45 5.5 6C5.5 6.55 5.95 7 6.5 7Z"),
   // Drawn after Figma's toolbar: the move tool — a pointer.
   "16.cursor": i16("M4 2.5V12.8L6.7 10.3L8.4 13.9L10 13.2L8.3 9.6H11.8L4 2.5ZM5 4.8V10.5L6.9 8.7L8.2 11.6L8.4 11.5L7.1 8.6H9.3L5 4.8Z"),
+  // Drawn after Figma's toolbar: the rectangle and ellipse tools, the hand (moving the view) — four arrows.
+  "16.rectangle": i16("M3 4C3 3.45 3.45 3 4 3H12C12.55 3 13 3.45 13 4V12C13 12.55 12.55 13 12 13H4C3.45 13 3 12.55 3 12V4ZM4 4V12H12V4H4Z"),
+  "16.ellipse": i16("M8 3C5.24 3 3 5.24 3 8C3 10.76 5.24 13 8 13C10.76 13 13 10.76 13 8C13 5.24 10.76 3 8 3ZM8 4C10.21 4 12 5.79 12 8C12 10.21 10.21 12 8 12C5.79 12 4 10.21 4 8C4 5.79 5.79 4 8 4Z"),
+  "16.hand": i16("M8 1.5L10.25 3.75H8.5V7.5H12.25V5.75L14.5 8L12.25 10.25V8.5H8.5V12.25H10.25L8 14.5L5.75 12.25H7.5V8.5H3.75V10.25L1.5 8L3.75 5.75V7.5H7.5V3.75H5.75L8 1.5Z"),
   "16.line": i16("M12.85 3.15C13.05 3.34 13.05 3.66 12.85 3.85L3.85 12.85C3.66 13.05 3.34 13.05 3.15 12.85C2.95 12.66 2.95 12.34 3.15 12.15L12.15 3.15C12.34 2.95 12.66 2.95 12.85 3.15Z"),
   "16.instance": i16("M7.29 2.29C7.68 1.9 8.32 1.9 8.71 2.29L13.71 7.29C14.1 7.68 14.1 8.32 13.71 8.71L8.71 13.71C8.32 14.1 7.68 14.1 7.29 13.71L2.29 8.71C1.9 8.32 1.9 7.68 2.29 7.29L7.29 2.29ZM3.71 8.71L3 8L3.71 7.29L7.29 3.71L8 3L8.71 3.71L12.29 7.29L13 8L12.29 8.71L8.71 12.29L8 13L7.29 12.29L3.71 8.71Z"),
   "16.text": i16("M3 3.5C3 3.22 3.22 3 3.5 3H8H12.5C12.78 3 13 3.22 13 3.5V5C13 5.28 12.78 5.5 12.5 5.5C12.22 5.5 12 5.28 12 5V4H8.5V12H9.5C9.78 12 10 12.22 10 12.5C10 12.78 9.78 13 9.5 13H8H6.5C6.22 13 6 12.78 6 12.5C6 12.22 6.22 12 6.5 12H7.5V4H4V5C4 5.28 3.78 5.5 3.5 5.5C3.22 5.5 3 5.28 3 5V3.5Z"),
@@ -104,18 +110,28 @@ const ICONS = {
   "16.number": i16("M4.5 3C3.67 3 3 3.67 3 4.5V11.5C3 12.33 3.67 13 4.5 13H11.5C12.33 13 13 12.33 13 11.5V4.5C13 3.67 12.33 3 11.5 3H4.5ZM4 4.5C4 4.22 4.22 4 4.5 4H11.5C11.78 4 12 4.22 12 4.5V11.5C12 11.78 11.78 12 11.5 12H4.5C4.22 12 4 11.78 4 11.5V4.5ZM7.5 5.55C7.52 5.27 7.32 5.03 7.05 5C6.77 4.98 6.53 5.18 6.5 5.45L6.45 6H5.5C5.22 6 5 6.22 5 6.5C5 6.78 5.22 7 5.5 7H6.35L6.15 9H5.5C5.22 9 5 9.22 5 9.5C5 9.78 5.22 10 5.5 10H6.05L6 10.45C5.98 10.72 6.18 10.97 6.45 11C6.73 11.03 6.97 10.82 7 10.55L7.05 10H8.55L8.5 10.45C8.48 10.72 8.68 10.97 8.95 11C9.23 11.03 9.47 10.82 9.5 10.55L9.55 10H10.5C10.78 10 11 9.78 11 9.5C11 9.22 10.78 9 10.5 9H9.65L9.85 7H10.5C10.78 7 11 6.78 11 6.5C11 6.22 10.78 6 10.5 6H9.95L10 5.55C10.03 5.27 9.82 5.03 9.55 5C9.27 4.98 9.03 5.18 9 5.45L8.95 6H7.45L7.5 5.55ZM7.15 9L7.35 7H8.85L8.65 9H7.15Z"),
 } satisfies Record<string, Icon>;
 
-export type FigmaIconName = keyof typeof ICONS;
+export type FigmaIconName = keyof typeof ICONS | keyof typeof KIT;
+
+/** An icon's paths with their tone: the kit draws at 90% black (the current colour here), its secondary marks at 30%. */
+function pathsOf(name: FigmaIconName): { size: number; evenOdd: boolean; paths: { d: string; opacity: number }[] } {
+  if (name in KIT) {
+    const [size, eo, ...paths] = KIT[name as keyof typeof KIT] as KitIcon;
+    return { size, evenOdd: eo === 1, paths: paths.map((p) => { const at = p.indexOf("|"); const tone = at > 0 ? Number(p.slice(0, at)) : 0.9; return { d: at > 0 ? p.slice(at + 1) : p, opacity: tone >= 0.9 ? 1 : tone / 0.9 }; }) };
+  }
+  const icon: Icon = ICONS[name as keyof typeof ICONS];
+  return { size: icon.size, evenOdd: true, paths: icon.d.map((d) => ({ d, opacity: 1 })) };
+}
 
 /**
  * One of Figma's icons, at its own size unless `size` says otherwise — a 24
  * one is its whole 24px box, the glyph in its middle, as Figma lays them out.
  */
 export function FigmaIcon({ name, size, className }: { name: FigmaIconName; size?: number; className?: string }) {
-  const icon: Icon = ICONS[name];
+  const icon = pathsOf(name);
   const px = size ?? icon.size;
   return (
     <svg width={px} height={px} viewBox={`0 0 ${icon.size} ${icon.size}`} fill="currentColor" aria-hidden className={className}>
-      {icon.d.map((d, i) => <path key={i} fillRule="evenodd" clipRule="evenodd" d={d} />)}
+      {icon.paths.map((p, i) => <path key={i} fillRule={icon.evenOdd ? "evenodd" : undefined} clipRule={icon.evenOdd ? "evenodd" : undefined} d={p.d} fillOpacity={p.opacity < 1 ? p.opacity : undefined} />)}
     </svg>
   );
 }

@@ -2,7 +2,8 @@ import type { CSSProperties } from "react";
 import type { Absolute, CellAlign, GridAlign, GridGap, GridSettings, GridTrack, LayoutFlow, PageFrame, PageSection, Sizing } from "@/types/project";
 import { cn } from "@/lib/utils";
 import { columnTracks, gridColumns, gridFlow, gridRows, layoutCells, rowTracks, type Cell } from "@/lib/projectLayout";
-import { FillHeightContext, ProjectBlock } from "@/components/project/CoreBlocks";
+import { FillHeightContext } from "@/components/project/fillHeight";
+import { ProjectBlock } from "@/components/project/ComponentView";
 import type { FrameLook } from "@/types/design";
 import { useDesignVariables } from "@/components/project/designVariables";
 import { frameLookStyle } from "@/components/project/frameLook";
@@ -245,7 +246,8 @@ export function innerLayoutStyle(grid?: GridSettings): CSSProperties {
       flexWrap: wrap ? "wrap" : undefined,
       alignContent: wrap ? FLEX_ALIGN[cross] : undefined,
       justifyContent: grid?.spread ? "space-between" : FLEX_ALIGN[along],
-      alignItems: FLEX_ALIGN[cross],
+      // Side by side, on their first text's baseline (Figma's baseline alignment).
+      alignItems: across && grid?.baseline ? "baseline" : FLEX_ALIGN[cross],
       ...(wrap ? { columnGap: px(gaps.column), rowGap: px(gaps.row) } : { gap: px(across ? gaps.column : gaps.row) }),
       width: "100%",
       ...padding,
@@ -295,7 +297,16 @@ export function innerChildStyle(size: Sizing | undefined, align: CellAlign | und
     return {
       ...own,
       maxWidth: narrow ? "100%" : undefined,
-      flex: (width === "fill" && across) || (height === "fill" && !across) ? "1 1 0%" : narrow || fixedHeight !== null || ratio ? "none" : undefined,
+      // Side by side, a Hug width gives way when the row is too narrow (its text wraps), as the web does.
+      flex:
+        (width === "fill" && across) || (height === "fill" && !across)
+          ? "1 1 0%"
+          : width === "hug" && across
+            ? "0 1 auto"
+            : narrow || fixedHeight !== null || ratio
+              ? "none"
+              : undefined,
+      ...(width === "hug" && across ? { minWidth: 0 } : {}),
       alignSelf: (width === "fill" && !across) || (height === "fill" && across) ? "stretch" : undefined,
       ...(width === "fill" && across ? { minWidth: 0 } : {}),
       ...(height === "fill" && !across ? { minHeight: 0 } : {}),
@@ -310,6 +321,42 @@ export function innerChildStyle(size: Sizing | undefined, align: CellAlign | und
     alignSelf: height === "fill" ? "stretch" : align?.y ? CSS_ALIGN[align.y] : undefined,
     ...Object.fromEntries(Object.entries(limits).filter(([, v]) => v !== undefined)),
   };
+}
+
+/**
+ * A frame of a component, as class and style: its auto layout at every width
+ * (innerLayoutStyle), positioned for what is laid over it — and below 640px
+ * (a phone: the one breakpoint a component has) its `small` columns and
+ * padding, as classes on custom properties.
+ */
+export function componentFrameProps(layout: GridSettings = {}): { className?: string; style: CSSProperties } {
+  const style = { position: "relative", ...innerLayoutStyle(layout) } as CSSProperties & Record<string, string | number | undefined>;
+  const small = layout.small;
+  if (!small) return { style };
+  const classes: string[] = [];
+  if (small.columns && gridFlow(layout) === "grid") {
+    style["--cols"] = style.gridTemplateColumns;
+    style["--cols-sm"] = `repeat(${Math.max(1, Math.round(small.columns))}, minmax(0, 1fr))`;
+    delete style.gridTemplateColumns;
+    classes.push("[grid-template-columns:var(--cols-sm)] sm:[grid-template-columns:var(--cols)]");
+  }
+  if (small.paddingX !== undefined) {
+    style["--pl"] = style.paddingLeft ?? "0px";
+    style["--pr"] = style.paddingRight ?? "0px";
+    style["--px-sm"] = `${small.paddingX}px`;
+    delete style.paddingLeft;
+    delete style.paddingRight;
+    classes.push("pl-(--px-sm) pr-(--px-sm) sm:pl-(--pl) sm:pr-(--pr)");
+  }
+  if (small.paddingY !== undefined) {
+    style["--pt"] = style.paddingTop ?? "0px";
+    style["--pb"] = style.paddingBottom ?? "0px";
+    style["--py-sm"] = `${small.paddingY}px`;
+    delete style.paddingTop;
+    delete style.paddingBottom;
+    classes.push("pt-(--py-sm) pb-(--py-sm) sm:pt-(--pt) sm:pb-(--pb)");
+  }
+  return { className: classes.join(" "), style };
 }
 
 /** Children with their cells, in reading order — the order on small screens; stacked / side by side, in their list order. */

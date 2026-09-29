@@ -16,6 +16,7 @@ import { SectionContent, pageFrameProps, sectionWidthClass } from "@/components/
 import { sectionBlocks } from "@/lib/projectLayout";
 import { DesignSystemProvider, DesignSystemStyle, fromStored, type SiteDesign } from "@/components/project/designSystem";
 import { frameLookStyle } from "@/components/project/frameLook";
+import { PageView } from "@/figma/PageView";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 
@@ -331,6 +332,25 @@ export function ProjectDetailClient({
 
   // Plain call, not a hook: this runs after the early returns above.
   const themeAttrs = projectThemeAttrs(project.theme);
+
+  // Made in the Figma editor: its page frame is the page.
+  if (project.canvas) {
+    return (
+      <DesignSystemProvider {...site}>
+        <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative" data-design-scope="">
+          <DesignSystemStyle />
+          <main className="w-full">
+            <PageView doc={project.canvas} variables={site.variables} />
+            {showNavigation && (
+              <div className="w-full max-w-[720px] mx-auto px-5 pb-[60px] xl:px-6">
+                <ProjectDetailFooterNav prevProject={prevProject} nextProject={nextProject} />
+              </div>
+            )}
+          </main>
+        </PageEntrance>
+      </DesignSystemProvider>
+    );
+  }
 
   return (
     <DesignSystemProvider {...site}>

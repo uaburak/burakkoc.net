@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ProjectData } from "@/types/project";
-import type { DesignComponent, DesignVariable, TextStyle } from "@/types/design";
+import type { CanvasNode, DesignComponent, DesignVariable, TextStyle } from "@/types/design";
 import { componentsFromLegacy, type LegacyDesigns, type LegacyMolecule } from "@/components/project/legacyDesign";
 import { normalizeItems } from "@/lib/projectLayout";
 
@@ -82,6 +82,8 @@ function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
   if (cleaned.theme && typeof cleaned.theme === "object") res.theme = cleaned.theme as ProjectData["theme"];
   // The page's frame (size, alignment) — kept like the theme.
   if (cleaned.frame && typeof cleaned.frame === "object") res.frame = cleaned.frame as ProjectData["frame"];
+  // The Figma editor's file (see FigmaDocument).
+  if (cleaned.canvas && typeof cleaned.canvas === "object" && Array.isArray((cleaned.canvas as { nodes?: unknown }).nodes)) res.canvas = cleaned.canvas as ProjectData["canvas"];
 
   return res;
 }
@@ -269,6 +271,24 @@ export async function loadDesignComponents(): Promise<{ components: DesignCompon
 
 export async function saveDesignComponents(components: DesignComponent[]): Promise<void> {
   await setDoc(doc(db, DESIGN_COLLECTION, COMPONENTS_DOC_ID), { components: stripUndefined({ list: components }).list, updatedAt: serverTimestamp() });
+}
+
+// ── The Bileşenler page's own drawings (see CanvasNode) ───────────────────────
+
+const CANVAS_DOC_ID = "figmaCanvas";
+
+/** The frames, shapes and texts drawn on the Bileşenler page — none when they can't be read. */
+export async function loadCanvasNodes(): Promise<CanvasNode[]> {
+  try {
+    return await readList<CanvasNode>(CANVAS_DOC_ID, "nodes");
+  } catch (err) {
+    console.warn("The components page's drawings could not be loaded:", err);
+    return [];
+  }
+}
+
+export async function saveCanvasNodes(nodes: CanvasNode[]): Promise<void> {
+  await setDoc(doc(db, DESIGN_COLLECTION, CANVAS_DOC_ID), { nodes: stripUndefined({ list: nodes }).list, updatedAt: serverTimestamp() });
 }
 
 // ── Delete project ────────────────────────────────────────────────────────────
