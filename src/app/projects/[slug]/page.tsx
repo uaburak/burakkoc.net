@@ -27,8 +27,8 @@ export async function generateMetadata({ params }: Props) {
     const project = await loadProject(slug);
     if (project) {
       return {
-        title: `${project.title} | Burak Koç`,
-        description: `${project.category} · ${project.year}`,
+        title: `${project.title || slug} | Burak Koç`,
+        description: [project.category, project.year].filter(Boolean).join(" · ") || undefined,
       };
     }
   } catch (err) {

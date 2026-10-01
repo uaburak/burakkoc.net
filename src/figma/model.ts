@@ -1,4 +1,5 @@
 import type { BlendMode, DesignVariable, InteractionAnimation, InteractionEasing, InteractionTrigger, VariableValue } from "@/types/design";
+import type { Block } from "@/types/project";
 
 /**
  * The Figma editor's file, as Figma's own: a canvas holding frames, shapes
@@ -162,6 +163,29 @@ export const PROPERTY_LABEL: Record<PropertyType, string> = { boolean: "Boolean"
 
 export type PropertyValues = Record<string, string | boolean>;
 
+/**
+ * What the site's own code draws in a frame's place — what shapes and texts
+ * can't be: an image with its badges and second tab, a video playing, a code
+ * sample (highlighted, with its preview), a Figma file or a page opening in
+ * its window, a before / after slider, screens in their devices. The frame
+ * is as tall as what is drawn; its data is kept as the site's blocks kept
+ * theirs (the same fields), its caption under it.
+ */
+export type EmbedKind = "image" | "video" | "code" | "figma" | "iframe" | "compare" | "devices";
+
+export interface Embed extends Pick<Block,
+  | "src" | "alt" | "caption" | "captionEn" | "aspectRatio" | "badges"
+  | "videoLoop"
+  | "content" | "language" | "codePreview" | "previewComponent"
+  | "figmaWorkspace" | "figmaCover" | "figmaWorkspaceCover"
+  | "iframeViews" | "iframeTabletUrl" | "iframeMobileUrl" | "iframeCover"
+  | "entries" | "variant"
+> {
+  kind: EmbedKind;
+}
+
+export const EMBED_LABEL: Record<EmbedKind, string> = { image: "Image", video: "Video", code: "Code", figma: "Figma", iframe: "iFrame", compare: "Before / After", devices: "Device frame" };
+
 interface BaseNode {
   id: string;
   name: string;
@@ -186,6 +210,12 @@ interface BaseNode {
   lockAspect?: boolean;
   /** In a frame with auto layout: kept at its own x, y (Figma's absolute position) */
   absolute?: boolean;
+  /** Fill, along its frame's flow: its share of the free space among the layers filling it (1 when unset) — a bar's part of its track */
+  grow?: number;
+  /** In a grid frame: the cell it was put in (1-based column and row — the next free one when unset) and how many columns it covers (1 when unset) */
+  gridCol?: number;
+  gridRow?: number;
+  gridSpan?: number;
   /** Its export settings (Figma's Export section) */
   exports?: ExportSetting[];
   /** Mirrored (Figma's Flip horizontal / vertical) */
@@ -201,7 +231,14 @@ interface BaseNode {
   heightVar?: VariableValue;
   /** Inside a main component: shown or hidden by this boolean property (its id) */
   visibleProp?: string;
+  /** Where a click on it goes, on the site (a link) */
+  href?: string;
+  /** One of the project's own layers — its page's Overview or a part of it (see overview.ts): it stays, whole and in its place */
+  fixed?: FixedPart;
 }
+
+/** The Overview's layers: the project's title, its category and year, its description and cover (see overview.ts). */
+export type FixedPart = "overview" | "header" | "title" | "subtitle" | "description" | "cover" | "image";
 
 interface Geometry {
   fills: Paint[];
@@ -262,6 +299,15 @@ export interface FrameNode extends BaseNode, Geometry {
   /** Grid auto layout: its columns and rows */
   gridColumns?: number;
   gridRows?: number;
+  /** …and their sizes, as CSS, one per column / row ("minmax(0,2fr)", "240px", "fit-content(100%)") — equal shares when unset, or when their count isn't the grid's */
+  gridTracks?: string[];
+  gridRowTracks?: string[];
+  /**
+   * On the site, on a narrower screen (the file itself has none): its
+   * layers stacked, one to a row, as wide as it — under 768px ("stack") or
+   * 640px ("stack-sm") — or, under 640px, in two columns ("two").
+   */
+  narrow?: "stack" | "stack-sm" | "two";
   /** The gap across the rows of a wrapping layout (the item spacing when unset) */
   counterSpacing?: VariableValue;
   /** Figma's advanced layout settings */
@@ -293,6 +339,8 @@ export interface FrameNode extends BaseNode, Geometry {
    * main component ("Label", "Card›Title") — "" for the instance's own frame.
    */
   overrides?: Record<string, NodeOverride>;
+  /** Drawn by the site's code instead of its children (see Embed) */
+  embed?: Embed;
 }
 
 /** What an instance may change of a layer of its main component. */
@@ -336,6 +384,8 @@ export interface FigmaDocument {
   effectStyles?: EffectStyle[];
   /** Which starting library its Components page was seeded from (see library.ts) */
   libraryVersion?: number;
+  /** Its page was made from the project's page as it was before the Figma editor: the version of what made it (see withLegacyPage) */
+  fromLegacy?: number;
 }
 
 /** A file as stored, brought up to date: effects made before they had a type are drop shadows. */
@@ -529,11 +579,16 @@ export function insertNode(nodes: SceneNode[], parentId: string | null, node: Sc
   return updateNode(nodes, parentId, (parent) => (isFrameLike(parent) ? { ...parent, children: put(parent.children) } : parent));
 }
 
-/** A copy with fresh ids, everywhere in it. */
-export function cloneNode<T extends SceneNode>(node: T): T {
+/**
+ * A copy with fresh ids, everywhere in it — a layer like any other (a copy of
+ * the Overview is not the project's), unless `keepParts`: a variant of the
+ * Overview's component is as much its as the first (see overview.ts).
+ */
+export function cloneNode<T extends SceneNode>(node: T, keepParts = false): T {
   const copy = structuredClone(node) as T;
   const rename = (n: SceneNode) => {
     n.id = nid();
+    if (!keepParts) delete n.fixed;
     if (isFrameLike(n)) n.children.forEach(rename);
   };
   rename(copy);
@@ -787,6 +842,11 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
     maxHeight: instance.maxHeight,
     widthVar: instance.widthVar,
     heightVar: instance.heightVar,
+    href: instance.href,
+    gridCol: instance.gridCol,
+    gridRow: instance.gridRow,
+    gridSpan: instance.gridSpan,
+    narrow: instance.narrow ?? self.narrow,
     variant: undefined,
     reactions: undefined,
     mainId: instance.mainId,

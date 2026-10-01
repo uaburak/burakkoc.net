@@ -1,6 +1,7 @@
 import type { VariableValue } from "@/types/design";
 import { STARTING_TEXT_STYLES } from "@/components/project/textStyles";
-import { type ComponentProperty, type DocumentPage, type FigmaDocument, type FrameNode, type PropertyType, type PropertyValues, type Reaction, type SceneNode, type ShapeNode, type TextNode } from "./model";
+import { TEMPLATE_OVERVIEW } from "@/lib/projectTemplate";
+import { PATH_SEP, isFrameLike, nid, type ComponentProperty, type FigmaDocument, type FrameNode, type NodeOverride, type PropertyType, type PropertyValues, type Reaction, type SceneNode, type ShapeNode, type TextNode } from "./model";
 
 /**
  * The site's starting components, as Figma's local components: every kind of
@@ -15,12 +16,19 @@ import { type ComponentProperty, type DocumentPage, type FigmaDocument, type Fra
  *
  * Their ids are fixed (c-…), so a page keeps its instances across files and
  * the page is seeded once (see withStartingLibrary); LIBRARY_VERSION bumps
- * when they change, and older files get the current ones.
+ * when they change, and older files get the current ones — those the user
+ * left as they were seeded; a starting component the user edited stays.
+ *
+ * Versions: 2 — English names, component properties; 3 — Image and Gallery
+ * item in ratio variants, List item in marker variants, the quote mark a
+ * frame, media keeping their proportions; 4 — component sets as wide as
+ * their variants (a Fill variant in a hugging set had no width to fill);
+ * 5 — the Overview (the page's first section: see overview.ts).
  */
 
 export const COMPONENTS_PAGE_ID = "p-components";
 export const COMPONENTS_PAGE_NAME = "Components";
-export const LIBRARY_VERSION = 2;
+export const LIBRARY_VERSION = 5;
 
 /** The site's content column: what a page-level component fills. */
 const CONTENT = 940;
@@ -29,6 +37,7 @@ const v = (value: string | number): VariableValue => ({ value });
 const a = (alias: string): VariableValue => ({ alias });
 
 const fill = (color: string) => [{ color: a(color) }];
+const picture = (url: string) => [{ type: "image" as const, color: a("bg-2"), image: { url, fit: "fill" as const } }];
 const stroke = (color: string, weight = 1, align: "inside" | "center" | "outside" = "inside") => [{ color: a(color), weight: v(weight), align }];
 
 const prop = (id: string, name: string, type: PropertyType, value: string | boolean): ComponentProperty => ({ id, name, type, value });
@@ -143,16 +152,25 @@ const reaction = (target: string, trigger: Reaction["trigger"] = "click"): React
 
 // ── The pieces the code drew (parts), as shapes ───────────────────────────────
 
-/** A media box: the site's image / video / code frame — 32px corners, a hairline, the bg-2 grey — at the 16:9 of a 940px column. */
-const mediaBox = (name: string, height = 518, radius = "radius-panel", color = "bg-2") =>
-  shape("rectangle", name, CONTENT, height, { fills: fill(color), strokes: stroke("border"), cornerRadius: a(radius), sizingH: "fill" });
+/** A media box: the site's image frame — 32px corners, a hairline, the bg-2 grey — at the 16:9 of a 940px column, its proportions kept at any width (from version 3). */
+const mediaBox = (name: string, height = 518, keepRatio = true) =>
+  shape("rectangle", name, CONTENT, height, { fills: fill("bg-2"), strokes: stroke("border"), cornerRadius: a("radius-panel"), sizingH: "fill", ...(keepRatio ? { lockAspect: true } : {}) });
+
+/** A component in each of `ratios` (its variants, by their "Ratio"): the first under `id` itself, so instances made before the set keep their component. */
+const ratioSet = (id: string, name: string, ratios: [suffix: string, label: string, height: number][], build: (variantId: string, height: number) => FrameNode, properties: ComponentProperty[]) =>
+  componentSet(`${id}-set`, name, ratios.map(([suffix, label, height]) => ({ ...build(suffix ? `${id}-${suffix}` : id, height), variant: [{ property: "Ratio", value: label }] }) as FrameNode), properties);
+
+/** The variant of a ratio set an old block's aspect ratio is (see ratioSet) — the set's first when it has none such. */
+export const IMAGE_RATIOS: [suffix: string, label: string, height: number][] = [["", "16:9", 518], ["4-3", "4:3", 705], ["1-1", "1:1", 940]];
+export const GALLERY_RATIOS: [suffix: string, label: string, height: number][] = [["", "4:3", 348], ["16-9", "16:9", 261], ["1-1", "1:1", 464], ["3-4", "3:4", 619], ["9-16", "9:16", 825]];
 
 const CAPTION_PROPS = [boolProp("caption", "Caption"), textProp("captionText", "Caption text", "Görsel açıklaması")];
 const caption = (name = "Caption", words = "Görsel açıklaması") => text(name, words, "caption", { textAlign: "center", prop: "captionText", visibleProp: "caption" });
 
 /** A media component: the medium, its caption centred under it — 48px over them, 36 under. */
+const MEDIA_LAYOUT: Layout = { gap: 24, padding: [48, 0, 36, 0], counterAlign: "center" };
 const media = (id: string, name: string, medium: SceneNode[], properties: ComponentProperty[] = []) =>
-  component(id, name, { gap: 24, padding: [48, 0, 36, 0], counterAlign: "center" }, [...medium, caption()], {}, [...properties, ...CAPTION_PROPS]);
+  component(id, name, MEDIA_LAYOUT, [...medium, caption()], {}, [...properties, ...CAPTION_PROPS]);
 
 /** A board's (a table's, a chart's): 16px over and under. */
 const board = (id: string, name: string, medium: SceneNode[], properties: ComponentProperty[] = []) =>
@@ -196,8 +214,10 @@ const externalMark = () =>
 
 const LOREM = "Bu alana metniniz gelir. Bileşenin içindeki metni seçip yazmaya başlayın.";
 
-export function startingLibrary(): { nodes: SceneNode[] } {
+/** The starting components as `version` of the library drew them (the current one unless said) — older ones to tell whether a file's are still as they were seeded. */
+export function startingLibrary(version = LIBRARY_VERSION): { nodes: SceneNode[] } {
   ids = 0;
+  const v3 = version >= 3;
   const cardLook: FrameExtra = { fills: fill("bg-4"), cornerRadius: a("radius-card") };
 
   // Texts
@@ -221,7 +241,9 @@ export function startingLibrary(): { nodes: SceneNode[] } {
   ]);
 
   // Media
-  const image = media("c-image", "Image", [mediaBox("Image")]);
+  const image = v3
+    ? ratioSet("c-image", "Image", IMAGE_RATIOS, (id, height) => component(id, "Image", MEDIA_LAYOUT, [mediaBox("Image", height), caption()]), CAPTION_PROPS)
+    : media("c-image", "Image", [mediaBox("Image", 518, false)]);
   const video = media("c-video", "Video", [
     frame("Video", { layoutMode: "horizontal", primaryAlign: "center", counterAlign: "center" }, [
       hug("Play", { layoutMode: "none" }, [
@@ -255,14 +277,29 @@ export function startingLibrary(): { nodes: SceneNode[] } {
   const iframe = embed("c-iframe", "iFrame", "Gömülü sayfa");
 
   // Lists
-  const listItem = component("c-list-item", "List item", { layoutMode: "horizontal", gap: 10, padding: [10, 16] }, [
-    hug("Marker", { padding: [9, 0, 0, 0] }, [shape("ellipse", "Dot", 6, 6, { fills: fill("text-title") })], { visibleProp: "marker" }),
-    text("Text", "Liste maddesi", "body", { prop: "text" }),
-  ], cardLook, [textProp("text", "Text", "Liste maddesi"), boolProp("marker", "Marker")]);
+  // A list item in each of the site's markers (its variants): a dot, its number, a dash, a box to tick — ticked, its text struck through.
+  const markers: [id: string, value: string, marker: SceneNode, struck?: boolean][] = [
+    ["c-list-item", "Bullet", hug("Marker", { padding: [9, 0, 0, 0] }, [shape("ellipse", "Dot", 6, 6, { fills: fill("text-title") })], { visibleProp: "marker" })],
+    ["c-list-item-number", "Number", hug("Marker", { padding: [2, 0, 0, 0] }, [text("Number", "1.", "small-strong", { hug: true, fills: fill("text-subtitle"), prop: "number" })], { visibleProp: "marker", minWidth: 20 })],
+    ["c-list-item-dash", "Dash", hug("Marker", { padding: [2, 0, 0, 0] }, [text("Dash", "—", "small-strong", { hug: true, fills: fill("text-subtitle") })], { visibleProp: "marker" })],
+    ["c-list-item-check", "Check", hug("Marker", { padding: [3, 0, 0, 0] }, [shape("rectangle", "Box", 18, 18, { fills: fill("bg-1"), strokes: stroke("border-hover"), cornerRadius: v(5) })], { visibleProp: "marker" })],
+    ["c-list-item-checked", "Checked", hug("Marker", { padding: [3, 0, 0, 0] }, [
+      hug("Box", { layoutMode: "horizontal", primaryAlign: "center", counterAlign: "center" }, [text("Tick", "✓", "small-strong", { hug: true, fontSize: v(11), lineHeight: v(12), fills: fill("bg-1"), textStyle: undefined })], {
+        width: 18, height: 18, sizingH: "fixed", sizingV: "fixed", fills: fill("text-title"), cornerRadius: v(5),
+      }),
+    ], { visibleProp: "marker" }), true],
+  ];
+  const listItem = !v3 ? component("c-list-item", "List item", { layoutMode: "horizontal", gap: 10, padding: [10, 16] }, [markers[0][2], text("Text", "Liste maddesi", "body", { prop: "text" })], cardLook, [textProp("text", "Text", "Liste maddesi"), boolProp("marker", "Marker")]) : componentSet("c-list-item-set", "List item", markers.map(([id, value, marker, struck]) => ({
+    ...component(id, "List item", { layoutMode: "horizontal", gap: 10, padding: [10, 16] }, [
+      marker,
+      text("Text", "Liste maddesi", "body", { prop: "text", ...(struck ? { textDecoration: "strikethrough" as const, opacity: 50 } : {}) }),
+    ], cardLook),
+    variant: [{ property: "Marker", value }],
+  }) as FrameNode), [textProp("text", "Text", "Liste maddesi"), boolProp("marker", "Marker"), textProp("number", "Number", "1.")]);
   const list = component("c-list", "List", { gap: 10 }, [
-    instance("List item", listItem.id, { text: "Birinci madde" }),
-    instance("List item", listItem.id, { text: "İkinci madde" }),
-    instance("List item", listItem.id, { text: "Üçüncü madde" }),
+    instance("List item", "c-list-item", { text: "Birinci madde" }),
+    instance("List item", "c-list-item", { text: "İkinci madde" }),
+    instance("List item", "c-list-item", { text: "Üçüncü madde" }),
   ]);
 
   const metric = component("c-metric", "Metric", { gap: 4, padding: 20 }, [text("Value", "%42", "metric", { prop: "value" }), text("Label", "Açıklama", "label", { prop: "label" })], { ...cardLook, width: 306 }, [
@@ -367,7 +404,10 @@ export function startingLibrary(): { nodes: SceneNode[] } {
 
   // Surfaces
   const quote = component("c-quote", "Quote", { gap: 20, padding: 32 }, [
-    text("Quote mark", "“", "quote", { fontSize: v(48), fontWeight: a("weight-medium"), lineHeight: v(43), fills: fill("text-subtitle"), textStyle: undefined, height: 20, textAutoResize: "none", visibleProp: "mark" }),
+    // The mark: 20px of room for a glyph taller than it (it reaches into the gap under it, as the site's) — a text of that height before version 3.
+    v3
+      ? frame("Quote mark", { layoutMode: "none" }, [text("Mark", "“", "quote", { hug: true, fontSize: v(48), fontWeight: a("weight-medium"), lineHeight: v(43), fills: fill("text-subtitle"), textStyle: undefined })], { height: 20, sizingV: "fixed", visibleProp: "mark" })
+      : text("Quote mark", "“", "quote", { fontSize: v(48), fontWeight: a("weight-medium"), lineHeight: v(43), fills: fill("text-subtitle"), textStyle: undefined, height: 20, textAutoResize: "none", visibleProp: "mark" }),
     text("Quote", "Alıntının kendisi burada: bir kullanıcının, bir paydaşın ya da ekipten birinin sözleri.", "quote", { prop: "quote" }),
     frame("Person", {}, [text("Author", "Ad Soyad", "section-title", { prop: "author" }), text("Role", "Unvan", "subtitle", { prop: "role" })]),
   ], { fills: fill("bg-4"), cornerRadius: a("radius-panel") }, [
@@ -383,7 +423,7 @@ export function startingLibrary(): { nodes: SceneNode[] } {
   ], cardLook, [textProp("title", "Title", "Not"), textProp("text", "Text", LOREM), boolProp("icon", "Icon")]);
 
   const splitVariant = (id: string, side: "Left" | "Right") => {
-    const picture = shape("rectangle", "Image", 454, 340, { fills: fill("bg-2"), strokes: stroke("border"), cornerRadius: a("radius-media"), sizingH: "fill" });
+    const picture = shape("rectangle", "Image", 454, 340, { fills: fill("bg-2"), strokes: stroke("border"), cornerRadius: a("radius-media"), sizingH: "fill", ...(v3 ? { lockAspect: true } : {}) });
     const body = frame("Body", { gap: 8 }, [text("Title", "Başlık", "strong", { prop: "title" }), text("Text", LOREM, "text", { prop: "text" })]);
     return {
       ...component(id, "Image + Text", { layoutMode: "grid", gridColumns: 2, gap: 32, counterAlign: "center", padding: [24, 0] }, side === "Left" ? [picture, body] : [body, picture]),
@@ -407,14 +447,16 @@ export function startingLibrary(): { nodes: SceneNode[] } {
     ]),
   ], { fills: fill("bg-4"), cornerRadius: a("radius-panel") }, [textProp("name", "Name", "Ayşe, 34"), textProp("description", "Description", "Ürün yöneticisi"), textProp("initials", "Initials", "AY"), textProp("text", "Text", LOREM)]);
 
-  const galleryItem = component("c-gallery-item", "Gallery item", { gap: 12 }, [
-    shape("rectangle", "Image", 464, 348, { fills: fill("bg-2"), strokes: stroke("border"), cornerRadius: a("radius-media"), sizingH: "fill" }),
+  const galleryItemOf = (id: string, height: number) => component(id, "Gallery item", { gap: 12 }, [
+    shape("rectangle", "Image", 464, height, { fills: fill("bg-2"), strokes: stroke("border"), cornerRadius: a("radius-media"), sizingH: "fill", ...(v3 ? { lockAspect: true } : {}) }),
     text("Caption", "Görsel altı yazısı", "caption", { textAlign: "center", prop: "captionText", visibleProp: "caption" }),
-  ], { width: 464 }, [boolProp("caption", "Caption"), textProp("captionText", "Caption text", "Görsel altı yazısı")]);
+  ], { width: 464 });
+  const galleryProps = [boolProp("caption", "Caption"), textProp("captionText", "Caption text", "Görsel altı yazısı")];
+  const galleryItem = v3 ? ratioSet("c-gallery-item", "Gallery item", GALLERY_RATIOS, galleryItemOf, galleryProps) : { ...galleryItemOf("c-gallery-item", 348), properties: galleryProps };
   const gallery = media("c-gallery", "Gallery", [
     frame("Images", { layoutMode: "grid", gridColumns: 2, gap: 12 }, [
-      instance("Gallery item", galleryItem.id, undefined, { sizingV: "fill" }),
-      instance("Gallery item", galleryItem.id, undefined, { sizingV: "fill" }),
+      instance("Gallery item", "c-gallery-item", undefined, { sizingV: "fill" }),
+      instance("Gallery item", "c-gallery-item", undefined, { sizingV: "fill" }),
     ]),
   ]);
 
@@ -469,15 +511,36 @@ export function startingLibrary(): { nodes: SceneNode[] } {
     ], cardLook),
   ], [textProp("question", "Question", "Anket sorusu?")]);
 
+  // The project's overview: its title, category and year, description and cover — the first section of every project's page, an
+  // instance of it (see overview.ts). Its layers are marked as the project's: they stay, and they are what the project's fields are read from.
+  const overview = component("c-overview", "Overview", { gap: 24, padding: [10, 0, 0, 0] }, [
+    frame("Header", {}, [
+      text("Title", "Proje adı", "section-title", { en: "Project name", prop: "title", fixed: "title" }),
+      text("Subtitle", `${TEMPLATE_OVERVIEW.category} · 2026`, "subtitle", { prop: "subtitleText", visibleProp: "subtitle", fixed: "subtitle" }),
+    ], { fixed: "header" }),
+    text("Description", TEMPLATE_OVERVIEW.description, "text", { prop: "descriptionText", visibleProp: "description", fixed: "description" }),
+    frame("Cover", { padding: [24, 0, 24, 0] }, [
+      shape("rectangle", "Image", CONTENT, 518, { fills: [...picture(TEMPLATE_OVERVIEW.coverImage), ...fill("bg-2")], strokes: stroke("border"), cornerRadius: a("radius-panel"), sizingH: "fill", lockAspect: true, fixed: "image" }),
+    ], { visibleProp: "cover", fixed: "cover" }),
+  ], { fixed: "overview" }, [
+    textProp("title", "Title", "Proje adı"),
+    boolProp("subtitle", "Subtitle"),
+    textProp("subtitleText", "Subtitle text", `${TEMPLATE_OVERVIEW.category} · 2026`),
+    boolProp("description", "Description"),
+    textProp("descriptionText", "Description text", TEMPLATE_OVERVIEW.description),
+    boolProp("cover", "Cover"),
+  ]);
+
   // ── The page: page-level components down the left, the items they repeat down the right ──
   const left: [FrameNode, number][] = [
-    [heading, 60], [subheading, 30], [paragraph, 60], [info, 170], [image, 640], [video, 640], [code, 250], [figma, 610], [iframe, 610],
+    [heading, 60], [subheading, 30], [paragraph, 60], [info, 170], [image, v3 ? 2640 : 640], [video, 640], [code, 250], [figma, 610], [iframe, 610],
     [list, 150], [stats, 120], [cards, 170], [steps, 260], [accordion, 130], [links, 40], [tags, 32], [team, 80], [palette, 190],
     [quote, 260], [callout, 120], [split, 460], [persona, 380], [gallery, 520], [compare, 640], [mockup, 520], [table, 240], [bars, 320],
+    ...(version >= 5 ? [[overview, 760] as [FrameNode, number]] : []),
   ];
   const right: [FrameNode, number][] = [
-    [card, 60], [listItem, 44], [metric, 100], [featureCard, 160], [step, 110], [accordionItem, 330], [link, 40], [tag, 32], [person, 70], [color, 180],
-    [personaGroup, 120], [galleryItem, 380], [barItem, 70],
+    [card, 60], [listItem, v3 ? 320 : 44], [metric, 100], [featureCard, 160], [step, 110], [accordionItem, 330], [link, 40], [tag, 32], [person, 70], [color, 180],
+    [personaGroup, 120], [galleryItem, v3 ? 2700 : 380], [barItem, 70],
   ];
   const place = (list: [FrameNode, number][], x: number) => {
     let y = 0;
@@ -487,7 +550,10 @@ export function startingLibrary(): { nodes: SceneNode[] } {
       return placed;
     });
   };
-  return { nodes: uniqueNames([...place(left, 0), ...place(right, CONTENT + 160)]) };
+  // From version 4 a set is as wide as its widest variant (and its padding): its Fill variants have a width to fill.
+  const sized = (node: FrameNode): FrameNode =>
+    version >= 4 && node.type === "componentSet" ? { ...node, sizingH: "fixed", width: Math.max(...node.children.map((c) => c.width)) + 32 } : node;
+  return { nodes: uniqueNames([...place(left.map(([n, h]) => [sized(n), h]), 0), ...place(right.map(([n, h]) => [sized(n), h]), CONTENT + 160)]) };
 }
 
 /**
@@ -514,20 +580,142 @@ function uniqueNames(nodes: SceneNode[]): SceneNode[] {
 /** Is it one of the starting components (or a set of them)? */
 const isStarting = (node: SceneNode) => node.id.startsWith("c-");
 
+/** Every id in `nodes`, their layers' too. */
+function idsIn(nodes: readonly SceneNode[], into = new Set<string>()): Set<string> {
+  for (const n of nodes) {
+    into.add(n.id);
+    if (isFrameLike(n)) idsIn(n.children, into);
+  }
+  return into;
+}
+
 /**
- * The file with the current starting components on their page: added when
- * the file has none; an older set replaced by the current one (the page's
- * other layers kept — the user's own components, drawings).
+ * A starting component as it is drawn, to compare with another: its layers'
+ * own ids (made as the library is built — other versions number them
+ * differently) and its place on the canvas left out; keys in order (the
+ * stored file keeps none), unset values dropped (the stored file has none).
+ */
+function signature(node: SceneNode): string {
+  const strip = (value: unknown, top: boolean): unknown => {
+    if (Array.isArray(value)) return value.map((x) => strip(x, false));
+    if (!value || typeof value !== "object") return value;
+    const obj = value as Record<string, unknown>;
+    // A layer's or a reaction's own id — not a starting component's (c-…), not a property's.
+    const ownId = ("width" in obj && "x" in obj) || "trigger" in obj;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(obj).sort()) {
+      const x = obj[key];
+      if (x === undefined) continue;
+      if (key === "id" && ownId && !(typeof x === "string" && x.startsWith("c-"))) continue;
+      if (top && (key === "x" || key === "y" || key === "height")) continue;
+      out[key] = strip(x, false);
+    }
+    return out;
+  };
+  return JSON.stringify(strip(node, true));
+}
+
+/** `node` with each of its layers' own ids the file already has (`taken`) made new — a starting component's (c-…) are its name and stay. */
+function withFreeIds<T extends SceneNode>(node: T, taken: Set<string>): T {
+  const next = { ...node } as T;
+  if (!next.id.startsWith("c-") && taken.has(next.id)) next.id = nid("u");
+  taken.add(next.id);
+  if (isFrameLike(next)) (next as FrameNode).children = (next as FrameNode).children.map((c) => withFreeIds(c, taken));
+  return next;
+}
+
+/**
+ * Version 3 made the Quote's mark a frame holding a text ("Quote mark" ›
+ * "Mark"): what an instance changed of the mark's glyph moves onto the text
+ * (what it changed of the mark as a layer — shown, opacity — stays on it).
+ */
+function movedQuoteMark(nodes: SceneNode[]): SceneNode[] {
+  const fix = (n: SceneNode): SceneNode => {
+    let next = n;
+    const o = n.type === "instance" && n.mainId === "c-quote" ? n.overrides?.["Quote mark"] : undefined;
+    if (o && n.type === "instance") {
+      const { characters, charactersEn, fills, ...rest } = o;
+      const glyph: NodeOverride = Object.fromEntries(Object.entries({ characters, charactersEn, fills }).filter(([, x]) => x !== undefined));
+      const overrides: Record<string, NodeOverride> = { ...n.overrides };
+      if (Object.keys(rest).length) overrides["Quote mark"] = rest;
+      else delete overrides["Quote mark"];
+      const key = `Quote mark${PATH_SEP}Mark`;
+      if (Object.keys(glyph).length) overrides[key] = { ...overrides[key], ...glyph };
+      next = { ...n, overrides: Object.keys(overrides).length ? overrides : undefined };
+    }
+    return isFrameLike(next) ? { ...next, children: next.children.map(fix) } : next;
+  };
+  return nodes.map(fix);
+}
+
+/**
+ * The file with the current starting components on its Components page:
+ *  - a file without the page gets it, with those of them whose ids it
+ *    doesn't hold yet;
+ *  - a file seeded by an older library: each of its starting components
+ *    still as that library seeded it is replaced by the current one (at its
+ *    place on the canvas); one the user edited stays as it is, and so does
+ *    one the current library didn't change; one the user took away comes
+ *    back — unless its ids are in the file under another shape (a starting
+ *    component the user wrapped in a set of their own);
+ *  - the page's other layers (the user's own components, drawings) stay.
+ * An id is never in the file twice: a current component's layers whose ids
+ * the file already has get new ones (overrides go by names, not ids).
  */
 export function withStartingLibrary(doc: FigmaDocument): FigmaDocument {
   const pages = doc.pages ?? [];
   const page = pages.find((p) => p.id === COMPONENTS_PAGE_ID);
-  if (page && (doc.libraryVersion ?? 1) >= LIBRARY_VERSION) return doc;
+  const from = doc.libraryVersion ?? 1;
+  if (page && from >= LIBRARY_VERSION) return doc;
   const fresh = startingLibrary().nodes;
+  const elsewhere = [...doc.nodes, ...pages.filter((p) => p !== page).flatMap((p) => p.nodes)];
+
   if (!page) {
-    const added: DocumentPage = { id: COMPONENTS_PAGE_ID, name: COMPONENTS_PAGE_NAME, nodes: fresh };
-    return { ...doc, pages: [...pages, added], libraryVersion: LIBRARY_VERSION };
+    const taken = idsIn(elsewhere);
+    const added = fresh.filter((f) => ![...idsIn([f])].some((id) => id.startsWith("c-") && taken.has(id))).map((f) => withFreeIds(f, taken));
+    return { ...doc, pages: [...pages, { id: COMPONENTS_PAGE_ID, name: COMPONENTS_PAGE_NAME, nodes: added }], libraryVersion: LIBRARY_VERSION };
   }
-  const own = page.nodes.filter((n) => !isStarting(n));
-  return { ...doc, pages: pages.map((p) => (p.id === page.id ? { ...p, name: COMPONENTS_PAGE_NAME, nodes: [...fresh, ...own] } : p)), libraryVersion: LIBRARY_VERSION };
+
+  // Seeded before version 2 (the library's first shapes): replaced whole, as then.
+  if (from < 2) {
+    const own = page.nodes.filter((n) => !isStarting(n));
+    const taken = idsIn([...elsewhere, ...own]);
+    const nodes = [...fresh.map((f) => withFreeIds(f, taken)), ...own];
+    return { ...doc, pages: pages.map((p) => (p.id === page.id ? { ...p, name: COMPONENTS_PAGE_NAME, nodes } : p)), libraryVersion: LIBRARY_VERSION };
+  }
+
+  // What the file's library seeded, by id: a current component's forerunner is the one of its id — or, for a set grown from a component, its first variant's.
+  const seeded = new Map(startingLibrary(from).nodes.map((n) => [n.id, signature(n)]));
+  // …and what any library up to it seeded: one still in an earlier shape (seeded while its version was being made) was not edited either.
+  const earlier = Array.from({ length: Math.max(0, from - 2) }, (_, i) => new Map(startingLibrary(2 + i).nodes.map((n) => [n.id, signature(n)])));
+  const asSeeded = (n: SceneNode, sig: string) => seeded.get(n.id) === sig || earlier.some((m) => m.get(n.id) === sig);
+  const forerunner = (f: SceneNode) => (seeded.has(f.id) ? f.id : f.type === "componentSet" && f.children[0] && seeded.has(f.children[0].id) ? f.children[0].id : f.id);
+  const byForerunner = new Map(fresh.map((f) => [forerunner(f), f]));
+  const met = new Set<string>();
+  const swaps = new Map<string, SceneNode>();
+  for (const n of page.nodes) {
+    const f = isStarting(n) ? byForerunner.get(n.id) : undefined;
+    if (!f) continue;
+    met.add(f.id);
+    const sig = signature(n);
+    // Edited by the user, or not changed since: it stays.
+    if (!asSeeded(n, sig) || sig === signature(f)) continue;
+    swaps.set(n.id, { ...f, x: n.x, y: n.y });
+  }
+  // The Quote replaced while its mark was a text: its instances' changes to the mark move onto the mark's text.
+  const quote = page.nodes.find((n) => n.id === "c-quote");
+  const markWasText = Boolean(quote && isFrameLike(quote) && quote.children.find((c) => c.name === "Quote mark")?.type === "text");
+  const kept = page.nodes.filter((n) => !swaps.has(n.id));
+  const taken = idsIn([...elsewhere, ...kept]);
+  const nodes = page.nodes.map((n) => { const f = swaps.get(n.id); return f ? withFreeIds(f, taken) : n; });
+  // Taken away by the user: back, where the current library puts it — unless its ids are in the file under another shape.
+  for (const f of fresh) {
+    if (met.has(f.id) || [...idsIn([f])].some((id) => id.startsWith("c-") && taken.has(id))) continue;
+    nodes.push(withFreeIds(f, taken));
+  }
+  let next: FigmaDocument = { ...doc, pages: pages.map((p) => (p.id === page.id ? { ...p, name: COMPONENTS_PAGE_NAME, nodes } : p)), libraryVersion: LIBRARY_VERSION };
+  if (markWasText && swaps.has("c-quote")) {
+    next = { ...next, nodes: movedQuoteMark(next.nodes), pages: next.pages!.map((p) => ({ ...p, nodes: movedQuoteMark(p.nodes) })) };
+  }
+  return next;
 }

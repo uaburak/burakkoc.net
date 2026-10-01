@@ -17,6 +17,9 @@ import { sectionBlocks } from "@/lib/projectLayout";
 import { DesignSystemProvider, DesignSystemStyle, fromStored, type SiteDesign } from "@/components/project/designSystem";
 import { frameLookStyle } from "@/components/project/frameLook";
 import { PageView } from "@/figma/PageView";
+import { pageFrameOf, showsCanvas } from "@/figma/fromLegacy";
+import { libraryOf } from "@/figma/model";
+import { headingsOf } from "@/figma/site";
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 
@@ -25,6 +28,41 @@ function DetailSection({ section }: { section: PageSection }) {
     <section id={section.id} className="w-full pt-10 scroll-mt-24">
       <SectionContent section={section} animate />
     </section>
+  );
+}
+
+// ── Beside the page: the way back, the contents ───────────────────────────────
+
+/** The way back to the projects, fixed at the column's left (wide screens). */
+function BackToProjects() {
+  return (
+    <div
+      className="fixed top-[160px] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex"
+      style={{ left: "calc(50% - 468px - var(--scrollbar-width, 0px) / 2)" }}
+    >
+      <Link
+        href="/projects"
+        className="inline-flex items-center gap-1 px-[10px] py-[10px] rounded-full font-medium text-base leading-5 text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-95"
+      >
+        <span className="flex items-center justify-center w-5 h-5">
+          <ArrowLeftIcon />
+        </span>
+        <span className="px-1">Project</span>
+      </Link>
+    </div>
+  );
+}
+
+/** The page's contents, fixed at the column's right (wide screens) — when it has sections to list. */
+function PageContents({ items }: { items: TocItem[] }) {
+  if (items.length <= 1) return null;
+  return (
+    <div
+      className="fixed top-[160px] w-[320px] 2xl:w-[260px] max-w-[calc(50vw-400px)] z-20 hidden xl:block"
+      style={{ left: "calc(50% + 380px - var(--scrollbar-width, 0px) / 2)" }}
+    >
+      <TableOfContents items={items} />
+    </div>
   );
 }
 
@@ -333,16 +371,21 @@ export function ProjectDetailClient({
   // Plain call, not a hook: this runs after the early returns above.
   const themeAttrs = projectThemeAttrs(project.theme);
 
-  // Made in the Figma editor: its page frame is the page.
-  if (project.canvas) {
+  // Made in the Figma editor: its page frame is the page — the way back and its contents beside it, as any project's
+  // (the contents list its sections' headings; neither is a layer of the file).
+  if (project.canvas && showsCanvas(project)) {
+    const page = pageFrameOf(project.canvas);
+    const contents: TocItem[] = [{ id: "overview", label: "Overview" }, ...(page ? headingsOf(page, libraryOf(project.canvas)) : [])];
     return (
       <DesignSystemProvider {...site}>
         <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative" data-design-scope="">
           <DesignSystemStyle />
-          <main className="w-full">
+          <BackToProjects />
+          <PageContents items={contents} />
+          <main className="w-full pb-[60px]">
             <PageView doc={project.canvas} variables={site.variables} />
             {showNavigation && (
-              <div className="w-full max-w-[720px] mx-auto px-5 pb-[60px] xl:px-6">
+              <div className="w-full max-w-[720px] mx-auto px-5 xl:px-6">
                 <ProjectDetailFooterNav prevProject={prevProject} nextProject={nextProject} />
               </div>
             )}
@@ -360,31 +403,8 @@ export function ProjectDetailClient({
       data-design-scope=""
     >
       <DesignSystemStyle />
-      {/* ── Left sidebar ── */}
-      <div
-        className="fixed top-[160px] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex"
-        style={{ left: "calc(50% - 468px - var(--scrollbar-width, 0px) / 2)" }}
-      >
-        <Link
-          href="/projects"
-          className="inline-flex items-center gap-1 px-[10px] py-[10px] rounded-full font-medium text-base leading-5 text-[var(--text-p)] transition-all duration-200 hover:bg-[var(--bg-4)] active:scale-95"
-        >
-          <span className="flex items-center justify-center w-5 h-5">
-            <ArrowLeftIcon />
-          </span>
-          <span className="px-1">Project</span>
-        </Link>
-      </div>
-
-      {/* ── Right TOC sidebar ── */}
-      {tocItems.length > 1 && (
-        <div
-          className="fixed top-[160px] w-[320px] 2xl:w-[260px] max-w-[calc(50vw-400px)] z-20 hidden xl:block"
-          style={{ left: "calc(50% + 380px - var(--scrollbar-width, 0px) / 2)" }}
-        >
-          <TableOfContents items={tocItems} />
-        </div>
-      )}
+      <BackToProjects />
+      <PageContents items={tocItems} />
 
       {/* ── Main content ── */}
       <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">

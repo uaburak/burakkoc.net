@@ -9,7 +9,7 @@ import { boundValue, splitName, type ThemeMode } from "@/components/project/desi
 import { PICKER_WIDTH, VariablePicker, usePopover, type MenuItem } from "@/components/admin/LiveInspector";
 import { weightLabel } from "./css";
 import { type ChevronItem } from "./ui";
-import { BLEND_MODES, EFFECT_LABEL, LAYOUT_GRID_LABEL, PAINT_LABEL, allComponents, componentAround, findComponent, findNode, freePropertyName, getNode, isFrameLike, layerAt, newEffect, newLayoutGrid, nid, numberOf, propertiesOf, propertyValues, setOf, variantName, variantProperties, variantValue, variantsOf, walk, type ComponentProperty, type Effect, type EffectStyle, type ExportSetting, type FrameNode, type LayoutGrid, type NodeOverride, type Paint, type PropertyType, type Reaction, type SceneNode, type StrokeStyle, type TextNode } from "./model";
+import { BLEND_MODES, EFFECT_LABEL, EMBED_LABEL, LAYOUT_GRID_LABEL, PAINT_LABEL, allComponents, componentAround, findComponent, findNode, freePropertyName, getNode, isFrameLike, layerAt, newEffect, newLayoutGrid, nid, numberOf, propertiesOf, propertyValues, setOf, variantName, variantProperties, variantValue, variantsOf, walk, type ComponentProperty, type Effect, type EffectStyle, type Embed, type ExportSetting, type FrameNode, type LayoutGrid, type NodeOverride, type Paint, type PropertyType, type Reaction, type SceneNode, type StrokeStyle, type TextNode } from "./model";
 import { ColorPicker } from "./ColorPicker";
 import { keys, type MenuEntry } from "@/components/admin/ContextMenu";
 import { Checkbox, ChevronMenu, Chit, ColorInput, IconButton, NumericInput, Prefix, PropRow, Section, Select, TextInput, hexDigits } from "./ui";
@@ -49,6 +49,8 @@ export interface EditorOps {
   bindProperty: (nodeId: string, kind: "visible" | "text" | "instance", propId: string | undefined) => void;
   /** An instance's own value of a property (its English words when `en`) */
   setInstanceProp: (instanceId: string, propId: string, value: string | boolean, en?: boolean) => void;
+  /** A text inside an instance typed: the instance's value of its text property, or its override */
+  typeInInstance: (compositeId: string, text: string, en: boolean) => void;
   setReactions: (variantId: string, reactions: Reaction[]) => void;
   preview: (id?: string) => void;
   openVariables: () => void;
@@ -89,6 +91,8 @@ export interface EditorOps {
   pageId: string;
   /** ⇧A: a frame's auto layout on, or the selection wrapped in a new auto layout frame */
   addAutoLayout: () => void;
+  /** Constrain proportions on (the layer's size as drawn taken as its own first, so the kept ratio is what is seen) or off */
+  lockProportions: (id: string, on: boolean) => void;
 }
 
 /** Where a picker beside the panel opens: at the row's top, to the panel's left. */
@@ -691,16 +695,16 @@ function LayoutSection({ node, parent, ops, variables, byId, mode }: { node: Sce
           />
         </PropRow>
       )}
-      <PropRow icons={auto ? <IconButton label="Resize to fit" icon={fi("24.resize-to-fit.small")} onClick={hugAll} /> : <IconButton label={node.lockAspect ? "Unconstrain proportions" : "Constrain proportions"} icon={fi("constrain-proportions")} active={Boolean(node.lockAspect)} onClick={() => ops.patch(node.id, { lockAspect: node.lockAspect ? undefined : true })} />}>
+      <PropRow icons={auto ? <IconButton label="Resize to fit" icon={fi("24.resize-to-fit.small")} onClick={hugAll} /> : <IconButton label={node.lockAspect ? "Unconstrain proportions" : "Constrain proportions"} icon={fi("constrain-proportions")} active={Boolean(node.lockAspect)} onClick={() => ops.lockProportions(node.id, !node.lockAspect)} />}>
         {node.widthVar ? (
           <BoundNumber label="Width" prefix="W" value={node.widthVar} variables={variables} byId={byId} mode={mode} onChange={(v) => ops.patch(node.id, "alias" in v ? { widthVar: v } : { widthVar: undefined, width: Number(v.value) || 0 })} suffix={sizingMenu("H")} />
         ) : (
-          <NumericInput label="Width" prefix="W" value={Math.round(node.width)} min={0} onChange={(width) => ops.patch(node.id, { width, ...(node.lockAspect && node.width ? { height: Math.round((width * node.height) / node.width) } : {}), sizingH: undefined, ...(text ? { textAutoResize: text.textAutoResize === "widthHeight" ? "height" : text.textAutoResize } : {}) } as Partial<SceneNode>)} suffix={sizingMenu("H")} />
+          <NumericInput label="Width" prefix="W" value={Math.round(node.width)} min={0} onChange={(width) => ops.patch(node.id, { width, ...(node.lockAspect && node.width ? { height: Math.round((width * node.height) / node.width), sizingV: undefined } : {}), sizingH: undefined, ...(text ? { textAutoResize: text.textAutoResize === "widthHeight" ? "height" : text.textAutoResize } : {}) } as Partial<SceneNode>)} suffix={sizingMenu("H")} />
         )}
         {node.heightVar ? (
           <BoundNumber label="Height" prefix="H" value={node.heightVar} variables={variables} byId={byId} mode={mode} onChange={(v) => ops.patch(node.id, "alias" in v ? { heightVar: v } : { heightVar: undefined, height: Number(v.value) || 0 })} suffix={sizingMenu("V")} />
         ) : (
-          <NumericInput label="Height" prefix="H" value={Math.round(node.height)} min={0} onChange={(height) => ops.patch(node.id, { height, ...(node.lockAspect && node.height ? { width: Math.round((height * node.width) / node.height) } : {}), sizingV: undefined, ...(text ? { textAutoResize: "none" } : {}) } as Partial<SceneNode>)} suffix={sizingMenu("V")} />
+          <NumericInput label="Height" prefix="H" value={Math.round(node.height)} min={0} onChange={(height) => ops.patch(node.id, { height, ...(node.lockAspect && node.height ? { width: Math.round((height * node.width) / node.height), sizingH: undefined } : {}), sizingV: undefined, ...(text ? { textAutoResize: "none" } : {}) } as Partial<SceneNode>)} suffix={sizingMenu("V")} />
         )}
       </PropRow>
       {hasLimits && (
@@ -798,8 +802,10 @@ function AlignGrid({ frame, onChange }: { frame: FrameNode; onChange: (primary: 
   const horizontal = frame.layoutMode === "horizontal";
   const cells: FrameNode["counterAlign"][] = ["min", "center", "max"];
   const glyph = (counter: FrameNode["counterAlign"]): FigmaIconName => {
-    const where = counter === "min" ? (horizontal ? "top" : "left") : counter === "center" ? "center" : horizontal ? "bottom" : "right";
-    return `16.alg.${frame.layoutWrap && horizontal ? "wrap" : horizontal ? "horizontal" : "vertical"}.${where}` as FigmaIconName;
+    // A wrapping row's glyphs are named by their side (left / center / right), a row's by top / center / bottom, a column's by left / center / right.
+    const wrap = Boolean(frame.layoutWrap) && horizontal;
+    const where = counter === "min" ? (horizontal && !wrap ? "top" : "left") : counter === "center" ? "center" : horizontal && !wrap ? "bottom" : "right";
+    return `16.alg.${wrap ? "wrap" : horizontal ? "horizontal" : "vertical"}.${where}` as FigmaIconName;
   };
   return (
     <div className="grid grid-cols-3 w-full min-w-0 h-[64px] px-1 py-2 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent focus-within:border-[var(--f-border-selected)]">
@@ -1126,7 +1132,7 @@ function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang
   const texts = holder?.properties?.filter((p) => p.type === "text") ?? [];
   const bound = node.charactersProp ? texts.find((p) => p.id === node.charactersProp) : undefined;
   const setText = (value: string) => {
-    if (compositeId) return ops.override(compositeId, lang === "en" ? { charactersEn: value } : { characters: value });
+    if (compositeId) return ops.typeInInstance(compositeId, value, lang === "en");
     if (bound && holder && lang !== "en") return ops.setPropertyValue(holder.id, bound.id, value);
     ops.patch(node.id, (lang === "en" ? { charactersEn: value } : { characters: value }) as Partial<SceneNode>);
   };
@@ -1513,6 +1519,156 @@ function LayoutGuideSection({ frame, ops }: { frame: FrameNode; ops: EditorOps }
 }
 
 /** Figma's Export: the layer's export settings (scale, format) and the button that saves them. */
+/** A row of the Embed and Link sections: what the field is, then the field. */
+function FieldRow({ name, children }: { name: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 min-h-8 pl-4 pr-2 py-1">
+      <span className="w-[64px] shrink-0 truncate text-[11px] leading-4 text-[var(--f-text-secondary)]" title={name}>{name}</span>
+      <div className="min-w-0 flex-1 flex items-center">{children}</div>
+    </div>
+  );
+}
+
+/** Several lines typed in the kit's box (a code sample, a caption): written as the field is left. */
+function TextArea({ label, value, placeholder, rows = 3, mono = false, onCommit }: { label: string; value: string; placeholder?: string; rows?: number; mono?: boolean; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Escape: what was typed is dropped (the blur that follows writes nothing).
+  const cancelled = useRef(false);
+  return (
+    <textarea
+      aria-label={label}
+      rows={rows}
+      value={draft ?? value}
+      placeholder={placeholder}
+      spellCheck={false}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (cancelled.current) { cancelled.current = false; setDraft(null); return; }
+        if (draft !== null) { onCommit(draft); setDraft(null); }
+      }}
+      onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { cancelled.current = true; setDraft(null); e.currentTarget.blur(); } }}
+      className={cn("min-w-0 flex-1 px-2 py-1 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent hover:border-[var(--f-border)] focus:border-[var(--f-border-selected)] text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none resize-y", mono ? "font-mono" : "font-[450]")}
+    />
+  );
+}
+
+const ASPECTS = ["16/9", "4/3", "1/1", "3/4", "9/16"].map((r) => ({ value: r, label: r.replace("/", ":") }));
+
+/**
+ * What the site's code draws in the frame's place (see Embed): its kind and
+ * what it draws from — an address, a code sample, the pictures of a before /
+ * after or of the devices — and its caption, in the language being edited.
+ */
+function EmbedSection({ node, ops, lang }: { node: FrameNode; ops: EditorOps; lang: "tr" | "en" }) {
+  const embed = node.embed!;
+  const set = (p: Partial<Embed>) => {
+    const next = { ...embed, ...p } as Record<string, unknown>;
+    // (What is emptied goes: the stored file takes nothing unset.)
+    Object.keys(next).forEach((k) => (next[k] === undefined || next[k] === "") && delete next[k]);
+    ops.patch(node.id, { embed: next as unknown as Embed } as Partial<SceneNode>);
+  };
+  const field = (name: string, key: "src" | "language" | "figmaWorkspace" | "figmaCover" | "figmaWorkspaceCover" | "iframeCover" | "iframeTabletUrl" | "iframeMobileUrl", placeholder = "https://…") => (
+    <FieldRow name={name}>
+      <TextInput label={name} value={embed[key] ?? ""} placeholder={placeholder} onCommit={(value) => set({ [key]: value.trim() })} />
+    </FieldRow>
+  );
+  const entries = embed.entries ?? [];
+  const setEntry = (i: number, p: Partial<NonNullable<Embed["entries"]>[number]>) => {
+    const list = [...entries];
+    list[i] = { ...(list[i] ?? { id: nid("e") }), ...p };
+    set({ entries: list });
+  };
+  const views = embed.iframeViews?.length ? embed.iframeViews : (["desktop", "tablet", "mobile"] as const);
+  return (
+    <Section title={`Embed · ${EMBED_LABEL[embed.kind]}`} pb={12}>
+      {embed.kind === "image" && field("Image", "src")}
+      {embed.kind === "video" && (
+        <>
+          {field("Video", "src", "YouTube, Vimeo, .mp4")}
+          <div className="pl-4 pr-2 py-1"><Checkbox label="Loop, muted, without controls" checked={Boolean(embed.videoLoop)} onChange={(v) => set({ videoLoop: v || undefined })} /></div>
+        </>
+      )}
+      {embed.kind === "code" && (
+        <>
+          {field("Language", "language", "javascript")}
+          <FieldRow name="Code"><TextArea label="Code" value={embed.content ?? ""} rows={6} mono onCommit={(value) => set({ content: value })} /></FieldRow>
+          <FieldRow name="Preview"><TextArea label="Preview (HTML)" value={embed.codePreview ?? ""} placeholder="HTML (optional)" rows={2} mono onCommit={(value) => set({ codePreview: value })} /></FieldRow>
+        </>
+      )}
+      {embed.kind === "figma" && (
+        <>
+          {field("Prototype", "src", "figma.com/proto/…")}
+          {field("Cover", "figmaCover")}
+          {field("Pages", "figmaWorkspace", "figma.com/design/… (optional)")}
+          {field("Pages cover", "figmaWorkspaceCover")}
+        </>
+      )}
+      {embed.kind === "iframe" && (
+        <>
+          {field("Address", "src")}
+          {field("Cover", "iframeCover")}
+          <FieldRow name="Views">
+            <div className="flex flex-wrap items-center gap-x-3">
+              {(["desktop", "tablet", "mobile"] as const).map((view) => (
+                <Checkbox key={view} label={view[0].toUpperCase() + view.slice(1)} checked={views.includes(view)} onChange={(on) => {
+                  const next = (["desktop", "tablet", "mobile"] as const).filter((x) => (x === view ? on : views.includes(x)));
+                  if (next.length) set({ iframeViews: [...next] });
+                }} />
+              ))}
+            </div>
+          </FieldRow>
+          {views.includes("tablet") && field("Tablet", "iframeTabletUrl", "its own address (optional)")}
+          {views.includes("mobile") && field("Mobile", "iframeMobileUrl", "its own address (optional)")}
+        </>
+      )}
+      {embed.kind === "compare" && (["Before", "After"] as const).map((side, i) => (
+        <div key={side}>
+          <FieldRow name={side}><TextInput label={`${side} image`} value={entries[i]?.src ?? ""} placeholder="https://…" onCommit={(value) => setEntry(i, { src: value.trim() })} /></FieldRow>
+          <FieldRow name="Label"><TextInput label={`${side} label`} value={entries[i]?.label ?? ""} placeholder={i === 0 ? "Önce" : "Sonra"} onCommit={(value) => setEntry(i, { label: value })} /></FieldRow>
+        </div>
+      ))}
+      {embed.kind === "devices" && (
+        <>
+          <FieldRow name="Device">
+            <Select label="Device" value={embed.variant === "browser" || embed.variant === "tablet" ? embed.variant : "phone"} options={[{ value: "phone", label: "Phone" }, { value: "tablet", label: "Tablet" }, { value: "browser", label: "Browser" }]} onChange={(value) => set({ variant: value as Embed["variant"] })} />
+          </FieldRow>
+          {entries.map((entry, i) => (
+            <div key={entry.id} className="flex items-center">
+              <div className="min-w-0 flex-1"><FieldRow name={`Screen ${i + 1}`}><TextInput label={`Screen ${i + 1}`} value={entry.src ?? ""} placeholder="https://…" onCommit={(value) => setEntry(i, { src: value.trim() })} /></FieldRow></div>
+              <span className="pr-2"><IconButton label="Remove screen" icon={fi("minus.small")} onClick={() => set({ entries: entries.filter((_, j) => j !== i) })} /></span>
+            </div>
+          ))}
+          <div className="px-4 pt-1">
+            <button type="button" onClick={() => set({ entries: [...entries, { id: nid("e") }] })} className="flex w-full h-8 items-center justify-center rounded-[5px] border border-[var(--f-border)] text-[11px] font-[450] text-[var(--f-text)] hover:bg-[var(--f-bg-hover)] cursor-pointer">Add screen</button>
+          </div>
+        </>
+      )}
+      {(embed.kind === "image" || embed.kind === "compare") && (
+        <FieldRow name="Ratio">
+          <Select label="Aspect ratio" value={embed.aspectRatio ?? "16/9"} options={embed.kind === "image" ? ASPECTS.slice(0, 3) : ASPECTS} onChange={(value) => set({ aspectRatio: value as Embed["aspectRatio"] })} />
+        </FieldRow>
+      )}
+      <FieldRow name={lang === "en" ? "Caption (EN)" : "Caption"}>
+        <TextArea label="Caption" value={(lang === "en" ? embed.captionEn : embed.caption) ?? ""} placeholder="Optional" rows={2} onCommit={(value) => set(lang === "en" ? { captionEn: value } : { caption: value })} />
+      </FieldRow>
+    </Section>
+  );
+}
+
+/** Where a click on the layer goes, on the site: its link (none unless set). */
+function LinkSection({ node, ops }: { node: SceneNode; ops: EditorOps }) {
+  return (
+    // Added empty (its field shows the address to type): an empty link links nowhere.
+    <Section title="Link" muted={node.href === undefined} pb={node.href !== undefined ? 12 : 0} icons={node.href !== undefined ? <IconButton label="Remove link" icon={fi("minus.small")} onClick={() => ops.patch(node.id, { href: undefined })} /> : <IconButton label="Add link" icon={fi("plus.small")} onClick={() => ops.patch(node.id, { href: "" })} />}>
+      {node.href !== undefined && (
+        <FieldRow name="Address">
+          <TextInput label="Link address" value={node.href} placeholder="https://…" onCommit={(value) => ops.patch(node.id, { href: value.trim() })} />
+        </FieldRow>
+      )}
+    </Section>
+  );
+}
+
 function ExportSection({ node, ops }: { node: SceneNode; ops: EditorOps }) {
   const settings = node.exports ?? [];
   const set = (next: ExportSetting[]) => ops.patch(node.id, { exports: next.length ? next : undefined });
@@ -1680,6 +1836,7 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
         </>
       ) : (
         <>
+          {!multi && isFrameLike(node) && node.embed && <EmbedSection key={node.id} node={node} ops={ops} lang={lang} />}
           {!multi && node.type === "instance" && <InstanceSection node={node} nodes={nodes} ops={ops} lang={lang} />}
           {!multi && node.type === "component" && <ComponentSection node={node} nodes={nodes} ops={ops} />}
           {!multi && node.type === "component" && !setOf(nodes, node.id) && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
@@ -1697,6 +1854,7 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
           {node.type !== "text" && <EffectsSection node={node} ops={ops} pageColors={ops.pageColors} />}
           <SelectionColors nodes={nodes} selection={selection} ops={ops} byId={byId} mode={mode} />
           {isFrameLike(node) && node.type !== "instance" && <LayoutGuideSection frame={node} ops={ops} />}
+          {!multi && isFrameLike(node) && node.type !== "componentSet" && !node.embed && <LinkSection key={node.id} node={node} ops={ops} />}
           <ExportSection node={node} ops={ops} />
         </>
       )}

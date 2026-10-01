@@ -29,6 +29,18 @@ const TEMPLATE_MEDIA = {
 };
 
 /**
+ * Örnek künye — kategori, açıklama ve kapak görseli. Yeni bir projenin
+ * Overview'u bunlarla dolu açılır (bkz. src/figma/overview.ts); şablon
+ * proje de bunları kullanır.
+ */
+export const TEMPLATE_OVERVIEW = {
+  category: "UX / UI Design",
+  description:
+    "Projeyi tek cümlede özetleyin: ne yapıldı, kimin için ve hangi sonucu doğurdu. Bu metin sayfanın en üstünde, kapak görselinin hemen üzerinde görünür.",
+  coverImage: TEMPLATE_MEDIA.oxtvCover,
+};
+
+/**
  * Şablon proje — bir vaka çalışmasının iskeleti.
  *
  * Mevcut bütün blok tiplerini kullanır ve her blokta oraya ne yazılacağını
@@ -41,11 +53,8 @@ const TEMPLATE_MEDIA = {
 export function createProjectTemplate(): Omit<ProjectData, "slug"> {
   const template = {
     title: "Şablon Proje",
-    category: "UX / UI Design",
     year: new Date().getFullYear().toString(),
-    description:
-      "Projeyi tek cümlede özetleyin: ne yapıldı, kimin için ve hangi sonucu doğurdu. Bu metin sayfanın en üstünde, kapak görselinin hemen üzerinde görünür.",
-    coverImage: TEMPLATE_MEDIA.oxtvCover,
+    ...TEMPLATE_OVERVIEW,
     items: [
       // ── 01 · Genel Bakış ────────────────────────────────────────────────
       {

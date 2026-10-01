@@ -9,6 +9,7 @@ import { PillButton } from "@/components/Button";
 import { listProjects, saveProject, deleteProject } from "@/lib/firestore";
 import { deleteProjectFolder } from "@/lib/storage";
 import { ProjectData } from "@/types/project";
+import { withOverviewFields, withProjectCanvas } from "@/figma/overview";
 
 // ── Slug helpers ──────────────────────────────────────────────────────────────
 
@@ -174,13 +175,14 @@ function CreateProjectDialog({
     setCreating(true);
     setError("");
     try {
-      const newProject: ProjectData = {
+      // Its page made with it: the Overview first, the template's example in it to fill in — the project's fields as it says.
+      const newProject: ProjectData = withOverviewFields(withProjectCanvas({
         slug,
         title: title || slug,
         category: "",
         year: new Date().getFullYear().toString(),
         items: [],
-      };
+      }));
       await saveProject(newProject);
       onCreate(slug);
     } catch (err) {

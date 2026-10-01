@@ -12,8 +12,9 @@ import { DesignSystemProvider } from "@/components/project/designSystem";
 import { useDesignSystem } from "@/components/admin/useDesignSystem";
 import { useUndo } from "@/components/admin/useUndo";
 import { FigmaEditor } from "@/figma/FigmaEditor";
-import { newDocument, upgradeDocument, type FigmaDocument } from "@/figma/model";
-import { withStartingLibrary } from "@/figma/library";
+import { newDocument, type FigmaDocument } from "@/figma/model";
+import { hasLegacyPage, withLegacyPage } from "@/figma/fromLegacy";
+import { keepsOverview, withOverviewFields, withProjectCanvas } from "@/figma/overview";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -52,9 +53,6 @@ function readDraft(slug: string): ProjectData | null {
   }
 }
 
-/** The project with its Figma file — a new one (its page frame named after it) when it has none yet — with the starting components on their page. */
-const withCanvas = (p: ProjectData): ProjectData => ({ ...p, canvas: withStartingLibrary(p.canvas ? upgradeDocument(p.canvas) : newDocument(p.title || p.slug)) });
-
 // ── Main editor ───────────────────────────────────────────────────────────────
 
 /**
@@ -77,19 +75,19 @@ export function AdminEditorClient({ slug }: { slug: string }) {
       .then((data) => {
         if (data) {
           if (!Array.isArray(data.items)) data.items = [];
-          const normalized = withCanvas({ ...data, slug });
+          const normalized = withProjectCanvas({ ...data, slug });
           setProject(normalized);
           setIsPublished(true);
           localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(normalized));
         } else {
           const draft = readDraft(slug);
-          setProject((p) => withCanvas(draft ?? (p.slug !== slug ? { ...p, slug } : p)));
+          setProject((p) => withProjectCanvas(draft ?? (p.slug !== slug ? { ...p, slug } : p)));
         }
       })
       .catch((err) => {
         console.warn("Firestore load failed, using local cache:", err);
         const draft = readDraft(slug);
-        setProject((p) => withCanvas(draft ?? p));
+        setProject((p) => withProjectCanvas(draft ?? p));
       })
       .finally(() => setLoadingFromDB(false));
   }, [slug]);
@@ -112,7 +110,8 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }, [slug]);
 
   async function handleSave() {
-    const dataToSave = { ...project, slug };
+    // The project's title, category, year, description and cover: as its page's overview says.
+    const dataToSave = withOverviewFields({ ...project, slug });
     setSaveStatus("saving");
     try {
       await saveProject(dataToSave);
@@ -154,11 +153,17 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   }, [registerSave]);
 
   const doc = project.canvas ?? null;
+  // The page made again from the project's older page (the editor's menu): what is on the page frame is replaced — one step to undo.
+  // Its overview from what the page's says now.
+  const rebuildPage = useCallback(() => {
+    setProject((p) => (p.canvas && hasLegacyPage(p) ? { ...p, canvas: withLegacyPage(p.canvas, withOverviewFields(p)) } : p));
+  }, []);
+  // An edit that would break the page's overview (delete it, move it, wrap it…) is refused: the project's own layers stay.
   const onDoc = useCallback((update: (doc: FigmaDocument) => FigmaDocument) => {
     setProject((p) => {
       const current = p.canvas ?? newDocument(p.title || p.slug);
       const next = update(current);
-      return next === p.canvas ? p : { ...p, canvas: next };
+      return next === p.canvas || !keepsOverview(current, next) ? p : { ...p, canvas: next };
     });
   }, []);
 
@@ -190,6 +195,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
           isPublished={isPublished}
           undo={history.undo}
           redo={history.redo}
+          onRebuildPage={project.canvas?.fromLegacy && hasLegacyPage(project) ? rebuildPage : undefined}
         />
       </DesignSystemProvider>
     </div>

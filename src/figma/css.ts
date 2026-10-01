@@ -102,6 +102,11 @@ function placement(node: SceneNode, parentLayout: LayoutMode, byId: Map<string, 
   const hugW = node.sizingH === "hug" || (node.type === "text" && textAuto === "widthHeight");
   const hugH = node.sizingV === "hug" || (node.type === "text" && textAuto !== "none");
   const limits = (st: CSSProperties) => {
+    // Constrained proportions on a layer as wide as its frame lets it (Fill): its height follows its width.
+    if (node.lockAspect && node.sizingH === "fill" && !hugH && node.sizingV !== "fill" && node.width > 0 && node.height > 0 && parentLayout !== "none" && !node.absolute) {
+      st.height = "auto";
+      st.aspectRatio = `${node.width} / ${node.height}`;
+    }
     if (node.minWidth !== undefined) st.minWidth = node.minWidth;
     if (node.maxWidth !== undefined) st.maxWidth = node.maxWidth;
     if (node.minHeight !== undefined) st.minHeight = node.minHeight;
@@ -121,6 +126,11 @@ function placement(node: SceneNode, parentLayout: LayoutMode, byId: Map<string, 
   style.position = "relative";
   style.flexShrink = 0;
   if (parentLayout === "grid") {
+    // Its cell, when it was put in one; the columns it covers.
+    const span = Math.max(1, Math.round(node.gridSpan ?? 1));
+    if (node.gridCol) style.gridColumn = `${Math.round(node.gridCol)} / span ${span}`;
+    else if (span > 1) style.gridColumn = `span ${span}`;
+    if (node.gridRow) style.gridRow = String(Math.round(node.gridRow));
     style.width = hugW ? "max-content" : node.sizingH === "fill" ? undefined : node.width;
     style.height = hugH ? "auto" : node.sizingV === "fill" ? undefined : node.height;
     if (node.sizingH === "fill") style.justifySelf = "stretch";
@@ -136,7 +146,7 @@ function placement(node: SceneNode, parentLayout: LayoutMode, byId: Map<string, 
   // once capped, so a capped one takes the whole width instead and sits where the parent aligns it.
   if (fillW) {
     if (along === "H") {
-      style.flexGrow = 1;
+      style.flexGrow = node.grow ?? 1;
       style.flexBasis = 0;
       style.minWidth = 0;
     } else if (node.maxWidth !== undefined) style.width = "100%";
@@ -144,7 +154,7 @@ function placement(node: SceneNode, parentLayout: LayoutMode, byId: Map<string, 
   }
   if (fillH) {
     if (along === "V") {
-      style.flexGrow = 1;
+      style.flexGrow = node.grow ?? 1;
       style.flexBasis = 0;
       style.minHeight = 0;
     } else if (node.maxHeight !== undefined) style.height = "100%";
@@ -169,9 +179,10 @@ export function frameLayoutCss(frame: FrameNode, byId: Map<string, DesignVariabl
   if (frame.layoutMode === "none") return style;
   if (frame.layoutMode === "grid") {
     style.display = "grid";
-    // Equal columns sharing the width (as the site's grids of cards): Fill children stretch into them.
-    style.gridTemplateColumns = `repeat(${Math.max(1, frame.gridColumns ?? 2)}, minmax(0, 1fr))`;
-    if (frame.gridRows) style.gridTemplateRows = `repeat(${frame.gridRows}, auto)`;
+    // Equal columns sharing the width (as the site's grids of cards) unless sized one by one: Fill children stretch into them.
+    const cols = Math.max(1, frame.gridColumns ?? 2);
+    style.gridTemplateColumns = frame.gridTracks?.length === cols ? frame.gridTracks.join(" ") : `repeat(${cols}, minmax(0, 1fr))`;
+    if (frame.gridRows) style.gridTemplateRows = frame.gridRowTracks?.length === frame.gridRows ? frame.gridRowTracks.join(" ") : `repeat(${frame.gridRows}, auto)`;
     style.columnGap = px(frame.itemSpacing, byId);
     style.rowGap = px(frame.counterSpacing ?? frame.itemSpacing, byId);
     style.justifyContent = JUSTIFY[frame.primaryAlign];

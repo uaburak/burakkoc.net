@@ -6,6 +6,7 @@ import { FigmaIcon } from "@/components/admin/figmaIcons";
 import { DesignSystemStyle } from "@/components/project/designSystem";
 import { MIN_ZOOM, clampZoom, fitView, zoomAround, type CanvasTool, type CanvasView, type ZoomActions } from "@/components/admin/canvasModel";
 import { findNode, getNode, isFrameLike, isLocked, numberOf, topmost, type FigmaDocument, type FrameNode, type SceneNode } from "./model";
+import { fillsCss } from "./css";
 import { MotionStyle, NodeView, RenderProvider, type RenderContext } from "./NodeView";
 
 /**
@@ -22,6 +23,11 @@ import { MotionStyle, NodeView, RenderProvider, type RenderContext } from "./Nod
  * auto layout, it reorders); the handles size it; the tools draw into the
  * frame under the pointer; a drag on the empty canvas (or in a frame's empty
  * area) is a marquee.
+ *
+ * With `pageId` it is the Page Editor's view: that frame alone, drawn as the
+ * site's page — at its own width, centred, scaled down only when the view is
+ * narrower than it — and scrolled up and down like a page. Everything else
+ * (picking, dragging, the handles, the menus) is the canvas's.
  */
 
 export type Rect = { x: number; y: number; w: number; h: number };
@@ -62,6 +68,29 @@ export interface CanvasProps {
   rulers?: boolean;
   /** The canvas's own colour (Figma's page background) */
   background?: string;
+  /** The Page Editor: only this frame (the site's page) is drawn, as a page that scrolls — no pan, no zoom of one's own */
+  pageId?: string | null;
+}
+
+/** The room under the page's end in the Page Editor (the toolbar floats over it). */
+const PAGE_END_ROOM = 96;
+/** How far from its track's ends the page's scrollbar stays, and its least length. */
+const SCROLL_INSET = 8;
+const SCROLL_MIN = 40;
+
+/**
+ * The Page Editor's view: the page at its own width — 100%, or as much as
+ * fits the view's width — centred, scrolled by `y`, never past its ends (a
+ * page not measured yet keeps its scroll). `page`: its size in its own px.
+ */
+function pageViewOf(v: CanvasView, size: { width: number; height: number }, page: { width: number; height: number }): CanvasView {
+  const zoom = page.width > 0 && size.width > 0 ? Math.min(1, size.width / page.width) : 1;
+  const x = Math.max(0, Math.round((size.width - page.width * zoom) / 2));
+  const least = page.height > 0 ? Math.min(0, size.height - page.height * zoom - PAGE_END_ROOM) : -Infinity;
+  // The view's width changed the scale: what was at the top stays there.
+  const from = v.zoom > 0 && v.zoom !== zoom ? v.y * (zoom / v.zoom) : v.y;
+  const y = Math.min(0, Math.max(least, from));
+  return v.zoom === zoom && v.x === x && v.y === y ? v : { zoom, x, y };
 }
 
 /** The ids from the top-level node down to the innermost element under `target` (locked ones and what is under them left out). */
@@ -231,9 +260,10 @@ const World = memo(function World({ doc, render }: { doc: FigmaDocument; render:
   );
 });
 
-export function Canvas({ doc, render, selection, onSelect, view, onView, tool, onMove, onReparent, onReorder, onResize, onLayoutEdit, layoutFocus, onDraw, onDoubleClick, onContextMenu, zoomActionsRef, rulers = true, background }: CanvasProps) {
+export function Canvas({ doc: file, render, selection, onSelect, view: given, onView, tool, onMove, onReparent, onReorder, onResize, onLayoutEdit, layoutFocus, onDraw, onDoubleClick, onContextMenu, zoomActionsRef, rulers = true, background, pageId = null }: CanvasProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
+  const paged = pageId !== null;
   const [space, setSpace] = useState(false);
   const [dragging, setDragging] = useState<"pan" | "move" | "resize" | "draw" | "marquee" | "layout" | null>(null);
   // The padding / gap handles: the one hovered, the one dragged (with its value, for the badge), the one typed into.
@@ -246,6 +276,30 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
   // Where a dragged node would land: the frame's box (none for the canvas) and the line along an auto layout.
   const [drop, setDrop] = useState<{ rect: Rect | null; line?: Rect } | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
+  // The Page Editor: the page frame alone, at the canvas's origin, at its own width.
+  const doc = useMemo<FigmaDocument>(() => {
+    if (pageId === null) return file;
+    const page = file.nodes.find((n) => n.id === pageId && isFrameLike(n));
+    return { ...file, nodes: page ? [{ ...page, x: 0, y: 0, rotation: undefined, sizingH: undefined }] : [] };
+  }, [file, pageId]);
+  const pageNode = paged ? doc.nodes[0] ?? null : null;
+  const pageWidth = pageNode?.width ?? 0;
+  // Its height as drawn (measured with the lines, every frame).
+  const [pageHeight, setPageHeight] = useState(0);
+  const measuredHeight = useRef(0);
+  const view = useMemo(() => (paged ? pageViewOf(given, size, { width: pageWidth, height: pageHeight }) : given), [paged, given, size, pageWidth, pageHeight]);
+  // The editor's own copy of the view follows (it places what is pasted or put in with it).
+  useEffect(() => {
+    if (paged && view !== given) onView(() => view);
+  }, [paged, view, given, onView]);
+  const dims = useRef({ size, page: { width: pageWidth, height: pageHeight } });
+  useEffect(() => {
+    dims.current = { size, page: { width: pageWidth, height: pageHeight } };
+  });
+  /** The view changed from here: a page's stays a page's (its scale, centred, within its ends). */
+  const setView = useCallback((update: (view: CanvasView) => CanvasView) => {
+    onView(paged ? (v) => pageViewOf(update(v), dims.current.size, dims.current.page) : update);
+  }, [onView, paged]);
   const [shown, setShown] = useState<{ boxes: Rect[]; hover: Rect | null; parent: Rect | null; labels: { id: string; name: string; rect: Rect; kind: string }[]; measure: { a: Rect; b: Rect } | null; origins: Rect[]; kids: Rect[] }>({ boxes: [], hover: null, parent: null, labels: [], measure: null, origins: [], kids: [] });
 
   const probe = useRef<HTMLSpanElement>(null);
@@ -272,9 +326,9 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", clear); };
   }, []);
   const hovered = useRef<HTMLElement | null>(null);
-  const latest = useRef({ view, selection, tool, space, doc, dragging });
+  const latest = useRef({ view, selection, tool, space, doc, dragging, pageId });
   useEffect(() => {
-    latest.current = { view, selection, tool, space, doc, dragging };
+    latest.current = { view, selection, tool, space, doc, dragging, pageId };
   });
 
   // The viewport's size (the rulers, fitting).
@@ -344,11 +398,21 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
         const pel = found?.parent ? elOf(found.parent.id) : null;
         if (pel) parent = worldRect(pel);
       }
-      const labels = d.nodes.flatMap((n) => {
+      // (A page has no name over it: it starts at the view's top.)
+      const labels = latest.current.pageId !== null ? [] : d.nodes.flatMap((n) => {
         const el = elOf(n.id);
         if (!el || !isFrameLike(n)) return [];
         return [{ id: n.id, name: n.name, rect: worldRect(el), kind: n.type }];
       });
+      if (latest.current.pageId !== null) {
+        // All that is drawn of it: what reaches past a fixed height too, unless it clips it.
+        const pel = elOf(latest.current.pageId);
+        const height = pel ? (pel.style.overflow === "hidden" ? pel.offsetHeight : Math.max(pel.offsetHeight, pel.scrollHeight)) : 0;
+        if (height !== measuredHeight.current) {
+          measuredHeight.current = height;
+          setPageHeight(height);
+        }
+      }
       // A selected auto layout frame's children in its flow, for the gap handles between them.
       let kids: Rect[] = [];
       if (sel.length === 1 && !sel[0].includes("/")) {
@@ -375,17 +439,39 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
       if ((e.target as Element).closest("[role=menu]")) return;
       e.preventDefault();
       const r = el.getBoundingClientRect();
-      if (e.ctrlKey || e.metaKey) {
+      if (paged) {
+        // A page scrolls up and down; a pinch zooms nothing.
+        if (e.ctrlKey || e.metaKey) return;
+        const by = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+        setView((v) => ({ ...v, y: v.y - by }));
+      } else if (e.ctrlKey || e.metaKey) {
         const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.01));
-        onView((v) => zoomAround(v, v.zoom * factor, { x: e.clientX - r.left, y: e.clientY - r.top }));
+        setView((v) => zoomAround(v, v.zoom * factor, { x: e.clientX - r.left, y: e.clientY - r.top }));
       } else {
         const sideways = e.shiftKey && !e.deltaX;
-        onView((v) => ({ ...v, x: v.x - (sideways ? e.deltaY : e.deltaX), y: v.y - (sideways ? 0 : e.deltaY) }));
+        setView((v) => ({ ...v, x: v.x - (sideways ? e.deltaY : e.deltaX), y: v.y - (sideways ? 0 : e.deltaY) }));
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [onView]);
+  }, [setView, paged]);
+
+  // A page's keys: Page Up / Down, Home, End.
+  useEffect(() => {
+    if (!paged) return;
+    const onKey = (e: KeyboardEvent) => {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || document.querySelector("[role=menu], [role=dialog]")) return;
+      const step = Math.max(80, dims.current.size.height - 80);
+      const to = e.key === "PageDown" ? (y: number) => y - step : e.key === "PageUp" ? (y: number) => y + step : e.key === "Home" ? () => 0 : e.key === "End" ? () => -Infinity : null;
+      if (!to) return;
+      e.preventDefault();
+      setView((v) => ({ ...v, y: to(v.y) }));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [paged, setView]);
 
   // ── Zoom actions, for the chrome and the keys ──
   const boundsOf = useCallback((els: Element[]): Rect | null => {
@@ -398,18 +484,34 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
     return { x, y, w: right - x, h: bottom - y };
   }, [canvasRect]);
   const zoomActions = useMemo<ZoomActions>(() => ({
-    zoomTo: (zoom) => onView((v) => zoomAround(v, clampZoom(zoom), { x: size.width / 2, y: size.height / 2 })),
+    zoomTo: (zoom) => {
+      if (!paged) setView((v) => zoomAround(v, clampZoom(zoom), { x: size.width / 2, y: size.height / 2 }));
+    },
     fitAll: () => {
+      // A page: back to its top.
+      if (paged) return setView((v) => ({ ...v, y: 0 }));
       const bounds = boundsOf(Array.from(world.current?.children ?? []));
-      if (bounds) onView(() => fitView(bounds, size.width, size.height));
+      if (bounds) setView(() => fitView(bounds, size.width, size.height));
     },
     fitSelection: () => {
       const els = latest.current.selection.map((id) => elOf(id)).filter((el): el is HTMLElement => Boolean(el));
       const bounds = boundsOf(els);
-      if (bounds) onView(() => fitView(bounds, size.width, size.height, false));
+      if (paged) {
+        // A page: scrolled to it — nothing moves when it is all in sight; what is taller than the view starts near its top.
+        if (!bounds) return;
+        const room = size.height - PAGE_END_ROOM;
+        setView((v) => {
+          const top = bounds.y * v.zoom + v.y;
+          const tall = bounds.h * v.zoom;
+          if (top >= 0 && top + tall <= room) return v;
+          return { ...v, y: (tall > room - 48 ? 24 : (room - tall) / 2) - bounds.y * v.zoom };
+        });
+        return;
+      }
+      if (bounds) setView(() => fitView(bounds, size.width, size.height, false));
       else zoomActions.fitAll();
     },
-  }), [onView, size, boundsOf, elOf]);
+  }), [setView, paged, size, boundsOf, elOf]);
   useEffect(() => {
     if (zoomActionsRef) zoomActionsRef.current = zoomActions;
     return () => { if (zoomActionsRef) zoomActionsRef.current = null; };
@@ -447,7 +549,7 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
   const startPan = (e: React.PointerEvent) => {
     e.preventDefault();
     const start = { x: e.clientX, y: e.clientY, view: latest.current.view };
-    follow("pan", (ev) => onView(() => ({ ...start.view, x: start.view.x + ev.clientX - start.x, y: start.view.y + ev.clientY - start.y })), () => {});
+    follow("pan", (ev) => setView(() => ({ ...start.view, x: start.view.x + ev.clientX - start.x, y: start.view.y + ev.clientY - start.y })), () => {});
   };
 
   /** The other top-level nodes' edges and centers (canvas px), to snap a lone move to. */
@@ -468,6 +570,10 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
   /** The frame under the pointer that could take a dropped node — none of `excluded` or what is inside them. */
   const frameUnder = (clientX: number, clientY: number, excluded: Set<string>): { id: string | null; el: HTMLElement | null } => {
     const w = world.current!;
+    // Off every frame: the canvas — or, in the Page Editor, the page itself (there is nothing beside it to put a layer on).
+    const root = latest.current.pageId;
+    const rootEl = root !== null && !excluded.has(root) ? elOf(root) : null;
+    const none = rootEl ? { id: root, el: rootEl } : { id: null, el: null };
     const els = document.elementsFromPoint(clientX, clientY);
     for (const el of els) {
       const node = (el as HTMLElement).closest?.<HTMLElement>("[data-node-id]");
@@ -481,9 +587,9 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
         if (model && (model.type === "frame" || model.type === "component") && !inside && !isLocked(latest.current.doc.nodes, id)) return { id, el: cur };
         cur = cur.parentElement?.closest<HTMLElement>("[data-node-id]") ?? null;
       }
-      return { id: null, el: null };
+      return none;
     }
-    return { id: null, el: null };
+    return none;
   };
 
   /** Where, among an auto layout frame's children, a point lands. */
@@ -507,7 +613,8 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
     const { doc: d, selection: sel } = latest.current;
     const ids = sel.includes(primaryId) ? sel : [primaryId];
     const tops = topmost(d.nodes, ids.filter((id) => !id.includes("/")));
-    if (!tops.length) return;
+    // (The Page Editor's page stays where it is.)
+    if (!tops.length || tops.some((t) => t.node.id === latest.current.pageId)) return;
     const excluded = new Set(tops.map((t) => t.node.id));
     const els = tops.map((t) => ({ found: t, el: elOf(t.node.id)! })).filter((t) => t.el);
     const start = { x: e.clientX, y: e.clientY };
@@ -800,6 +907,8 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
       onSelect(sel.includes(picked.id) ? sel.filter((id) => id !== picked.id) : [...sel, picked.id]);
       return;
     }
+    // The Page Editor's page, already selected: a drag on it is a marquee over its layers (it can't be moved).
+    if (picked.id === latest.current.pageId) return startMarquee(e, picked);
     if (!sel.includes(picked.id)) onSelect([picked.id]);
     if (!picked.id.includes("/")) startMove(e, picked.id);
   };
@@ -845,7 +954,7 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
   const selectedNode = selection.length === 1 && !selection[0].includes("/") ? getNode(doc.nodes, selection[0]) : null;
   const purple = selection.some((id) => { const n = id.includes("/") ? null : getNode(doc.nodes, id); return n && (n.type === "component" || n.type === "componentSet" || n.type === "instance"); }) || selection.some((id) => id.includes("/"));
   const tone = purple ? "var(--edit-component)" : "var(--edit-accent)";
-  const resizable = selectedNode && !selectedNode.locked;
+  const resizable = selectedNode && !selectedNode.locked && selectedNode.id !== pageId;
   // ── Figma's layout handles: a selected auto layout frame's padding (blue, at each edge) and gap (pink, between its children) ──
   const layoutFrame = onLayoutEdit && box && selectedNode && isFrameLike(selectedNode) && (selectedNode.layoutMode === "vertical" || selectedNode.layoutMode === "horizontal") && !selectedNode.locked && !DRAW_TOOLS.has(tool) && (dragging === null || dragging === "layout") ? selectedNode : null;
   const modelPads = layoutFrame ? { top: numberOf(layoutFrame.paddingTop, render.byId), right: numberOf(layoutFrame.paddingRight, render.byId), bottom: numberOf(layoutFrame.paddingBottom, render.byId), left: numberOf(layoutFrame.paddingLeft, render.byId) } : null;
@@ -980,7 +1089,32 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
     return padGeometry(target.side).at;
   };
   const cursor = dragging === "pan" || (dragging === null && (space || tool === "hand")) ? (dragging === "pan" ? "grabbing" : "grab") : tool === "text" ? "text" : DRAW_TOOLS.has(tool) ? "crosshair" : undefined;
-  const inset = rulers ? RULER : 0;
+  const ruled = rulers && !paged;
+  const inset = ruled ? RULER : 0;
+  // The page's scrollbar: what is in sight of the page (and the room under it), along the view's right edge.
+  const scrollbar = (() => {
+    if (!paged) return null;
+    const content = pageHeight * view.zoom + PAGE_END_ROOM;
+    const track = size.height - SCROLL_INSET * 2;
+    if (!pageHeight || content <= size.height + 1 || track <= SCROLL_MIN) return null;
+    const length = Math.max(SCROLL_MIN, (size.height / content) * track);
+    const range = content - size.height;
+    return { length, range, travel: track - length, offset: SCROLL_INSET + (Math.min(range, -view.y) / range) * (track - length) };
+  })();
+  const startScroll = (e: React.PointerEvent) => {
+    if (e.button !== 0 || !scrollbar || scrollbar.travel <= 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const start = { at: e.clientY, y: view.y };
+    const { range, travel } = scrollbar;
+    const move = (ev: PointerEvent) => setView((v) => ({ ...v, y: start.y - ((ev.clientY - start.at) / travel) * range }));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   return (
     <div
@@ -1029,6 +1163,8 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
           <span ref={probe} data-zoom-probe="" aria-hidden className="pointer-events-none absolute left-0 top-0 h-0" style={{ width: PROBE }} />
           <DesignSystemStyle />
           <MotionStyle />
+          {/* The Page Editor: the page's own fill behind and around it, as far as the view goes — the site's page has no canvas beside it. */}
+          {pageNode && <div data-page-backdrop="" aria-hidden className="pointer-events-none absolute" style={{ left: -view.x / view.zoom, top: -view.y / view.zoom, width: size.width / view.zoom, height: size.height / view.zoom, ...fillsCss(pageNode.fills, render.byId) }} />}
           <World doc={doc} render={render} />
         </div>
       </div>
@@ -1187,7 +1323,19 @@ export function Canvas({ doc, render, selection, onSelect, view, onView, tool, o
       {drawRect && (
         <div aria-hidden className="pointer-events-none absolute border border-[var(--edit-accent)]" style={{ left: view.x + drawRect.x * view.zoom, top: view.y + drawRect.y * view.zoom, width: drawRect.w * view.zoom, height: drawRect.h * view.zoom }} />
       )}
-      {rulers && <Rulers view={{ ...view, x: view.x - inset, y: view.y - inset }} width={size.width - inset} height={size.height - inset} selected={box ?? multiBounds} />}
+      {ruled && <Rulers view={{ ...view, x: view.x - inset, y: view.y - inset }} width={size.width - inset} height={size.height - inset} selected={box ?? multiBounds} />}
+      {scrollbar && (
+        <span
+          data-canvas-ui=""
+          data-page-scrollbar=""
+          aria-hidden
+          onPointerDown={startScroll}
+          className="absolute right-0 z-20 flex justify-center w-3 cursor-default opacity-50 hover:opacity-100 transition-opacity"
+          style={{ top: scrollbar.offset, height: scrollbar.length }}
+        >
+          <span className="w-[5px] h-full rounded-full bg-[var(--f-text-tertiary)]" />
+        </span>
+      )}
     </div>
   );
 }

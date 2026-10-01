@@ -96,10 +96,11 @@ function Row({ id, node, inInstance, depth, selected, insideSelected, open, hasK
   useEffect(() => {
     const el = row.current;
     if (!el) return;
-    const start = () => { ended.current = false; setRenaming(true); };
+    // The project's own layers (the Overview's) keep their names.
+    const start = () => { if (node.fixed) return; ended.current = false; setRenaming(true); };
     el.addEventListener(RENAME_EVENT, start);
     return () => el.removeEventListener(RENAME_EVENT, start);
-  }, []);
+  }, [node.fixed]);
   const finish = (value?: string) => {
     if (ended.current) return;
     ended.current = true;
@@ -118,7 +119,7 @@ function Row({ id, node, inInstance, depth, selected, insideSelected, open, hasK
       onMouseEnter={() => hoverNode(id)}
       onMouseLeave={() => hoverNode(null)}
       onContextMenu={onContextMenu}
-      onDoubleClick={(e) => { e.stopPropagation(); if (inInstance) return; ended.current = false; setRenaming(true); }}
+      onDoubleClick={(e) => { e.stopPropagation(); if (inInstance || node.fixed) return; ended.current = false; setRenaming(true); }}
       className={cn("group/row relative h-7 select-none", dragging && "opacity-40")}
     >
       {/* The cell: selected, in the light blue; inside a selected layer, the lighter tint runs on (its block rounds as one); hovered, the grey. */}
@@ -309,6 +310,9 @@ export function Layers({ nodes, library = nodes, selection, open, onToggle, onTo
         const row = (e.target as Element).closest<HTMLElement>("[data-tree-row]");
         const id = row?.dataset.treeRow;
         if (!id || (e.target as Element).closest("button, input") || e.button !== 0) return;
+        // A panel field still being typed in takes its words to its own layer first, before another is picked (as the canvas does).
+        const active = document.activeElement as HTMLElement | null;
+        if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA") && !e.currentTarget.contains(active)) active.blur();
         if (e.shiftKey && selection.length) {
           const from = visible.indexOf(selection[selection.length - 1]);
           const to = visible.indexOf(id);

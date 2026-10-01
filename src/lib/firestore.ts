@@ -50,6 +50,31 @@ function stripUndefined<T extends Record<string, any>>(obj: T): T {
   return result;
 }
 
+// ── The Figma file, as stored ─────────────────────────────────────────────────
+
+/**
+ * A project's Figma file (ProjectData.canvas) is kept as one JSON text, not
+ * as Firestore maps: Firestore takes no map or array nested more than 20
+ * deep, and a design's frames nest deeper than that soon (each frame inside
+ * another is two levels: its children, then itself) — a save would be
+ * refused ("contains an invalid nested entity"). Files saved before are
+ * maps under `canvas`; they are still read.
+ */
+const CANVAS_TEXT = "canvasJson";
+
+function storedCanvas(raw: Record<string, unknown>): ProjectData["canvas"] | undefined {
+  let canvas: unknown = raw.canvas;
+  if (typeof raw[CANVAS_TEXT] === "string") {
+    try {
+      canvas = JSON.parse(raw[CANVAS_TEXT] as string);
+    } catch (err) {
+      console.error("The project's Figma file could not be read:", err);
+      return undefined;
+    }
+  }
+  return canvas && typeof canvas === "object" && Array.isArray((canvas as { nodes?: unknown }).nodes) ? (canvas as ProjectData["canvas"]) : undefined;
+}
+
 // ── Normalization Helper ──────────────────────────────────────────────────────
 
 function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
@@ -82,8 +107,9 @@ function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
   if (cleaned.theme && typeof cleaned.theme === "object") res.theme = cleaned.theme as ProjectData["theme"];
   // The page's frame (size, alignment) — kept like the theme.
   if (cleaned.frame && typeof cleaned.frame === "object") res.frame = cleaned.frame as ProjectData["frame"];
-  // The Figma editor's file (see FigmaDocument).
-  if (cleaned.canvas && typeof cleaned.canvas === "object" && Array.isArray((cleaned.canvas as { nodes?: unknown }).nodes)) res.canvas = cleaned.canvas as ProjectData["canvas"];
+  // The Figma editor's file (see FigmaDocument) — as JSON text, or as maps when saved before (see storedCanvas).
+  const canvas = storedCanvas(cleaned);
+  if (canvas) res.canvas = canvas;
 
   return res;
 }
@@ -154,8 +180,11 @@ export async function saveCVData(data: CVData): Promise<void> {
 export async function saveProject(data: ProjectData): Promise<void> {
   if (!data.slug) throw new Error("Project slug is required");
 
+  // The Figma file as JSON text (see storedCanvas): the maps it was saved as before go with this overwrite.
+  const { canvas, ...rest } = data;
   const cleanData = stripUndefined({
-    ...data,
+    ...rest,
+    ...(canvas ? { [CANVAS_TEXT]: JSON.stringify(canvas) } : {}),
     updatedAt: serverTimestamp(),
   });
 

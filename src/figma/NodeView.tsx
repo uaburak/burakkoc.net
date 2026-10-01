@@ -3,8 +3,11 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { DesignVariable } from "@/types/design";
 import { MOTION_CSS } from "@/components/project/interactions";
-import { colorWithAlpha, frameLayoutCss, nodeCss, motionCss } from "./css";
-import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, type FrameNode, type LayoutGrid, type LayoutMode, type Reaction, type SceneNode, type TextNode } from "./model";
+import { isSafeHref, renderRichText } from "@/components/project/RichText";
+import { ZoomableImage } from "@/components/ZoomableImage";
+import { colorWithAlpha, fillsCss, frameLayoutCss, nodeCss, motionCss } from "./css";
+import { EmbedView } from "./EmbedView";
+import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, type FrameNode, type LayoutGrid, type LayoutMode, type Paint, type Reaction, type SceneNode, type ShapeNode, type TextNode } from "./model";
 
 /**
  * The nodes drawn as DOM — the editor's canvas and the site's page share it.
@@ -16,6 +19,11 @@ import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, type Fram
  * prototyping on (the site, the preview) an instance turns into another
  * variant on its reactions — the same elements stay (keyed by name), so
  * Smart animate transitions them.
+ *
+ * On the site (`site`) the page also does what a page does: its links go
+ * where they point, its pictures open larger on a click, what the site's
+ * code draws (see Embed) works. A text's **bold** and [links](https://…)
+ * are drawn as such everywhere but while it is typed in.
  */
 
 export interface RenderContext {
@@ -26,6 +34,75 @@ export interface RenderContext {
   play: boolean;
   /** The text being typed in place (the editor), and where its words go */
   editing?: { id: string; onInput: (id: string, text: string) => void; onDone: () => void } | null;
+  /** The site's page: links, pictures that open larger, embeds that work */
+  site?: boolean;
+}
+
+/** A grid's columns, on its element: the site's page has fewer of them on a phone (see PAGE_CSS). */
+const gridOf = (node: FrameNode) => (node.layoutMode === "grid" ? Math.max(1, node.gridColumns ?? 2) : undefined);
+
+/** The room a page keeps over its content on a screen too narrow for what stands beside it (the way back, the contents). */
+export const PAGE_TOP_NARROW = 40;
+
+/** A frame's layers stacked, one to a row, as wide as it (see FrameNode.narrow): the site's page on a narrower screen. */
+const stackCss = (at: string) => `
+  [data-canvas-page] [data-narrow="${at}"][data-grid] { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: none !important; }
+  [data-canvas-page] [data-narrow="${at}"]:not([data-grid]) { flex-direction: column !important; flex-wrap: nowrap !important; }
+  [data-canvas-page] [data-narrow="${at}"] > [data-node-id] { grid-column: auto !important; grid-row: auto !important; align-self: stretch !important; justify-self: stretch !important; width: auto !important; max-width: 100% !important; min-width: 0 !important; height: auto !important; flex: none !important; position: relative !important; left: auto !important; top: auto !important; }`;
+
+/**
+ * The site's page on narrower screens — the file itself has no breakpoints:
+ * under 1280px (nothing stands beside the page) it keeps 40px over its
+ * content, however much its frame has (`--page-lift`: what is taken off);
+ * frames marked to (see FrameNode.narrow) stack their layers under 768px
+ * or 640px, or keep two columns under 640px; on a phone (under 640px) an
+ * unmarked grid of three columns or more has two.
+ */
+export const PAGE_CSS = `@media (max-width: 1279px) {
+  [data-canvas-page] { margin-top: calc(-1 * var(--page-lift, 0px)); }
+}
+@media (max-width: 767px) {${stackCss("stack")}
+}
+@media (max-width: 639px) {${stackCss("stack-sm")}
+  [data-canvas-page] [data-narrow="two"][data-grid] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  [data-canvas-page] [data-narrow="two"] > [data-node-id] { grid-column: auto !important; grid-row: auto !important; }
+  ${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `[data-canvas-page] [data-grid="${n}"]:not([data-narrow])`).join(", ")} { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}`;
+
+/** Inside a link (on the site): no link of its own — HTML has no link inside a link. */
+const InLinkCtx = createContext(false);
+
+/** The least size (px, each way) of a picture that opens larger on the site: an avatar or an icon doesn't. */
+const ZOOM_FROM = 120;
+
+/** The picture a shape shows that opens larger on a click (the site's pages): its topmost fill, when that is an image. */
+function zoomable(node: SceneNode): Paint | null {
+  if (node.type !== "rectangle" && node.type !== "ellipse") return null;
+  if (node.width < ZOOM_FROM || node.height < ZOOM_FROM) return null;
+  const top = node.fills.find((p) => p.visible !== false);
+  return top?.type === "image" && top.image?.url && top.image.fit !== "tile" ? top : null;
+}
+
+/**
+ * A shape showing a picture, on the site: the picture itself (it opens
+ * larger on a click) in a box clipped to the shape's corners, over the
+ * shape's other fills; its shadows and strokes drawn as the shape's — those
+ * inside it again over the picture.
+ */
+function PictureView({ node, paint, style, id }: { node: ShapeNode; paint: Paint; style: CSSProperties; id: string }) {
+  const ctx = useContext(RenderContextCtx);
+  const { boxShadow, backgroundColor, backgroundImage, backgroundSize, backgroundRepeat, backgroundPosition, ...box } = style;
+  void backgroundColor; void backgroundImage; void backgroundSize; void backgroundRepeat; void backgroundPosition;
+  const under = fillsCss(node.fills.filter((p) => p !== paint), ctx.byId);
+  const image = paint.image!;
+  return (
+    <div data-node-id={id} data-node-type={node.type} data-picture="" style={{ ...box, ...under, boxShadow }}>
+      <span className="absolute inset-0 block overflow-hidden" style={{ borderRadius: "inherit" }}>
+        <ZoomableImage src={image.url} alt="" draggable={false} className={image.fit === "fit" ? "block w-full h-full object-contain" : "block w-full h-full object-cover"} />
+        {boxShadow && <span aria-hidden className="pointer-events-none absolute inset-0" style={{ boxShadow, borderRadius: "inherit" }} />}
+      </span>
+    </div>
+  );
 }
 
 export const RenderContextCtx = createContext<RenderContext>({ nodes: [], byId: new Map(), lang: "tr", play: false });
@@ -85,12 +162,14 @@ function EditableTextNode({ node, style, id }: { node: TextNode; style: CSSPrope
 
 function TextView({ node, parentLayout, id, zIndex }: { node: TextNode; parentLayout: LayoutMode; id: string; zIndex?: number }) {
   const ctx = useContext(RenderContextCtx);
+  const inLink = useContext(InLinkCtx);
   const style = { ...nodeCss(node, parentLayout, ctx.byId), zIndex };
   if (ctx.editing && ctx.editing.id === id) return <EditableTextNode node={node} style={style} id={id} />;
   const words = textOf(node, ctx.lang);
   return (
     <div data-node-id={id} data-node-type="text" data-text-style={node.textStyle} style={style}>
-      {words || (ctx.editing !== undefined ? <span style={{ opacity: 0.3 }}>Text</span> : null)}
+      {/* Its links: to follow on the site only — the editor's canvas and its preview draw them without an anchor. */}
+      {words ? renderRichText(words, { links: Boolean(ctx.site) && !inLink }) : ctx.editing !== undefined ? <span style={{ opacity: 0.3 }}>Text</span> : null}
     </div>
   );
 }
@@ -183,12 +262,35 @@ function FrameBox({ node, parentLayout, id, type, extraStyle, extraProps, childI
   keyOf?: (child: SceneNode) => string;
 }) {
   const ctx = useContext(RenderContextCtx);
+  const inLink = useContext(InLinkCtx);
   const style = { ...nodeCss(node, parentLayout, ctx.byId), ...extraStyle };
-  return (
-    <div data-node-id={id} data-node-type={type} style={style} {...extraProps}>
+  // What the site's code draws in its place (see Embed): as tall as it is drawn — inside a link, without links of its own (its badges).
+  if (node.embed) {
+    return (
+      <div data-node-id={id} data-node-type={type} style={style} {...extraProps}>
+        <EmbedView embed={inLink ? { ...node.embed, badges: undefined } : node.embed} id={id} site={Boolean(ctx.site) && !inLink} lang={ctx.lang} />
+      </div>
+    );
+  }
+  const content = (
+    <>
       <Children parent={node} childId={childId} keyOf={keyOf} path="" />
       {ctx.editing !== undefined && node.layoutGrids?.some((g) => g.visible !== false) && <LayoutGrids grids={node.layoutGrids} />}
       {ctx.editing !== undefined && node.layoutMode === "grid" && <GridCells frame={node} byId={ctx.byId} />}
+    </>
+  );
+  // A link, on the site: the frame itself is what is clicked (what is inside it links nowhere of its own).
+  if (ctx.site && !inLink && node.href && isSafeHref(node.href)) {
+    const outside = /^https?:\/\//i.test(node.href);
+    return (
+      <a data-node-id={id} data-node-type={type} data-grid={gridOf(node)} data-narrow={node.narrow} href={node.href} {...(outside ? { target: "_blank", rel: "noopener noreferrer" } : {})} className="transition-[filter,scale] duration-200 hover:brightness-95 active:scale-[0.97]" style={{ ...style, color: "inherit", textDecoration: "none", cursor: "pointer" }} {...extraProps}>
+        <InLinkCtx.Provider value={true}>{content}</InLinkCtx.Provider>
+      </a>
+    );
+  }
+  return (
+    <div data-node-id={id} data-node-type={type} data-grid={gridOf(node)} data-narrow={node.narrow} style={style} {...extraProps}>
+      {content}
     </div>
   );
 }
@@ -199,7 +301,7 @@ function GridCells({ frame, byId }: { frame: FrameNode; byId: Map<string, Design
   const cols = Math.max(1, frame.gridColumns ?? 2);
   const rows = frame.gridRows ?? Math.max(1, Math.ceil(frame.children.length / cols));
   return (
-    <div data-grid-cells="" aria-hidden className="pointer-events-none absolute inset-0 grid" style={{ boxSizing: "border-box", paddingTop: layout.paddingTop, paddingRight: layout.paddingRight, paddingBottom: layout.paddingBottom, paddingLeft: layout.paddingLeft, columnGap: layout.columnGap, rowGap: layout.rowGap, gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
+    <div data-grid-cells="" aria-hidden className="pointer-events-none absolute inset-0 grid" style={{ boxSizing: "border-box", paddingTop: layout.paddingTop, paddingRight: layout.paddingRight, paddingBottom: layout.paddingBottom, paddingLeft: layout.paddingLeft, columnGap: layout.columnGap, rowGap: layout.rowGap, gridTemplateColumns: layout.gridTemplateColumns ?? `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
       {Array.from({ length: cols * rows }).map((_, i) => <span key={i} style={{ boxShadow: "inset 0 0 0 1px var(--edit-accent, #0d99ff)", opacity: 0.5 }} />)}
     </div>
   );
@@ -227,9 +329,12 @@ function LayoutGrids({ grids }: { grids: LayoutGrid[] }) {
 }
 
 function Children({ parent, childId, keyOf, path }: { parent: FrameNode; childId?: (namePath: string, child: SceneNode) => string; keyOf?: (child: SceneNode) => string; path: string }) {
+  const ctx = useContext(RenderContextCtx);
   return (
     <>
       {parent.children.map((child) => {
+        // A hidden layer isn't on the site at all — nor its pictures, loading for nothing.
+        if (ctx.site && child.visible === false) return null;
         const namePath = path ? `${path}${PATH_SEP}${child.name}` : child.name;
         const id = childId ? childId(namePath, child) : child.id;
         const key = keyOf ? keyOf(child) : child.id;
@@ -246,7 +351,7 @@ function Children({ parent, childId, keyOf, path }: { parent: FrameNode; childId
 function NestedFrame({ node, parentLayout, id, childId, keyOf, path }: { node: FrameNode; parentLayout: LayoutMode; id: string; childId: (namePath: string, child: SceneNode) => string; keyOf?: (child: SceneNode) => string; path: string }) {
   const ctx = useContext(RenderContextCtx);
   return (
-    <div data-node-id={id} data-node-type={node.type} style={nodeCss(node, parentLayout, ctx.byId)}>
+    <div data-node-id={id} data-node-type={node.type} data-grid={gridOf(node)} data-narrow={node.narrow} style={nodeCss(node, parentLayout, ctx.byId)}>
       <Children parent={node} childId={childId} keyOf={keyOf} path={path} />
     </div>
   );
@@ -259,7 +364,10 @@ export const NodeView = memo(function NodeView({ node, parentLayout, id, zIndex 
   if (node.type === "text") return <TextView node={node} parentLayout={parentLayout} id={key} zIndex={zIndex} />;
   if (node.type === "instance") return <InstanceView node={node} parentLayout={parentLayout} id={key} zIndex={zIndex} />;
   if (isFrameLike(node)) return <FrameBox node={node} parentLayout={parentLayout} id={key} type={node.type} extraStyle={zIndex !== undefined ? { zIndex } : undefined} />;
-  return <div data-node-id={key} data-node-type={node.type} style={{ ...nodeCss(node, parentLayout, ctx.byId), zIndex }} />;
+  const style = { ...nodeCss(node, parentLayout, ctx.byId), zIndex };
+  const paint = ctx.site ? zoomable(node) : null;
+  if (paint && (node.type === "rectangle" || node.type === "ellipse")) return <PictureView node={node} paint={paint} style={style} id={key} />;
+  return <div data-node-id={key} data-node-type={node.type} style={style} />;
 });
 
 /** The prototypes' animations, once on the page. */
