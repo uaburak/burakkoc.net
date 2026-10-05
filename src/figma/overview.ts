@@ -1,5 +1,5 @@
 import type { ProjectData } from "@/types/project";
-import { withStartingLibrary } from "./library";
+import { COMPONENTS_PAGE_ID, withStartingLibrary } from "./library";
 import {
   OVERVIEW_NAME,
   inPageColumn,
@@ -267,7 +267,9 @@ const keep = (doc: FigmaDocument, next: FigmaDocument) => (overviewOf(next) ? ne
  * for it (see withProjectPage), its overview whole (withOverview).
  */
 export function withProjectCanvas(project: ProjectData): ProjectData {
-  const canvas = withStartingLibrary(project.canvas ? upgradeDocument(project.canvas) : newDocument(project.title || project.slug));
+  const stored = project.canvas ? upgradeDocument(project.canvas) : newDocument(project.title || project.slug);
+  // The Components page isn't opened as a page any more (a component is edited on its own: see FigmaEditor) — a file left on it opens on the project's.
+  const canvas = withStartingLibrary(stored.currentPage === COMPONENTS_PAGE_ID ? { ...stored, currentPage: undefined } : stored);
   return { ...project, canvas: withOverview(withProjectPage(canvas, project), project) };
 }
 

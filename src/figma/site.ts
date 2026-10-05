@@ -1,5 +1,5 @@
 import { HEADING_COMPONENT, isOverviewNode } from "./fromLegacy";
-import { PATH_SEP, findComponent, isFrameLike, propertiesOf, resolveInstance, type FrameNode, type SceneNode, type ShapeNode } from "./model";
+import { BASE_LANGUAGE, PATH_SEP, findComponent, isFrameLike, propertiesOf, propsIn, resolveInstance, type FrameNode, type LangCode, type SceneNode, type ShapeNode } from "./model";
 
 /**
  * What the site's page does with the Figma file's page frame, read from the
@@ -28,7 +28,7 @@ export interface PageHeading {
 }
 
 /** The page's headings: each section's first Heading instance's title, in the language shown — the project's own title (the overview's) apart. */
-export function headingsOf(page: FrameNode, library: readonly SceneNode[], lang: "tr" | "en" = "tr"): PageHeading[] {
+export function headingsOf(page: FrameNode, library: readonly SceneNode[], lang: LangCode = "tr"): PageHeading[] {
   const first = (node: SceneNode): PageHeading | null => {
     if (node.visible === false) return null;
     if (node.type === "instance") {
@@ -36,7 +36,8 @@ export function headingsOf(page: FrameNode, library: readonly SceneNode[], lang:
       if (node.mainId !== HEADING_COMPONENT || !main) return null;
       // Its own title (an emptied one is none, as on the page); the component's default only when it has none of its own.
       const own = node.props?.title;
-      const title = lang === "en" && said(node.propsEn?.title) ? node.propsEn.title : typeof own === "string" ? own : propertiesOf(library, main.id).find((p) => p.id === "title")?.value;
+      const words = lang === BASE_LANGUAGE ? undefined : propsIn(node, lang)?.title;
+      const title = said(words) ? words : typeof own === "string" ? own : propertiesOf(library, main.id).find((p) => p.id === "title")?.value;
       return said(title) ? { id: node.id, label: title.trim() } : null;
     }
     if (!isFrameLike(node) || node.embed) return null;

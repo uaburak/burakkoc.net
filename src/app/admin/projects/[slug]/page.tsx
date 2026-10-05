@@ -17,7 +17,7 @@ export default async function AdminProjectPage({ params }: Props) {
 
   return (
     <EditorProvider>
-      <div className="h-screen overflow-hidden flex flex-col bg-[var(--bg-1)] transition-colors duration-200">
+      <div data-no-page-scroll="" className="h-screen overflow-hidden flex flex-col bg-[var(--bg-1)] transition-colors duration-200">
         <AdminEditorClient slug={slug} />
       </div>
     </EditorProvider>

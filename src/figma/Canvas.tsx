@@ -70,6 +70,12 @@ export interface CanvasProps {
   background?: string;
   /** The Page Editor: only this frame (the site's page) is drawn, as a page that scrolls — no pan, no zoom of one's own */
   pageId?: string | null;
+  /** Hold the right button and drag to pan (a plain right click still opens the menu) */
+  rightMousePan?: boolean;
+  /** The horizontal wheel zooms around the pointer */
+  horizontalScrollZoom?: boolean;
+  /** …right out, left in */
+  horizontalScrollZoomReversed?: boolean;
 }
 
 /** The room under the page's end in the Page Editor (the toolbar floats over it). */
@@ -93,36 +99,72 @@ function pageViewOf(v: CanvasView, size: { width: number; height: number }, page
   return v.zoom === zoom && v.x === x && v.y === y ? v : { zoom, x, y };
 }
 
-/** The ids from the top-level node down to the innermost element under `target` (locked ones and what is under them left out). */
-function pathAt(target: Element, root: Element, doc: FigmaDocument): { id: string; el: HTMLElement }[] {
+/** A text layer's lines — where its glyphs are, one box per line (an empty text: its whole box). */
+function glyphLines(el: HTMLElement): DOMRect[] {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
+  range.detach();
+  return rects.length ? rects : [el.getBoundingClientRect()];
+}
+
+let metricsCtx: CanvasRenderingContext2D | null = null;
+/** How far a text's baseline sits above its line boxes' bottom (the font's descent), in the text's own (unzoomed) px. */
+function descentOf(el: HTMLElement): number {
+  metricsCtx ??= document.createElement("canvas").getContext("2d");
+  if (!metricsCtx) return 0;
+  const cs = getComputedStyle(el);
+  metricsCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  return metricsCtx.measureText("x").fontBoundingBoxDescent || 0;
+}
+
+/** Whether a point is over a text layer's glyphs (its lines' boxes), not the empty rest of its box. An empty text counts whole. */
+function overGlyphs(el: HTMLElement, x: number, y: number): boolean {
+  return glyphLines(el).some((r) => x >= r.left - 1 && x <= r.right + 1 && y >= r.top - 1 && y <= r.bottom + 1);
+}
+
+/** The ids from the top-level node down to the innermost element under `target` (locked ones and what is under them left out); `at` given: a text is only hit on its glyphs (its empty box hits what is under it). */
+function pathAt(target: Element, root: Element, doc: FigmaDocument, at?: { x: number; y: number }): { id: string; el: HTMLElement }[] {
   const path: { id: string; el: HTMLElement }[] = [];
   let el = target.closest<HTMLElement>("[data-node-id]");
   while (el && root.contains(el)) {
     path.unshift({ id: el.dataset.nodeId!, el });
     el = el.parentElement?.closest<HTMLElement>("[data-node-id]") ?? null;
   }
+  const last = path[path.length - 1];
+  if (at && last && last.el.dataset.nodeType === "text" && !overGlyphs(last.el, at.x, at.y)) path.pop();
   // A locked node can't be picked, nor what is inside it.
   const locked = path.findIndex((p) => !p.id.includes("/") && getNode(doc.nodes, p.id)?.locked);
   return locked >= 0 ? path.slice(0, locked) : path;
 }
 
 /**
- * What a press picks, as Figma's: the top-level node; inside a top-level frame, its
- * direct child; inside a selected node, the next level down; `deep`, the innermost.
+ * What a press picks, as Figma's: the innermost layer along the path whose parent is "open" — a top-level frame,
+ * a selected layer or one of its ancestors. So nothing selected: a top-level frame's direct child; inside a selected
+ * layer: the next level down (never two); beside it: its siblings, its parent's siblings… at their own level.
+ * `deep` (⌘): the innermost.
  */
-function pickFrom(path: { id: string; el: HTMLElement }[], selection: readonly string[], deep: boolean): { id: string; el: HTMLElement } | null {
+function pickFrom(path: { id: string; el: HTMLElement }[], selection: readonly string[], deep: boolean, root: Element | null): { id: string; el: HTMLElement } | null {
   if (!path.length) return null;
   if (deep) return path[path.length - 1];
-  // Already selected (or an ancestor of the selection is the innermost): the same.
-  const exact = path.findIndex((p) => selection.includes(p.id));
-  if (exact >= 0) {
-    // The innermost selected along the path: a click on it keeps it; a click inside it goes one level down.
-    let deepest = exact;
-    for (let i = path.length - 1; i >= 0; i--) if (selection.includes(path[i].id)) { deepest = i; break; }
-    if (deepest === path.length - 1) return path[deepest];
-    return path[deepest + 1];
+  const open = new Set<string>();
+  for (const id of selection) {
+    let el: HTMLElement | null | undefined = root?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
+    if (!el) { open.add(id); continue; }
+    while (el && root?.contains(el)) {
+      open.add(el.dataset.nodeId!);
+      el = el.parentElement?.closest<HTMLElement>("[data-node-id]");
+    }
   }
+  for (let i = path.length - 1; i >= 2; i--) if (open.has(path[i - 1].id)) return path[i];
   return path[Math.min(1, path.length - 1)];
+}
+
+/** A component, a set, an instance or a layer inside one (a composite id): outlined in Figma's purple, not blue. */
+function isComponentish(id: string, nodes: SceneNode[]): boolean {
+  if (id.includes("/")) return true;
+  const n = getNode(nodes, id);
+  return !!n && (n.type === "component" || n.type === "componentSet" || n.type === "instance");
 }
 
 /** Figma's measurement red. */
@@ -260,7 +302,7 @@ const World = memo(function World({ doc, render }: { doc: FigmaDocument; render:
   );
 });
 
-export function Canvas({ doc: file, render, selection, onSelect, view: given, onView, tool, onMove, onReparent, onReorder, onResize, onLayoutEdit, layoutFocus, onDraw, onDoubleClick, onContextMenu, zoomActionsRef, rulers = true, background, pageId = null }: CanvasProps) {
+export function Canvas({ doc: file, render, selection, onSelect, view: given, onView, tool, onMove, onReparent, onReorder, onResize, onLayoutEdit, layoutFocus, onDraw, onDoubleClick, onContextMenu, zoomActionsRef, rulers = true, background, pageId = null, rightMousePan = false, horizontalScrollZoom = false, horizontalScrollZoomReversed = false }: CanvasProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
   const paged = pageId !== null;
@@ -300,7 +342,7 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
   const setView = useCallback((update: (view: CanvasView) => CanvasView) => {
     onView(paged ? (v) => pageViewOf(update(v), dims.current.size, dims.current.page) : update);
   }, [onView, paged]);
-  const [shown, setShown] = useState<{ boxes: Rect[]; hover: Rect | null; parent: Rect | null; labels: { id: string; name: string; rect: Rect; kind: string }[]; measure: { a: Rect; b: Rect } | null; origins: Rect[]; kids: Rect[] }>({ boxes: [], hover: null, parent: null, labels: [], measure: null, origins: [], kids: [] });
+  const [shown, setShown] = useState<{ boxes: Rect[]; hover: Rect | null; hoverPurple: boolean; hoverText: boolean; underlines: (Rect & { purple: boolean })[]; parent: Rect | null; labels: { id: string; name: string; rect: Rect; kind: string }[]; measure: { a: Rect; b: Rect } | null; origins: Rect[]; kids: Rect[] }>({ boxes: [], hover: null, hoverPurple: false, hoverText: false, underlines: [], parent: null, labels: [], measure: null, origins: [], kids: [] });
 
   const probe = useRef<HTMLSpanElement>(null);
   // ⌥ held: a copy drag's ghosts follow the pointer (the originals stay), and distances to what is hovered are measured in red, as Figma's.
@@ -360,14 +402,33 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
    * world as it is drawn right now — its probe's width says the zoom — so the
    * lines over the canvas can be drawn from the same view as the world itself.
    */
-  const worldRect = useCallback((el: Element): Rect => {
+  const worldRect = useCallback((el: Element | DOMRect): Rect => {
     const w = world.current!;
     const wr = w.getBoundingClientRect();
     const pw = probe.current?.getBoundingClientRect().width ?? 0;
     const z = pw > 0 ? pw / PROBE : latest.current.view.zoom;
-    const r = el.getBoundingClientRect();
+    const r = el instanceof Element ? el.getBoundingClientRect() : el;
     return { x: (r.left - wr.left) / z, y: (r.top - wr.top) / z, w: r.width / z, h: r.height / z };
   }, []);
+
+  // Crisp at rest: a GPU layer whose scale keeps changing is no longer re-rastered by Chrome — it blows the old bitmap up
+  // (the canvas turns into one as soon as it holds an iframe, a backdrop blur…). While the zoom moves, the world is
+  // marked as a moving layer (cheap, smooth); 150ms after it stops, the mark goes and Chrome draws it again at that scale.
+  // The world stays scaled by transform all along — nothing is laid out again, nothing jumps.
+  const zoomSettle = useRef<number | null>(null);
+  const firstZoom = useRef(true);
+  useEffect(() => {
+    const w = world.current;
+    if (!w) return;
+    if (firstZoom.current) { firstZoom.current = false; return; }
+    w.style.willChange = "transform";
+    if (zoomSettle.current !== null) window.clearTimeout(zoomSettle.current);
+    zoomSettle.current = window.setTimeout(() => {
+      zoomSettle.current = null;
+      w.style.willChange = "";
+    }, 150);
+  }, [view.zoom]);
+  useEffect(() => () => { if (zoomSettle.current !== null) window.clearTimeout(zoomSettle.current); }, []);
 
   // The lines over the canvas follow what they outline, every frame — measured in canvas units, so a pan or a zoom never leaves them behind.
   useEffect(() => {
@@ -382,7 +443,26 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
       const elFor = (id: string) => ghosts.current.get(id) ?? elOf(id);
       const boxes = sel.map((id) => elFor(id)).filter((el): el is HTMLElement => Boolean(el)).map((el) => worldRect(el));
       const over = hovered.current?.isConnected ? hovered.current : w.querySelector("[data-layer-hover]");
-      const hover = over && !sel.includes((over as HTMLElement).dataset.nodeId ?? "") ? worldRect(over) : null;
+      const overId = (over as HTMLElement | null)?.dataset.nodeId ?? "";
+      const hover = over && !sel.includes(overId) ? worldRect(over) : null;
+      const hoverPurple = hover ? isComponentish(overId, d.nodes) : false;
+      // Figma's text outline: a small line right under the glyphs of a hovered or selected text — one per line.
+      const hoverText = !!hover && (over as HTMLElement).dataset.nodeType === "text";
+      const underlines: (Rect & { purple: boolean })[] = [];
+      const editingNow = document.querySelector("[data-editing]");
+      const lined: { el: HTMLElement | null | undefined; purple: boolean }[] = [
+        { el: hoverText ? (over as HTMLElement) : null, purple: hoverPurple },
+        ...sel.map((id) => ({ el: elFor(id), purple: isComponentish(id, d.nodes) })),
+      ];
+      for (const { el, purple } of lined) {
+        if (!el || el.dataset.nodeType !== "text" || el === editingNow || el.closest("[data-editing]")) continue;
+        // On the baseline: the tails of a y or a g reach below it.
+        const descent = descentOf(el);
+        for (const r of glyphLines(el)) {
+          const rect = worldRect(r);
+          underlines.push({ x: rect.x, y: rect.y + rect.h - descent, w: rect.w, h: 0, purple });
+        }
+      }
       // Figma's red measurement: a copy drag measures the ghost against its original; ⌥ over another layer measures the selection against it.
       let measure: { a: Rect; b: Rect } | null = null;
       const ghost = sel.length === 1 ? ghosts.current.get(sel[0]) : undefined;
@@ -421,7 +501,7 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
           kids = n.children.filter((c) => c.visible !== false && !c.absolute).map((c) => elOf(c.id)).filter((el): el is HTMLElement => Boolean(el)).map((el) => worldRect(el));
         }
       }
-      const next = { boxes, hover, parent, labels, measure, origins, kids };
+      const next = { boxes, hover, hoverPurple, hoverText, underlines, parent, labels, measure, origins, kids };
       const key = JSON.stringify(next);
       if (key === last) return;
       last = key;
@@ -435,9 +515,38 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
   useEffect(() => {
     const el = viewport.current;
     if (!el) return;
+    // A run of wheel events (less than 250ms apart): whether any of them moved vertically — a trackpad's two fingers always
+    // wander up and down a little, a mouse's horizontal wheel is purely horizontal. Only a run that stayed horizontal is the mouse's:
+    // its first 45ms are held back to be sure, then zoomed together (a trackpad's run pans, nothing zoomed before it showed itself).
+    const run: { at: number; vertical: boolean; decided: "zoom" | "pan" | null; held: { dx: number; x: number; y: number; unit: number }[]; timer: number | null } = { at: 0, vertical: false, decided: null, held: [], timer: null };
+    const zoomBy = (dx: number, x: number, y: number, unit: number) => {
+      const factor = Math.exp((horizontalScrollZoomReversed ? -dx : dx) * unit);
+      setView((v) => zoomAround(v, v.zoom * factor, { x, y }));
+    };
+    /** The held events given up as a pan (what they were: a trackpad's start). */
+    const panHeld = () => {
+      const dx = run.held.reduce((sum, h) => sum + h.dx, 0);
+      run.held = [];
+      if (dx) setView((v) => ({ ...v, x: v.x - dx }));
+    };
     const onWheel = (e: WheelEvent) => {
       if ((e.target as Element).closest("[role=menu]")) return;
       e.preventDefault();
+      const now = e.timeStamp;
+      if (now - run.at > 250) {
+        if (run.timer !== null) window.clearTimeout(run.timer);
+        run.timer = null;
+        run.held = [];
+        run.vertical = false;
+        run.decided = null;
+      }
+      run.at = now;
+      if (e.deltaY !== 0 && !run.vertical) {
+        run.vertical = true;
+        run.decided = "pan";
+        if (run.timer !== null) { window.clearTimeout(run.timer); run.timer = null; }
+        panHeld();
+      }
       const r = el.getBoundingClientRect();
       if (paged) {
         // A page scrolls up and down; a pinch zooms nothing.
@@ -447,6 +556,18 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
       } else if (e.ctrlKey || e.metaKey) {
         const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.01));
         setView((v) => zoomAround(v, v.zoom * factor, { x: e.clientX - r.left, y: e.clientY - r.top }));
+      } else if (horizontalScrollZoom && !e.shiftKey && e.deltaX !== 0 && e.deltaY === 0 && run.decided !== "pan" && e.deltaMode !== 2) {
+        const hit = { dx: e.deltaX, x: e.clientX - r.left, y: e.clientY - r.top, unit: e.deltaMode === 1 ? 0.05 : 0.01 };
+        if (run.decided === "zoom") return zoomBy(hit.dx, hit.x, hit.y, hit.unit);
+        run.held.push(hit);
+        if (run.timer === null) {
+          run.timer = window.setTimeout(() => {
+            run.timer = null;
+            if (run.vertical) return panHeld();
+            run.decided = "zoom";
+            run.held.splice(0).forEach((h) => zoomBy(h.dx, h.x, h.y, h.unit));
+          }, 45);
+        }
       } else {
         const sideways = e.shiftKey && !e.deltaX;
         setView((v) => ({ ...v, x: v.x - (sideways ? e.deltaY : e.deltaX), y: v.y - (sideways ? 0 : e.deltaY) }));
@@ -454,7 +575,7 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [setView, paged]);
+  }, [setView, paged, horizontalScrollZoom, horizontalScrollZoomReversed]);
 
   // A page's keys: Page Up / Down, Home, End.
   useEffect(() => {
@@ -490,7 +611,8 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     fitAll: () => {
       // A page: back to its top.
       if (paged) return setView((v) => ({ ...v, y: 0 }));
-      const bounds = boundsOf(Array.from(world.current?.children ?? []));
+      // The layers drawn — not what else the world holds (the zoom probe, a 1000px span at the origin; styles), which would widen the bounds.
+      const bounds = boundsOf(Array.from(world.current?.children ?? []).filter((el) => el.hasAttribute("data-node-id")));
       if (bounds) setView(() => fitView(bounds, size.width, size.height));
     },
     fitSelection: () => {
@@ -550,6 +672,43 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     e.preventDefault();
     const start = { x: e.clientX, y: e.clientY, view: latest.current.view };
     follow("pan", (ev) => setView(() => ({ ...start.view, x: start.view.x + ev.clientX - start.x, y: start.view.y + ev.clientY - start.y })), () => {});
+  };
+
+  /**
+   * The right button held and dragged pans (past 4px); let go without moving,
+   * it is a right click: its menu opens. The menu is held back while the
+   * button is down — some systems ask for it on the press — and not opened
+   * after a pan, whenever they ask.
+   */
+  const rightPress = useRef<{ down: boolean; panned: boolean; held: { id: string | null; e: React.MouseEvent } | null; quiet: boolean }>({ down: false, panned: false, held: null, quiet: false });
+  const startRightPan = (e: React.PointerEvent) => {
+    const press = rightPress.current;
+    press.down = true;
+    press.panned = false;
+    press.held = null;
+    const start = { x: e.clientX, y: e.clientY, view: latest.current.view };
+    const onMovePointer = (ev: PointerEvent) => {
+      if (!press.panned && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 4) return;
+      if (!press.panned) { press.panned = true; setDragging("pan"); }
+      setView(() => ({ ...start.view, x: start.view.x + ev.clientX - start.x, y: start.view.y + ev.clientY - start.y }));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMovePointer);
+      window.removeEventListener("pointerup", onUp);
+      press.down = false;
+      if (press.panned) {
+        setDragging(null);
+        // The system's menu request may come after the release: it is not to open one.
+        press.quiet = true;
+        window.setTimeout(() => { press.quiet = false; }, 150);
+      } else if (press.held) {
+        // Not a pan: the menu that was held back opens now.
+        onContextMenu(press.held.id, press.held.e);
+      }
+      press.held = null;
+    };
+    window.addEventListener("pointermove", onMovePointer);
+    window.addEventListener("pointerup", onUp);
   };
 
   /** The other top-level nodes' edges and centers (canvas px), to snap a lone move to. */
@@ -896,12 +1055,14 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     if (target.closest("[data-editing], [data-canvas-ui]")) return;
     const { tool: current, space: hand, doc: d, selection: sel } = latest.current;
     if (e.button === 1 || (e.button === 0 && (hand || current === "hand"))) return startPan(e);
+    if (e.button === 2 && rightMousePan && !paged) return startRightPan(e);
     if (e.button !== 0) return;
     if (DRAW_TOOLS.has(current)) return startDraw(e);
-    const path = pathAt(target, world.current!, d);
-    const picked = pickFrom(path, sel, e.metaKey || e.ctrlKey);
+    const path = pathAt(target, world.current!, d, { x: e.clientX, y: e.clientY });
+    const picked = pickFrom(path, sel, e.metaKey || e.ctrlKey, world.current);
     // The empty canvas, or a top-level frame's own area (not one of its children): a marquee — a click selects the frame.
-    const onTopFrame = path.length === 1 && path[0].el === target.closest("[data-node-id]") && !sel.includes(path[0].id) && !e.metaKey && !e.ctrlKey;
+    const hit = target.closest<HTMLElement>("[data-node-id]");
+    const onTopFrame = path.length === 1 && (hit === path[0].el || (hit?.dataset.nodeType === "text" && hit.parentElement?.closest("[data-node-id]") === path[0].el)) && !sel.includes(path[0].id) && !e.metaKey && !e.ctrlKey;
     if (!picked || onTopFrame) return startMarquee(e, onTopFrame ? path[0] : null);
     if (e.shiftKey) {
       onSelect(sel.includes(picked.id) ? sel.filter((id) => id !== picked.id) : [...sel, picked.id]);
@@ -917,12 +1078,12 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     const target = e.target as Element;
     if (target.closest("[data-editing], [data-canvas-ui]")) return;
     const { doc: d, selection: sel } = latest.current;
-    const path = pathAt(target, world.current!, d);
+    const path = pathAt(target, world.current!, d, { x: e.clientX, y: e.clientY });
     if (!path.length) return;
-    // The next level down from the selection, or the innermost text.
-    const deepest = [...path].reverse().find((p) => sel.includes(p.id));
-    const at = deepest ? path[Math.min(path.length - 1, path.indexOf(deepest) + 1)] : path[Math.min(1, path.length - 1)];
-    onDoubleClick(at.id);
+    // Each press already went one level down (pickFrom): the double click acts on what its second press picked —
+    // it never goes a level further, or that level would be skipped.
+    const at = [...path].reverse().find((p) => sel.includes(p.id)) ?? pickFrom(path, sel, false, world.current);
+    if (at) onDoubleClick(at.id);
   };
 
   /** A top-level frame's name over it: a press selects it — and a drag moves it. */
@@ -942,6 +1103,8 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
   const S = (r: Rect): Rect => ({ x: view.x + r.x * view.zoom, y: view.y + r.y * view.zoom, w: r.w * view.zoom, h: r.h * view.zoom });
   const boxes = shown.boxes.map(S);
   const hoverBox = shown.hover ? S(shown.hover) : null;
+  // A hovered text is drawn as its underline only (Figma's), not as a box.
+  const hoverIsText = shown.hoverText;
   const parentBox = shown.parent ? S(shown.parent) : null;
   const box = boxes.length === 1 ? boxes[0] : null;
   const multiBounds = boxes.length > 1
@@ -952,7 +1115,7 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
       })()
     : null;
   const selectedNode = selection.length === 1 && !selection[0].includes("/") ? getNode(doc.nodes, selection[0]) : null;
-  const purple = selection.some((id) => { const n = id.includes("/") ? null : getNode(doc.nodes, id); return n && (n.type === "component" || n.type === "componentSet" || n.type === "instance"); }) || selection.some((id) => id.includes("/"));
+  const purple = selection.some((id) => isComponentish(id, doc.nodes));
   const tone = purple ? "var(--edit-component)" : "var(--edit-accent)";
   const resizable = selectedNode && !selectedNode.locked && selectedNode.id !== pageId;
   // ── Figma's layout handles: a selected auto layout frame's padding (blue, at each edge) and gap (pink, between its children) ──
@@ -1107,8 +1270,12 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     e.stopPropagation();
     const start = { at: e.clientY, y: view.y };
     const { range, travel } = scrollbar;
+    // Dragged: it stays in sight even when the pointer leaves the canvas (see EDITOR_CSS).
+    const bar = e.currentTarget as HTMLElement;
+    bar.setAttribute("data-dragging", "");
     const move = (ev: PointerEvent) => setView((v) => ({ ...v, y: start.y - ((ev.clientY - start.at) / travel) * range }));
     const up = () => {
+      bar.removeAttribute("data-dragging");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
@@ -1129,18 +1296,25 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
       }}
       onPointerDown={onPointerDown}
       onDoubleClick={onDoubleClickCanvas}
-      onPointerOver={(e) => {
+      onPointerMove={(e) => {
         if (dragging || DRAW_TOOLS.has(tool)) { hovered.current = null; return; }
-        const path = pathAt(e.target as Element, world.current!, doc);
-        hovered.current = pickFrom(path, selection, e.metaKey || e.ctrlKey)?.el ?? null;
+        // On every move, not only on entering an element: within a text's box, its glyphs and the empty rest hit different layers.
+        const path = pathAt(e.target as Element, world.current!, doc, { x: e.clientX, y: e.clientY });
+        hovered.current = pickFrom(path, selection, e.metaKey || e.ctrlKey, world.current)?.el ?? null;
       }}
       onPointerLeave={() => { hovered.current = null; }}
       onContextMenu={(e) => {
         const target = e.target as Element;
         if (target.closest("[data-editing]")) return;
-        const path = pathAt(target, world.current!, doc);
+        const press = rightPress.current;
+        // After a pan: no menu.
+        if (rightMousePan && press.quiet) { e.preventDefault(); return; }
+        const path = pathAt(target, world.current!, doc, { x: e.clientX, y: e.clientY });
         const inSelection = path.find((p) => selection.includes(p.id));
-        onContextMenu(inSelection ? inSelection.id : pickFrom(path, selection, false)?.id ?? null, e);
+        const id = inSelection ? inSelection.id : pickFrom(path, selection, false, world.current)?.id ?? null;
+        // The button is still down: it may become a pan — the menu waits for its release.
+        if (rightMousePan && press.down) { e.preventDefault(); e.persist(); press.held = { id, e }; return; }
+        onContextMenu(id, e);
       }}
       onClickCapture={(e) => { if ((e.target as Element).closest("a[href]")) e.preventDefault(); }}
       onDragStart={(e) => e.preventDefault()}
@@ -1189,8 +1363,12 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
       {parentBox && !dragging && (
         <div aria-hidden className="pointer-events-none absolute border border-[var(--edit-accent)] opacity-25" style={{ left: parentBox.x, top: parentBox.y, width: parentBox.w, height: parentBox.h }} />
       )}
-      {hoverBox && !dragging && (!box || JSON.stringify(hoverBox) !== JSON.stringify(box)) && (
-        <div aria-hidden className="pointer-events-none absolute border-2 border-[var(--edit-accent)] opacity-70" style={{ left: hoverBox.x, top: hoverBox.y, width: hoverBox.w, height: hoverBox.h }} />
+      {shown.underlines.length > 0 && !dragging && shown.underlines.map((u, i) => {
+        const r = S(u);
+        return <div key={i} aria-hidden className="pointer-events-none absolute" style={{ left: r.x, top: r.y - 1, width: r.w, height: 2, background: u.purple ? "var(--edit-component)" : "var(--edit-accent)" }} />;
+      })}
+      {hoverBox && !hoverIsText && !dragging && (!box || JSON.stringify(hoverBox) !== JSON.stringify(box)) && (
+        <div aria-hidden className="pointer-events-none absolute border-2 opacity-70" style={{ borderColor: shown.hoverPurple ? "var(--edit-component)" : "var(--edit-accent)", left: hoverBox.x, top: hoverBox.y, width: hoverBox.w, height: hoverBox.h }} />
       )}
       {boxes.map((b, i) => (
         <div key={i} aria-hidden className="pointer-events-none absolute border" style={{ left: b.x, top: b.y, width: b.w, height: b.h, borderColor: shown.measure || copying ? MEASURE : tone }} />
@@ -1330,7 +1508,7 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
           data-page-scrollbar=""
           aria-hidden
           onPointerDown={startScroll}
-          className="absolute right-0 z-20 flex justify-center w-3 cursor-default opacity-50 hover:opacity-100 transition-opacity"
+          className="absolute right-0 z-20 flex justify-center w-3 cursor-default"
           style={{ top: scrollbar.offset, height: scrollbar.length }}
         >
           <span className="w-[5px] h-full rounded-full bg-[var(--f-text-tertiary)]" />

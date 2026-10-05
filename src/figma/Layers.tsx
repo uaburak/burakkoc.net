@@ -132,7 +132,7 @@ function Row({ id, node, inInstance, depth, selected, insideSelected, open, hasK
         style={CELL}
       />
       {target && target !== "inside" && <span aria-hidden className={cn("pointer-events-none absolute right-0 z-10 h-[2px] rounded-full bg-[var(--f-border-selected)]", target === "before" ? "top-0" : "bottom-0")} style={{ left: 12 + depth * 24 }} />}
-      <div className="relative flex items-center h-7 pr-2" style={{ paddingLeft: 12 + depth * 24 }}>
+      <div className="relative flex items-center h-7 pr-3" style={{ paddingLeft: 12 + depth * 24 }}>
         <button
           type="button"
           aria-label={open ? "Collapse" : "Expand"}
@@ -179,7 +179,7 @@ interface InInstance {
   path: string;
 }
 
-export function Layers({ nodes, library = nodes, selection, open, onToggle, onToggleMany, onSelect, onSelectMany, onRename, onLocate, onToggleHidden, onToggleLocked, onMoveInTree, onContextMenu, filter }: {
+export function Layers({ nodes, library = nodes, selection, open, onToggle, onToggleMany, onSelect, onSelectMany, onClear, onRename, onLocate, onToggleHidden, onToggleLocked, onMoveInTree, onContextMenu, filter }: {
   nodes: SceneNode[];
   /** Every page's nodes — where instances' main components are found */
   library?: SceneNode[];
@@ -191,6 +191,8 @@ export function Layers({ nodes, library = nodes, selection, open, onToggle, onTo
   onSelect: (id: string, additive: boolean) => void;
   /** ⇧-click: the run of rows from the last selected one to the clicked one */
   onSelectMany: (ids: string[]) => void;
+  /** A press on the empty panel, under the rows: the selection goes, as on the empty canvas. */
+  onClear?: () => void;
   onRename: (id: string, name: string) => void;
   /** Double-click on a row's icon: the canvas zooms to that layer */
   onLocate: (id: string) => void;
@@ -305,10 +307,11 @@ export function Layers({ nodes, library = nodes, selection, open, onToggle, onTo
 
   return (
     <div
-      className="flex flex-col"
+      className="flex flex-1 flex-col"
       onPointerDownCapture={(e) => {
         const row = (e.target as Element).closest<HTMLElement>("[data-tree-row]");
         const id = row?.dataset.treeRow;
+        if (!row && e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !(e.target as Element).closest("button, input")) return onClear?.();
         if (!id || (e.target as Element).closest("button, input") || e.button !== 0) return;
         // A panel field still being typed in takes its words to its own layer first, before another is picked (as the canvas does).
         const active = document.activeElement as HTMLElement | null;

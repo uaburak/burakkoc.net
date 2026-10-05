@@ -5,8 +5,9 @@ import { cn } from "@/lib/utils";
 
 /**
  * A scroll container with the site's own scrollbars: the native ones are
- * hidden; thin rounded thumbs show while scrolling (or when the pointer comes
- * in) and fade out after a moment. A thumb can be dragged to scroll.
+ * hidden; thin rounded thumbs show while the pointer is over it (or a thumb is
+ * dragged) and are gone the moment it leaves — no fade. Without hover (touch),
+ * they show while scrolling, for a moment. A thumb can be dragged to scroll.
  *
  * `className` styles the outer box (give it a size); `viewportClassName` the
  * scrolling element inside it (padding, layout of the children).
@@ -14,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 const THUMB_SIZE = 5;     // px thickness
 const MIN_THUMB = 40;     // px
-const HIDE_DELAY = 1200;  // ms before the thumbs fade out
+const HIDE_DELAY = 1200;  // ms the thumbs stay after a scroll without hover (touch)
 
 type Thumb = { size: number; offset: number };
 
@@ -30,17 +31,18 @@ export function ScrollArea({ className, viewportClassName, inset = 24, edge = 4,
   const viewport = useRef<HTMLDivElement>(null);
   const [vertical, setVertical] = useState<Thumb | null>(null);
   const [horizontal, setHorizontal] = useState<Thumb | null>(null);
-  const [visible, setVisible] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [flashed, setFlashed] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragging = useRef(false);
+  const visible = hovered || dragging || flashed;
 
-  /** Show the thumbs, and hide them again a moment later (not while one is dragged). */
+  /** No hover to show them (touch): a scroll shows the thumbs for a moment. */
   const flash = useCallback(() => {
-    setVisible(true);
+    if (!window.matchMedia("(hover: none)").matches) return;
+    setFlashed(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      if (!dragging.current) setVisible(false);
-    }, HIDE_DELAY);
+    hideTimer.current = setTimeout(() => setFlashed(false), HIDE_DELAY);
   }, []);
 
   /** Thumb sizes and positions from the viewport's scroll state. */
@@ -99,7 +101,7 @@ export function ScrollArea({ className, viewportClassName, inset = 24, edge = 4,
     const el = viewport.current;
     const thumb = axis === "vertical" ? vertical : horizontal;
     if (!el || !thumb) return;
-    dragging.current = true;
+    setDragging(true);
     const v = axis === "vertical";
     const start = v ? e.clientY : e.clientX;
     const startScroll = v ? el.scrollTop : el.scrollLeft;
@@ -112,24 +114,23 @@ export function ScrollArea({ className, viewportClassName, inset = 24, edge = 4,
       if (v) el.scrollTop = next;
       else el.scrollLeft = next;
     };
+    // Let go outside the area: the thumbs go then (the pointer left it while dragging).
     const onUp = () => {
-      dragging.current = false;
+      setDragging(false);
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      flash();
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
 
-  const thumbStyle = { backgroundColor: "var(--border-hover)", opacity: visible ? 0.7 : 0, transition: "opacity 0.3s ease" };
+  const thumbStyle = { backgroundColor: "var(--border-hover)", opacity: visible ? 0.7 : 0 };
 
   return (
-    <div className={cn("relative", className)}>
+    <div className={cn("relative", className)} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
       <div
         ref={viewport}
         className={cn("overflow-auto hide-native-scrollbar", viewportClassName)}
-        onMouseEnter={flash}
       >
         {children}
       </div>
@@ -138,7 +139,6 @@ export function ScrollArea({ className, viewportClassName, inset = 24, edge = 4,
         <div className="pointer-events-none absolute top-0 right-0 z-10 w-4 h-full">
           <div
             onMouseDown={(e) => startDrag("vertical", e)}
-            onMouseEnter={() => setVisible(true)}
             className="pointer-events-auto absolute rounded-full cursor-pointer"
             style={{ right: edge, top: vertical.offset, width: THUMB_SIZE, height: vertical.size, ...thumbStyle }}
           />
@@ -149,7 +149,6 @@ export function ScrollArea({ className, viewportClassName, inset = 24, edge = 4,
         <div className="pointer-events-none absolute bottom-0 left-0 z-10 h-4 w-full">
           <div
             onMouseDown={(e) => startDrag("horizontal", e)}
-            onMouseEnter={() => setVisible(true)}
             className="pointer-events-auto absolute rounded-full cursor-pointer"
             style={{ bottom: edge, left: horizontal.offset, height: THUMB_SIZE, width: horizontal.size, ...thumbStyle }}
           />

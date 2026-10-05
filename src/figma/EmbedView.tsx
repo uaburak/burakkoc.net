@@ -7,7 +7,7 @@ import { ZoomableIframe } from "@/components/ZoomableIframe";
 import { CodeMedia, ImageMedia, VideoMedia } from "@/components/project/CoreBlocks";
 import { CompareSlider, DevicesRow } from "@/components/project/CaseStudyBlocks";
 import { cn } from "@/lib/utils";
-import type { Embed } from "./model";
+import { captionIn, type Embed, type LangCode } from "./model";
 
 /**
  * What the site's code draws in a frame's place (see Embed): the media the
@@ -28,8 +28,10 @@ function Media({ caption, children }: { caption?: string; children: ReactNode })
   );
 }
 
-export function EmbedView({ embed, id, site, lang }: { embed: Embed; id: string; site: boolean; lang: "tr" | "en" }) {
-  const caption = lang === "en" ? embed.captionEn || embed.caption : embed.caption;
+export function EmbedView({ embed, id, site, lang }: { embed: Embed; id: string; site: boolean; lang: LangCode }) {
+  const caption = captionIn(embed, lang);
+  // The site's own parts have their words (not found, Prototype…) in Turkish and English only.
+  const chrome = lang === "en" ? "en" : "tr";
   // Its data as the block it was: what the site's parts read.
   const block = { ...embed, id, type: embed.kind === "devices" ? "mockup" : embed.kind } as unknown as Block;
   const part = { block, index: 0, count: 1, preview: !site, style: {}, layerId: id };
@@ -58,10 +60,10 @@ export function EmbedView({ embed, id, site, lang }: { embed: Embed; id: string;
       );
       break;
     case "figma":
-      content = <ZoomableFigma src={embed.src ?? ""} figmaWorkspace={embed.figmaWorkspace} figmaCover={embed.figmaCover} figmaWorkspaceCover={embed.figmaWorkspaceCover} caption={caption} lang={lang} animate={false} />;
+      content = <ZoomableFigma src={embed.src ?? ""} figmaWorkspace={embed.figmaWorkspace} figmaCover={embed.figmaCover} figmaWorkspaceCover={embed.figmaWorkspaceCover} caption={caption} lang={chrome} animate={false} />;
       break;
     case "iframe":
-      content = <ZoomableIframe src={embed.src} iframeTabletUrl={embed.iframeTabletUrl} iframeMobileUrl={embed.iframeMobileUrl} iframeViews={embed.iframeViews} iframeCover={embed.iframeCover} caption={caption} lang={lang} animate={false} />;
+      content = <ZoomableIframe src={embed.src} iframeTabletUrl={embed.iframeTabletUrl} iframeMobileUrl={embed.iframeMobileUrl} iframeViews={embed.iframeViews} iframeCover={embed.iframeCover} caption={caption} lang={chrome} animate={false} />;
       break;
   }
   return (

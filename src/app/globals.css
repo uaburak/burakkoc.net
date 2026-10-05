@@ -123,6 +123,18 @@ html {
   background-color: var(--bg-1);
 }
 
+/* The editor keeps the system's own text selection colours: the greys above are the site's. */
+html [data-no-page-scroll] ::selection {
+  background-color: Highlight !important;
+  color: HighlightText !important;
+}
+
+/* The project editor fills the window and scrolls inside its own panels: no page scrollbar beside it
+   (the rule above keeps one on the site's pages so they don't shift). */
+html:has([data-no-page-scroll]) {
+  overflow-y: hidden;
+}
+
 /* ── Selection (Mouse text selection highlight) ──────────── */
 *::selection {
   background-color: #e2e2e2 !important;

@@ -113,6 +113,7 @@ function MenuPanel({ entries, x, y, flipX, autoFocus, onClose, onBack }: {
       <div
         ref={panel}
         role="menu"
+        data-instant=""
         tabIndex={-1}
         onKeyDown={(e) => {
           e.stopPropagation();

@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { DesignVariable, InteractionAnimation, InteractionEasing, InteractionTrigger, TextStyle, VariableValue } from "@/types/design";
 import { cn } from "@/lib/utils";
-import { FigmaIcon, fi, type FigmaIconName } from "@/components/admin/figmaIcons";
+import { fi, type FigmaIconName } from "@/components/admin/figmaIcons";
 import { ANIMATIONS, EASINGS, TRIGGERS } from "@/components/project/interactions";
 import { boundValue, splitName, type ThemeMode } from "@/components/project/designVariables";
 import { PICKER_WIDTH, VariablePicker, usePopover, type MenuItem } from "@/components/admin/LiveInspector";
 import { weightLabel } from "./css";
 import { type ChevronItem } from "./ui";
-import { BLEND_MODES, EFFECT_LABEL, EMBED_LABEL, LAYOUT_GRID_LABEL, PAINT_LABEL, allComponents, componentAround, findComponent, findNode, freePropertyName, getNode, isFrameLike, layerAt, newEffect, newLayoutGrid, nid, numberOf, propertiesOf, propertyValues, setOf, variantName, variantProperties, variantValue, variantsOf, walk, type ComponentProperty, type Effect, type EffectStyle, type Embed, type ExportSetting, type FrameNode, type LayoutGrid, type NodeOverride, type Paint, type PropertyType, type Reaction, type SceneNode, type StrokeStyle, type TextNode } from "./model";
+import { BASE_LANGUAGE, BLEND_MODES, EFFECT_LABEL, EMBED_LABEL, LAYOUT_GRID_LABEL, PAINT_LABEL, allComponents, componentAround, findComponent, findNode, freePropertyName, getNode, isFrameLike, captionPatch, layerAt, newEffect, newLayoutGrid, nid, numberOf, propertiesOf, propertyValues, propsIn, setOf, variantName, variantProperties, variantValue, variantsOf, walk, wordsIn, wordsPatch, type ComponentProperty, type Effect, type EffectStyle, type Embed, type ExportSetting, type FrameNode, type Language, type LangCode, type LayoutGrid, type NodeOverride, type Paint, type PropertyType, type Reaction, type SceneNode, type StrokeStyle, type TextNode } from "./model";
 import { ColorPicker } from "./ColorPicker";
 import { keys, type MenuEntry } from "@/components/admin/ContextMenu";
-import { Checkbox, ChevronMenu, Chit, ColorInput, IconButton, NumericInput, Prefix, PropRow, Section, Select, TextInput, hexDigits } from "./ui";
+import { BrandButton, Checkbox, ChevronMenu, Chit, ColorInput, FIELD_OUTLINED, IconButton, NumericInput, Prefix, PropRow, Section, Select, Switch, TextInput, hexDigits } from "./ui";
 
 /**
  * Figma's Design panel (its labels on) for whatever is selected — Position,
@@ -31,6 +31,8 @@ export interface EditorOps {
   detach: () => void;
   resetOverrides: () => void;
   goToMain: () => void;
+  /** These layers selected */
+  select: (ids: string[]) => void;
   addVariant: (id: string) => void;
   combineAsVariants: () => void;
   setVariantValue: (variantId: string, property: string, value: string) => void;
@@ -47,10 +49,15 @@ export interface EditorOps {
   setPropertyValue: (holderId: string, propId: string, value: string | boolean) => void;
   /** A layer inside a main component bound to a property (undefined: detached) */
   bindProperty: (nodeId: string, kind: "visible" | "text" | "instance", propId: string | undefined) => void;
-  /** An instance's own value of a property (its English words when `en`) */
-  setInstanceProp: (instanceId: string, propId: string, value: string | boolean, en?: boolean) => void;
-  /** A text inside an instance typed: the instance's value of its text property, or its override */
-  typeInInstance: (compositeId: string, text: string, en: boolean) => void;
+  /** An instance's own value of a property (its words in `language` when it is not the base one) */
+  setInstanceProp: (instanceId: string, propId: string, value: string | boolean, language?: LangCode) => void;
+  /** A text inside an instance typed in a language: the instance's value of its text property, or its override */
+  typeInInstance: (compositeId: string, text: string, lang: LangCode) => void;
+  /** The file's languages (the base first), the one edited and its switch; one added (it becomes the edited one) or removed (its words go) */
+  languages: Language[];
+  setLanguage: (code: LangCode) => void;
+  addLanguage: (language: Language) => void;
+  removeLanguage: (code: LangCode) => void;
   setReactions: (variantId: string, reactions: Reaction[]) => void;
   preview: (id?: string) => void;
   openVariables: () => void;
@@ -112,7 +119,7 @@ function Label({ children, className }: { children: ReactNode; className?: strin
 /** Two labels over two fields. */
 function Labels({ a, b, className }: { a: ReactNode; b?: ReactNode; className?: string }) {
   return (
-    <div className={cn("flex items-center gap-2 pl-4 pr-2 pt-1", className)}>
+    <div className={cn("flex items-center gap-2 pl-4 pr-3 pt-1", className)}>
       <div className="flex flex-1 min-w-0 items-center gap-2">
         <Label className="flex-1">{a}</Label>
         {b !== undefined && <Label className="flex-1">{b}</Label>}
@@ -250,6 +257,8 @@ const ALIGN_GLYPH = {
   vcenter: fi("24.layout-align-vertical-center"),
   bottom: fi("24.layout-align-bottom"),
 };
+/** Figma's keys for them: ⌥A / ⌥H / ⌥D along the width, ⌥W / ⌥V / ⌥S along the height. */
+const ALIGN_KEYS: Record<keyof typeof ALIGN_GLYPH, string> = { left: "⌥A", hcenter: "⌥H", right: "⌥D", top: "⌥W", vcenter: "⌥V", bottom: "⌥S" };
 const ALIGN_LABEL: Record<keyof typeof ALIGN_GLYPH, string> = {
   left: "Align left",
   hcenter: "Align horizontal centers",
@@ -281,13 +290,15 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
 // ── Sections ──────────────────────────────────────────────────────────────────
 
 /** Figma's boxed group of buttons (the alignment, the flips): a field-height box on the secondary background, its buttons sharing it. */
+/** Figma's boxed group of buttons: each on the secondary background, a hairline of the panel's between them, the group's outer corners 5px. */
 function ButtonGroup({ children }: { children: ReactNode }) {
-  return <div className="flex flex-1 min-w-0 items-center h-6 p-0.5 rounded-[5px] bg-[var(--f-bg-secondary)]">{children}</div>;
+  return <div className="flex flex-1 min-w-0 items-center h-6 gap-px rounded-[5px] bg-[var(--f-bg)]">{children}</div>;
 }
 
-function GroupButton({ label, icon, active = false, onClick }: { label: string; icon: ReactNode; active?: boolean; onClick: () => void }) {
+/** One of them: hovered, the darker grey; its tooltip the name and its keys (`shortcut`). */
+function GroupButton({ label, shortcut, icon, active = false, onClick }: { label: string; shortcut?: string; icon: ReactNode; active?: boolean; onClick: () => void }) {
   return (
-    <button type="button" aria-label={label} data-tip={label} aria-pressed={active} onClick={onClick} className={cn("flex flex-1 items-center justify-center h-5 rounded-[3px] cursor-pointer", active ? "bg-[var(--f-bg)] text-[var(--f-text-brand)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_1px_3px_rgba(0,0,0,0.1)]" : "text-[var(--f-icon)] hover:bg-[var(--f-bg)]")}>
+    <button type="button" aria-label={label} data-tip={label} data-tip-key={shortcut} aria-pressed={active} onClick={onClick} className={cn("flex flex-1 items-center justify-center h-full cursor-pointer first:rounded-l-[5px] last:rounded-r-[5px]", active ? "bg-[var(--f-bg-selected)] text-[var(--f-text-brand)]" : "bg-[var(--f-bg-secondary)] text-[var(--f-icon)] hover:bg-[var(--f-bg-tertiary)]")}>
       {icon}
     </button>
   );
@@ -320,7 +331,8 @@ interface StyleGroup {
  * 24px further in per level; a style as "Ag", its name, its size / line height.
  */
 function TextStyleTree({ styles, byId, variables, mode, ops }: { styles: TextStyle[]; byId: Map<string, DesignVariable>; variables: DesignVariable[]; mode: ThemeMode; ops: EditorOps }) {
-  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  // Closed as the panel comes (a click on the empty canvas): the groups opened are the ones in this set.
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
   // The style being edited in its window (Figma's "Edit text style"), opened from the row's adjust button.
   const [editing, setEditing] = useState<{ id: string; anchor: { top: number; right: number } } | null>(null);
   const edited = editing ? styles.find((st) => st.id === editing.id) : undefined;
@@ -338,10 +350,10 @@ function TextStyleTree({ styles, byId, variables, mode, ops }: { styles: TextSty
   const rows = (group: StyleGroup, depth: number, path: string): ReactNode[] => [
     ...[...group.groups].map(([name, sub]) => {
       const key = path ? `${path}/${name}` : name;
-      const open = !closed.has(key);
+      const open = opened.has(key);
       return (
         <div key={`g:${key}`} className="flex flex-col">
-          <StyleRow depth={depth} chevron={fi(open ? "16.chevron.down" : "16.chevron.right")} onClick={() => setClosed((c) => { const next = new Set(c); if (next.has(key)) next.delete(key); else next.add(key); return next; })}>
+          <StyleRow depth={depth} chevron={fi(open ? "16.chevron.down" : "16.chevron.right")} onClick={() => setOpened((c) => { const next = new Set(c); if (next.has(key)) next.delete(key); else next.add(key); return next; })}>
             {name}
           </StyleRow>
           {open && rows(sub, depth + 1, key)}
@@ -398,7 +410,8 @@ function TextStyleEditor({ style, anchor, variables, byId, mode, ops, onClose }:
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
-      const t = e.target as Element;
+      const t = e.target;
+      if (!(t instanceof Element)) return;
       if (!ref.current?.contains(t) && !t.closest("[data-picker-anchor]") && !t.closest("[role=menu]")) onClose();
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
@@ -461,7 +474,8 @@ function TextStyleEditor({ style, anchor, variables, byId, mode, ops, onClose }:
 
 /** The colour variables as Figma lists colour styles: grouped by their names' paths, each group opened or closed by its chevron. */
 function ColorStyleTree({ variables, byId, mode, onOpen }: { variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; onOpen: () => void }) {
-  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  // Closed as the panel comes: the groups opened are the ones in this set.
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
   interface Group { groups: Map<string, Group>; items: DesignVariable[] }
   const root: Group = { groups: new Map(), items: [] };
   for (const v of variables) {
@@ -477,10 +491,10 @@ function ColorStyleTree({ variables, byId, mode, onOpen }: { variables: DesignVa
   const rows = (group: Group, depth: number, path: string): ReactNode[] => [
     ...[...group.groups].map(([name, sub]) => {
       const key = path ? `${path}/${name}` : name;
-      const open = !closed.has(key);
+      const open = opened.has(key);
       return (
         <div key={`g:${key}`} className="flex flex-col">
-          <StyleRow depth={depth} chevron={fi(open ? "16.chevron.down" : "16.chevron.right")} onClick={() => setClosed((c) => { const next = new Set(c); if (next.has(key)) next.delete(key); else next.add(key); return next; })}>
+          <StyleRow depth={depth} chevron={fi(open ? "16.chevron.down" : "16.chevron.right")} onClick={() => setOpened((c) => { const next = new Set(c); if (next.has(key)) next.delete(key); else next.add(key); return next; })}>
             {name}
           </StyleRow>
           {open && rows(sub, depth + 1, key)}
@@ -518,10 +532,10 @@ function PositionSection({ node, inAuto, ops, multi, selected }: { node: SceneNo
         { label: "Distribute horizontal spacing", icon: fi("24.layout-distribute-horizontal-spacing", 16), shortcut: keys("ctrl", "alt", "h"), onSelect: () => ops.distribute("h") },
       ])} /> : <span className="w-6" />}>
         <ButtonGroup>
-          {(["left", "hcenter", "right"] as const).map((k) => <GroupButton key={k} label={ALIGN_LABEL[k]} icon={ALIGN_GLYPH[k]} onClick={() => ops.align(k)} />)}
+          {(["left", "hcenter", "right"] as const).map((k) => <GroupButton key={k} label={ALIGN_LABEL[k]} shortcut={ALIGN_KEYS[k]} icon={ALIGN_GLYPH[k]} onClick={() => ops.align(k)} />)}
         </ButtonGroup>
         <ButtonGroup>
-          {(["top", "vcenter", "bottom"] as const).map((k) => <GroupButton key={k} label={ALIGN_LABEL[k]} icon={ALIGN_GLYPH[k]} onClick={() => ops.align(k)} />)}
+          {(["top", "vcenter", "bottom"] as const).map((k) => <GroupButton key={k} label={ALIGN_LABEL[k]} shortcut={ALIGN_KEYS[k]} icon={ALIGN_GLYPH[k]} onClick={() => ops.align(k)} />)}
         </ButtonGroup>
       </PropRow>
       <PropRow icons={<span className="w-6" />}>
@@ -532,8 +546,8 @@ function PositionSection({ node, inAuto, ops, multi, selected }: { node: SceneNo
         <NumericInput label="Rotation" prefix={<Prefix>{fi("24.rotation")}</Prefix>} value={rotVal} placeholder={rotVal === null ? "Mixed" : undefined} fallback={node.rotation ?? 0} min={-360} max={360} unit={rotVal === null ? undefined : "°"} onChange={(rotation) => set({ rotation: rotation || undefined })} />
         <ButtonGroup>
           <GroupButton label="Rotate 90°" icon={fi("24.rotate")} onClick={() => set({ rotation: ((node.rotation ?? 0) + 90) % 360 || undefined })} />
-          <GroupButton label="Flip horizontal (⇧H)" icon={fi("24.flip.horizontal.small")} active={Boolean(node.flipH)} onClick={() => set({ flipH: node.flipH ? undefined : true })} />
-          <GroupButton label="Flip vertical (⇧V)" icon={fi("24.flip.vertical")} active={Boolean(node.flipV)} onClick={() => set({ flipV: node.flipV ? undefined : true })} />
+          <GroupButton label="Flip horizontal" shortcut="⇧H" icon={fi("24.flip.horizontal.small")} active={Boolean(node.flipH)} onClick={() => set({ flipH: node.flipH ? undefined : true })} />
+          <GroupButton label="Flip vertical" shortcut="⇧V" icon={fi("24.flip.vertical")} active={Boolean(node.flipV)} onClick={() => set({ flipV: node.flipV ? undefined : true })} />
         </ButtonGroup>
       </PropRow>
     </Section>
@@ -918,7 +932,7 @@ function AppearanceSection({ node, nodes, ops, variables, byId, mode }: { node: 
       }
     >
       {bound && (
-        <div className="flex items-center gap-2 pl-4 pr-2 pb-1">
+        <div className="flex items-center gap-2 pl-4 pr-3 pb-1">
           <span className="flex flex-1 items-center gap-1 h-6 px-1 rounded-[5px] bg-[var(--f-bg-secondary)] text-[11px] text-[var(--f-text-component)]">{fi("24.boolean.small", 16)}<span className="truncate">{bound.name}</span></span>
           <IconButton label="Detach property" icon={fi("detach.small")} onClick={() => ops.bindProperty(node.id, "visible", undefined)} />
         </div>
@@ -968,35 +982,45 @@ function CornerField({ geo, index, node, ops, variables, byId, mode }: { geo: Fr
   );
 }
 
+/**
+ * A section's styles button (Figma's four squares): the colour variables —
+ * the Libraries tab of the colour picker — picked onto its first paint (a
+ * new one when there is none: `onPut` makes it).
+ */
+function LibrariesButton({ first, variables, byId, mode, ops, onPut }: { first?: Paint | StrokeStyle; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; ops: EditorOps; onPut: (paint: { color: VariableValue; opacity?: number }) => void }) {
+  const [libraries, setLibraries] = useState<{ top: number; right: number } | null>(null);
+  const resolved = first ? String(boundValue(first.color, mode, byId) ?? "#000000") : "#d9d9d9";
+  return (
+    <span data-picker-anchor="" className="relative flex">
+      <IconButton label="Styles and variables" icon={fi("styles")} active={Boolean(libraries)} onClick={(e) => setLibraries(libraries ? null : anchorOf(e.currentTarget))} />
+      {libraries && (
+        <ColorPicker
+          initialTab="libraries"
+          color={resolved}
+          opacity={first?.opacity ?? 100}
+          anchor={libraries}
+          variables={variables}
+          byId={byId}
+          mode={mode}
+          pageColors={ops.pageColors}
+          selectedId={first && "alias" in first.color ? first.color.alias : undefined}
+          onChange={(hex, opacity) => onPut({ color: own(hex), opacity: opacity >= 100 ? undefined : opacity })}
+          onVariable={(color) => onPut({ color })}
+          onClose={() => setLibraries(null)}
+        />
+      )}
+    </span>
+  );
+}
+
 function FillSection({ node, ops, variables, byId, mode, compositeId }: { node: SceneNode; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; compositeId?: string }) {
   const fills = node.fills ?? [];
   const setFills = (next: Paint[]) => (compositeId ? ops.override(compositeId, { fills: next }) : ops.patch(node.id, { fills: next } as Partial<SceneNode>));
-  // The styles button: the colour variables (Figma's Libraries), picked onto the first fill — a new one when there is none.
-  const [libraries, setLibraries] = useState<{ top: number; right: number } | null>(null);
   const first = fills[0];
-  const resolved = first ? String(boundValue(first.color, mode, byId) ?? "#000000") : "#d9d9d9";
-  const putFirst = (paint: Paint) => setFills(first ? [{ ...first, ...paint }, ...fills.slice(1)] : [paint]);
+  const putFirst = (paint: { color: VariableValue; opacity?: number }) => setFills(first ? [{ ...first, ...paint }, ...fills.slice(1)] : [paint]);
   return (
     <Section title="Fill" muted={fills.length === 0} pb={fills.length ? 12 : 0} icons={<>
-      <span data-picker-anchor="" className="relative flex">
-        <IconButton label="Styles and variables" icon={fi("styles")} active={Boolean(libraries)} onClick={(e) => setLibraries(libraries ? null : anchorOf(e.currentTarget))} />
-        {libraries && (
-          <ColorPicker
-            initialTab="libraries"
-            color={resolved}
-            opacity={first?.opacity ?? 100}
-            anchor={libraries}
-            variables={variables}
-            byId={byId}
-            mode={mode}
-            pageColors={ops.pageColors}
-            selectedId={first && "alias" in first.color ? first.color.alias : undefined}
-            onChange={(hex, opacity) => putFirst({ color: own(hex), opacity: opacity >= 100 ? undefined : opacity })}
-            onVariable={(color) => putFirst({ color })}
-            onClose={() => setLibraries(null)}
-          />
-        )}
-      </span>
+      <LibrariesButton first={first} variables={variables} byId={byId} mode={mode} ops={ops} onPut={putFirst} />
       <IconButton label="Add fill" icon={fi("plus.small")} onClick={() => setFills([{ color: own(node.type === "text" ? "#000000" : "#d9d9d9") }, ...fills])} />
     </>}>
       {fills.map((paint, i) => (
@@ -1009,8 +1033,14 @@ function FillSection({ node, ops, variables, byId, mode, compositeId }: { node: 
 function StrokeSection({ node, ops, variables, byId, mode, compositeId }: { node: FrameNode | (SceneNode & { type: "rectangle" | "ellipse" | "line" }); ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; compositeId?: string }) {
   const strokes = node.strokes ?? [];
   const setStrokes = (next: StrokeStyle[]) => (compositeId ? ops.override(compositeId, { strokes: next }) : ops.patch(node.id, { strokes: next } as Partial<SceneNode>));
+  // The styles button, as the fill's: onto the first stroke — a new 1px inside one when there is none.
+  const putFirst = (paint: { color: VariableValue; opacity?: number }) =>
+    setStrokes(strokes[0] ? [{ ...strokes[0], ...paint }, ...strokes.slice(1)] : [{ weight: own(1), align: "inside", ...paint }]);
   return (
-    <Section title="Stroke" muted={strokes.length === 0} pb={strokes.length ? 12 : 0} icons={<IconButton label="Add stroke" icon={fi("plus.small")} onClick={() => setStrokes([{ color: own("#000000"), weight: own(1), align: "inside" }, ...strokes])} />}>
+    <Section title="Stroke" muted={strokes.length === 0} pb={strokes.length ? 12 : 0} icons={<>
+      <LibrariesButton first={strokes[0]} variables={variables} byId={byId} mode={mode} ops={ops} onPut={putFirst} />
+      <IconButton label="Add stroke" icon={fi("plus.small")} onClick={() => setStrokes([{ color: own("#000000"), weight: own(1), align: "inside" }, ...strokes])} />
+    </>}>
       {strokes.map((stroke, i) => (
         <div key={i} className="flex flex-col">
           <PaintRow paint={stroke} variables={variables} byId={byId} mode={mode} pageColors={ops.pageColors} ops={ops} onChange={(s) => setStrokes(strokes.map((x, j) => (j === i ? s : x)))} onRemove={() => setStrokes(strokes.filter((_, j) => j !== i))} />
@@ -1124,17 +1154,17 @@ function EffectPopover({ effect, anchor, pageColors, onChange, onClose }: { effe
   );
 }
 
-function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang, compositeId }: { node: TextNode; nodes: SceneNode[]; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; textStyles: TextStyle[]; lang: "tr" | "en"; compositeId?: string }) {
+function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang, compositeId }: { node: TextNode; nodes: SceneNode[]; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; textStyles: TextStyle[]; lang: LangCode; compositeId?: string }) {
   const weights = [300, 400, 500, 600, 700];
-  const text = lang === "en" ? node.charactersEn ?? "" : node.characters;
+  const text = wordsIn(node, lang) ?? "";
   // Inside a main component: its words can come from a text property (Figma's "Apply text property") — typing then sets the property's default.
   const holder = compositeId ? null : componentAround(nodes, node.id)?.holder ?? null;
   const texts = holder?.properties?.filter((p) => p.type === "text") ?? [];
   const bound = node.charactersProp ? texts.find((p) => p.id === node.charactersProp) : undefined;
   const setText = (value: string) => {
-    if (compositeId) return ops.typeInInstance(compositeId, value, lang === "en");
-    if (bound && holder && lang !== "en") return ops.setPropertyValue(holder.id, bound.id, value);
-    ops.patch(node.id, (lang === "en" ? { charactersEn: value } : { characters: value }) as Partial<SceneNode>);
+    if (compositeId) return ops.typeInInstance(compositeId, value, lang);
+    if (bound && holder && lang === BASE_LANGUAGE) return ops.setPropertyValue(holder.id, bound.id, value);
+    ops.patch(node.id, wordsPatch(node, lang, value) as Partial<SceneNode>);
   };
   const createText = () => {
     if (!holder) return;
@@ -1169,13 +1199,13 @@ function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang
       ])} />
     </> : undefined}>
       {bound && (
-        <div className="flex items-center gap-2 pl-4 pr-2 pt-1">
+        <div className="flex items-center gap-2 pl-4 pr-3 pt-1">
           <span className="flex flex-1 items-center gap-1 h-6 px-1 rounded-[5px] bg-[var(--f-bg-secondary)] text-[11px] text-[var(--f-text-component)]">{fi("24.text", 16)}<span className="truncate">{bound.name}</span></span>
           <IconButton label="Detach property" icon={fi("detach.small")} onClick={() => ops.bindProperty(node.id, "text", undefined)} />
         </div>
       )}
-      <div className="pl-4 pr-2 py-1">
-        <textarea aria-label="Text" value={text} placeholder={lang === "en" ? node.characters : "Text"} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.stopPropagation()} rows={2} className="w-full resize-none rounded-[5px] border border-transparent bg-[var(--f-bg-secondary)] px-2 py-1 text-[11px] leading-4 text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] hover:border-[var(--f-border)] focus:outline-none focus:border-[var(--f-border-selected)]" />
+      <div className="pl-4 pr-3 py-1">
+        <textarea aria-label="Text" value={text} placeholder={lang !== BASE_LANGUAGE ? node.characters : "Text"} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.stopPropagation()} rows={2} className="w-full resize-none rounded-[5px] border border-transparent bg-[var(--f-bg-secondary)] px-2 py-1 text-[11px] leading-4 text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] [&:hover:not(:focus)]:border-[var(--f-border)] focus:outline-none focus:border-[var(--f-border-selected)]" />
       </div>
       {!compositeId && (
         <>
@@ -1216,42 +1246,100 @@ function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang
   );
 }
 
-function ComponentSection({ node, nodes, ops }: { node: FrameNode; nodes: SceneNode[]; ops: EditorOps }) {
-  const set = setOf(nodes, node.id);
-  const props = set ? variantProperties(set) : [];
+/** A one-line field typed in place: its text selected; Enter or leaving keeps it, Esc leaves things as they were. */
+function InlineInput({ label, value, placeholder, onDone, className }: { label: string; value: string; placeholder?: string; onDone: (value: string | null) => void; className?: string }) {
   return (
-    <Section title={set ? "Variant" : "Component"} icons={<IconButton label="Add variant" icon={fi("plus.small")} onClick={() => ops.addVariant(node.id)} />}>
-      {set ? (
-        props.map((p) => (
-          <div key={p.name}>
-            <Labels a={p.name} />
-            <PropRow icons={<span className="w-6" />}>
-              <TextInput label={p.name} value={variantValue(node, p.name)} onCommit={(v) => ops.setVariantValue(node.id, p.name, v)} />
-            </PropRow>
+    <input
+      autoFocus
+      aria-label={label}
+      defaultValue={value}
+      placeholder={placeholder}
+      onFocus={(e) => e.currentTarget.select()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; e.currentTarget.blur(); }
+      }}
+      onBlur={(e) => onDone(e.currentTarget.dataset.cancel ? null : e.currentTarget.value)}
+      className={cn("min-w-0 bg-transparent text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)] outline-none", className)}
+    />
+  );
+}
+
+/**
+ * A variant's own values (Figma's "Current variant"): each of the set's
+ * variant properties — its name (a click renames it) and this variant's value
+ * of it: a click on the value types it in place (renaming it in every variant
+ * that has it), the chevron picks another of the set's values or "Add new…".
+ */
+function CurrentVariantSection({ node, set, ops }: { node: FrameNode; set: FrameNode; ops: EditorOps }) {
+  const [editing, setEditing] = useState<{ prop: string; part: "name" | "value" | "new" } | null>(null);
+  const done = () => setEditing(null);
+  return (
+    <section aria-label="Current variant" data-instant="" className="flex flex-col pb-2 border-b border-[var(--f-border)]">
+      <div className="flex items-center h-10 pl-4 pr-3">
+        <span className="text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)] select-none">Current variant</span>
+      </div>
+      {variantProperties(set).map((p) => {
+        const current = variantValue(node, p.name);
+        const at = editing?.prop === p.name ? editing.part : null;
+        return (
+          <div key={p.name} className="flex items-center gap-2 h-8 pl-4 pr-3">
+            <div className="w-[88px] shrink-0">
+              {at === "name" ? (
+                <div className="flex h-6 items-center px-2 rounded-[5px] bg-[var(--f-bg)] border border-[var(--f-border-selected)]">
+                  <InlineInput label="Property name" value={p.name} className="w-full h-full" onDone={(v) => { const to = v?.trim(); if (to && to !== p.name) ops.renameProperty(set.id, p.name, to); done(); }} />
+                </div>
+              ) : (
+                <button type="button" title="Rename property" onClick={() => setEditing({ prop: p.name, part: "name" })} className="block max-w-full truncate text-left text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)] hover:text-[var(--f-text)] cursor-text">{p.name}</button>
+              )}
+            </div>
+            <div className={cn("flex flex-1 min-w-0 items-center h-6 rounded-[5px] border transition-colors", at === "value" || at === "new" ? "border-[var(--f-border-selected)] bg-[var(--f-bg)]" : "border-[var(--f-border)] hover:border-[var(--f-icon-tertiary)]")}>
+              {at === "value" || at === "new" ? (
+                <InlineInput
+                  label={`${p.name} value`}
+                  value={at === "new" ? "" : current}
+                  placeholder={at === "new" ? "New value" : undefined}
+                  className="flex-1 h-full px-2"
+                  onDone={(v) => {
+                    const to = v?.trim();
+                    if (to && to !== current) {
+                      if (at === "new") ops.setVariantValue(node.id, p.name, to);
+                      else ops.renameValue(set.id, p.name, current, to);
+                    }
+                    done();
+                  }}
+                />
+              ) : (
+                <button type="button" aria-label={`${p.name} value`} title="Rename value" onClick={() => setEditing({ prop: p.name, part: "value" })} className="min-w-0 flex-1 h-full px-2 truncate text-left text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)] cursor-text">{current || "—"}</button>
+              )}
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-label={`${p.name} values`}
+                onClick={(e) => ops.menu(e.currentTarget, [
+                  ...p.values.map((v) => ({ label: v, checked: v === current, onSelect: () => v !== current && ops.setVariantValue(node.id, p.name, v) })),
+                  "-",
+                  { label: "Add new…", onSelect: () => setEditing({ prop: p.name, part: "new" }) },
+                ])}
+                className="flex h-full w-6 shrink-0 items-center justify-center text-[var(--f-icon-secondary)] cursor-pointer"
+              >
+                {fi("16.chevron.down")}
+              </button>
+            </div>
           </div>
-        ))
-      ) : (
-        <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">Main component: instances (⌘D, Assets) follow it. &quot;+&quot; adds a variant.</p>
-      )}
-    </Section>
+        );
+      })}
+    </section>
   );
 }
 
-/** Figma's toggle: a boolean property's value. */
-function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)} className={cn("relative w-7 h-4 shrink-0 rounded-full transition-colors cursor-pointer", checked ? "bg-[var(--f-bg-brand)]" : "bg-[var(--f-icon-tertiary)]")}>
-      <span className={cn("absolute top-[2px] w-3 h-3 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-[left]", checked ? "left-[14px]" : "left-[2px]")} />
-    </button>
-  );
-}
-
-/** A property's row on an instance, as Figma's: its name in the left column, its control at the right. */
+/** A property's row on an instance, as Figma's: its name (in the secondary colour) in the left column, its control — a toggle too — starting the right one. */
 function PropertyRow({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 h-8 pl-4 pr-2">
-      <span className="w-[88px] shrink-0 truncate text-[11px] leading-4 text-[var(--f-text)]" title={name}>{name}</span>
-      <div className="min-w-0 flex-1 flex items-center justify-end">{children}</div>
+    <div className="flex items-center gap-2 h-8 pl-4 pr-3">
+      <span className="w-[88px] shrink-0 truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)]" title={name}>{name}</span>
+      <div className="min-w-0 flex-1 flex items-center justify-start">{children}</div>
     </div>
   );
 }
@@ -1264,85 +1352,175 @@ function swapOptions(nodes: SceneNode[], holder: FrameNode | null) {
   return allComponents(nodes).filter(({ component }) => !own.has(component.id)).map(({ component, set }) => ({ value: component.id, label: set ? `${set.name} / ${variantName(component)}` : component.name }));
 }
 
+/** The menu's entries that add a property to a main component (a set): Variant, Boolean, Instance swap, Text. */
+function addPropertyEntries(holder: FrameNode, nodes: SceneNode[], ops: EditorOps, added?: (id: string) => void): MenuEntry[] {
+  const isSet = holder.type === "componentSet";
+  const props = holder.properties ?? [];
+  const add = (type: PropertyType) => {
+    const id = nid("p");
+    const base = type === "boolean" ? "Property" : type === "text" ? "Text" : "Instance";
+    const value = type === "boolean" ? true : type === "text" ? "" : swapOptions(nodes, holder)[0]?.value ?? "";
+    ops.setComponentProperties(holder.id, [...props, { id, name: freePropertyName(holder, base), type, value }]);
+    added?.(id);
+  };
+  return [
+    { label: "Variant", icon: fi("24.create.variant.small", 16), onSelect: () => (isSet ? ops.addProperty(holder.id) : ops.addVariant(holder.id)) },
+    { label: "Boolean", icon: fi("24.boolean.small", 16), onSelect: () => add("boolean") },
+    { label: "Instance swap", icon: fi("24.instance.swap.small", 16), onSelect: () => add("instanceSwap") },
+    { label: "Text", icon: fi("24.text", 16), onSelect: () => add("text") },
+  ];
+}
+
+/** A property's window beside the panel (Figma's "Edit boolean property"…): its title, close, its rows. */
+function PropertyWindow({ title, anchor, onClose, children }: { title: string; anchor: { top: number; right: number }; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      if (!ref.current?.contains(t) && !t.closest("[data-picker-anchor]") && !t.closest("[role=menu]")) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => { document.removeEventListener("pointerdown", onDown); window.removeEventListener("keydown", onKey, true); };
+  }, [onClose]);
+  const top = Math.max(8, Math.min(anchor.top - 12, window.innerHeight - 240));
+  const left = Math.max(8, anchor.right - 304 - 8);
+  return (
+    <div ref={ref} role="dialog" aria-label={title} data-instant="" className="fixed z-40 flex w-[304px] flex-col rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_10px_16px_rgba(0,0,0,0.2)] text-[11px] leading-4 text-[var(--f-text)]" style={{ top, left }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between h-12 pl-4 pr-2 border-b border-[var(--f-border)]">
+        <span className="text-[13px] font-[550] leading-[22px] tracking-[-0.0325px]">{title}</span>
+        <IconButton label="Close" icon={fi("close.small")} onClick={onClose} />
+      </div>
+      <div className="flex flex-col py-2">{children}</div>
+    </div>
+  );
+}
+
+/** A row of a property's window: its label at the left, its field. */
+const WindowRow = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="flex items-center gap-2 min-h-8 px-4 py-0.5">
+    <span className="w-[96px] shrink-0 text-[11px] text-[var(--f-text-secondary)]">{label}</span>
+    <div className="flex flex-1 min-w-0 items-center gap-2">{children}</div>
+  </div>
+);
+
+const PROPERTY_TITLE: Record<PropertyType, string> = { boolean: "Edit boolean property", text: "Edit text property", instanceSwap: "Edit instance swap property" };
+
 /**
- * A main component's (a set's) properties, as Figma's: the variant ones —
- * their names and values — and the boolean, text and instance swap ones;
- * "+" adds one, a row opens onto its name and default.
+ * A main component's (a set's) properties, as Figma's: each a row — its
+ * icon, its name, its values or default — that shows, hovered, its edit
+ * button (the property's window: its name and default; a variant
+ * property's values) and its remove button; "+" adds one.
  */
 function PropertiesSection({ holder, nodes, ops }: { holder: FrameNode; nodes: SceneNode[]; ops: EditorOps }) {
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ key: string; anchor: { top: number; right: number } } | null>(null);
+  // The row whose name is being typed in place (a click on it, as Figma's).
+  const [naming, setNaming] = useState<string | null>(null);
+  const close = useCallback(() => setEditing(null), []);
   const isSet = holder.type === "componentSet";
   const variantProps = isSet ? variantProperties(holder) : [];
   const props = holder.properties ?? [];
   const options = swapOptions(nodes, holder);
-  const add = (type: PropertyType) => {
-    const id = nid("p");
-    const base = type === "boolean" ? "Property" : type === "text" ? "Text" : "Instance";
-    const value = type === "boolean" ? true : type === "text" ? "" : options[0]?.value ?? "";
-    ops.setComponentProperties(holder.id, [...props, { id, name: freePropertyName(holder, base), type, value }]);
-    setEditing(id);
-  };
   const rename = (id: string, name: string) => name.trim() && ops.setComponentProperties(holder.id, props.map((p) => (p.id === id ? { ...p, name: name.trim() } : p)));
-  const remove = (id: string) => ops.setComponentProperties(holder.id, props.filter((p) => p.id !== id));
   const preview = (p: ComponentProperty) => (p.type === "boolean" ? (p.value ? "True" : "False") : p.type === "instanceSwap" ? options.find((o) => o.value === p.value)?.label ?? "—" : String(p.value) || "—");
+  const open = (key: string, el: HTMLElement) => setEditing(editing?.key === key ? null : { key, anchor: anchorOf(el) });
+  const row = (key: string, icon: ReactNode, name: string, value: string, onRemove: () => void, onRename: (name: string) => void) => {
+    const active = editing?.key === key;
+    if (naming === key) {
+      // Its name, selected, in a field of its own — Enter or leaving it keeps it, Esc leaves it as it was.
+      return (
+        <div key={key} className="flex items-center h-8 pl-4 pr-3">
+          <div className="flex flex-1 min-w-0 items-center gap-1.5 h-6 pl-1 pr-2 rounded-[5px] bg-[var(--f-bg)] border border-[var(--f-border-selected)]">
+            <span className="flex w-4 h-4 shrink-0 items-center justify-center text-[var(--f-icon)]">{icon}</span>
+            <input
+              autoFocus
+              aria-label="Property name"
+              defaultValue={name}
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; e.currentTarget.blur(); }
+              }}
+              onBlur={(e) => {
+                if (!e.currentTarget.dataset.cancel) onRename(e.currentTarget.value);
+                setNaming(null);
+              }}
+              className="min-w-0 flex-1 h-full bg-transparent text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)] outline-none"
+            />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div key={key} className="group/prop flex items-center gap-1 h-8 pl-4 pr-3">
+        <div role="button" tabIndex={0} data-picker-anchor="" onClick={() => { setEditing(null); setNaming(key); }} onKeyDown={(e) => { if (e.key === "Enter") { setEditing(null); setNaming(key); } }} onDoubleClick={(e) => open(key, e.currentTarget)} className={cn("flex flex-1 min-w-0 items-center gap-1.5 h-6 pl-1 pr-2 rounded-[5px] select-none transition-colors cursor-text", active ? "bg-[var(--f-bg-tertiary)]" : "bg-[var(--f-bg-secondary)] hover:bg-[var(--f-bg-tertiary)]")}>
+          <span className="flex w-4 h-4 shrink-0 items-center justify-center text-[var(--f-icon)]">{icon}</span>
+          <span className="min-w-0 flex-1 truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">{name}<span className="text-[var(--f-text-secondary)]"> · {value}</span></span>
+        </div>
+        <span data-picker-anchor="" className={cn("f-icons items-center gap-1", active ? "flex" : "hidden group-hover/prop:flex group-focus-within/prop:flex")}>
+          <IconButton label="Edit property" icon={fi("24.adjust.small")} active={active} onClick={(e) => open(key, e.currentTarget)} />
+          <IconButton label="Remove property" icon={fi("minus.small")} onClick={() => { setEditing(null); onRemove(); }} />
+        </span>
+      </div>
+    );
+  };
+  const editedVariant = editing?.key.startsWith("v:") ? variantProps.find((p) => `v:${p.name}` === editing.key) : undefined;
+  const editedProp = editing && !editing.key.startsWith("v:") ? props.find((p) => p.id === editing.key) : undefined;
   return (
-    <Section title="Properties" icons={<IconButton label="Add property" icon={fi("plus.small")} onClick={(e) => ops.menu(e.currentTarget, [
-      { label: "Variant", icon: fi("24.create.variant.small", 16), onSelect: () => (isSet ? ops.addProperty(holder.id) : ops.addVariant(holder.id)) },
-      { label: "Boolean", icon: fi("24.boolean.small", 16), onSelect: () => add("boolean") },
-      { label: "Instance swap", icon: fi("24.instance.swap.small", 16), onSelect: () => add("instanceSwap") },
-      { label: "Text", icon: fi("24.text", 16), onSelect: () => add("text") },
-    ])} />}>
-      {variantProps.map((p) => (
-        <div key={p.name} className="flex flex-col">
-          <PropRow icons={<IconButton label="Remove property" icon={fi("minus.small")} onClick={() => ops.removeProperty(holder.id, p.name)} />}>
-            <TextInput label="Property name" prefix={<Prefix>{fi("24.create.variant.small", 16)}</Prefix>} value={p.name} onCommit={(to) => to.trim() && to.trim() !== p.name && ops.renameProperty(holder.id, p.name, to.trim())} />
-          </PropRow>
-          <div className="flex flex-wrap gap-1 pl-4 pr-2 pb-1">
-            {p.values.map((v) => (
-              <input key={v} aria-label={`${p.name} value`} defaultValue={v} onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== v && ops.renameValue(holder.id, p.name, v, e.target.value.trim())} className="h-5 px-1.5 rounded-[3px] bg-[var(--f-bg-secondary)] text-[11px] text-[var(--f-text)] outline-none border border-transparent focus:border-[var(--f-border-selected)]" style={{ width: `${Math.max(4, v.length + 2)}ch` }} />
+    <section aria-label="Properties" data-instant="" className="flex flex-col pb-2 border-b border-[var(--f-border)]">
+      <div className="flex items-center gap-1 h-10 pl-4 pr-3">
+        <span className="flex-1 text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)] select-none">Properties</span>
+        <span className="f-icons flex items-center gap-1">
+          <IconButton label="Add property" icon={fi("plus.small")} onClick={(e) => ops.menu(e.currentTarget, addPropertyEntries(holder, nodes, ops, (id) => setEditing({ key: id, anchor: anchorOf(e.currentTarget) })))} />
+        </span>
+      </div>
+      {variantProps.map((p) => row(`v:${p.name}`, fi("16.instance"), p.name, p.values.join(", "), () => ops.removeProperty(holder.id, p.name), (to) => { const name = to.trim(); if (name && name !== p.name) ops.renameProperty(holder.id, p.name, name); }))}
+      {props.map((p) => row(p.id, propertyIcon(p.type, 16), p.name, preview(p), () => ops.setComponentProperties(holder.id, props.filter((x) => x.id !== p.id)), (to) => rename(p.id, to)))}
+      {editing && editedVariant && (
+        <PropertyWindow title="Edit variant property" anchor={editing.anchor} onClose={close}>
+          <WindowRow label="Name">
+            <TextInput autoFocus label="Property name" value={editedVariant.name} onCommit={(to) => { const name = to.trim(); if (name && name !== editedVariant.name) { ops.renameProperty(holder.id, editedVariant.name, name); setEditing({ ...editing, key: `v:${name}` }); } }} />
+          </WindowRow>
+          {/* As Figma's: under a line, the values — each a field of its own, the window's width. */}
+          <div className="flex flex-col gap-2 mt-2 px-4 pt-3 pb-1 border-t border-[var(--f-border)]">
+            <span className="h-6 flex items-center text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">Values</span>
+            {editedVariant.values.map((v) => (
+              <TextInput key={v} label={`${editedVariant.name} value`} value={v} className="flex-none h-8" onCommit={(to) => { const value = to.trim(); if (value && value !== v) ops.renameValue(holder.id, editedVariant.name, v, value); }} />
             ))}
           </div>
-        </div>
-      ))}
-      {props.map((p) => (
-        <div key={p.id} className="flex flex-col">
-          <div role="button" tabIndex={0} onClick={() => setEditing(editing === p.id ? null : p.id)} onKeyDown={(e) => { if (e.key === "Enter") setEditing(editing === p.id ? null : p.id); }} className={cn("group/prop flex items-center gap-2 h-8 pl-4 pr-2 cursor-pointer hover:bg-[var(--f-bg-hover)]", editing === p.id && "bg-[var(--f-bg-secondary)]")}>
-            <span className="flex w-4 h-4 shrink-0 items-center justify-center text-[var(--f-icon-secondary)]">{propertyIcon(p.type, 16)}</span>
-            <span className="min-w-0 flex-1 truncate text-[11px] leading-4 text-[var(--f-text)]">{p.name}<span className="text-[var(--f-text-secondary)]"> · {preview(p)}</span></span>
-            <IconButton label="Remove property" icon={fi("minus.small")} onClick={(e) => { e.stopPropagation(); remove(p.id); }} className="opacity-0 group-hover/prop:opacity-100" />
-          </div>
-          {editing === p.id && (
-            <div className="flex flex-col gap-1 pl-4 pr-2 py-1">
-              <div className="flex items-center gap-2">
-                <span className="w-[52px] shrink-0 text-[11px] text-[var(--f-text-secondary)]">Name</span>
-                <TextInput label="Property name" value={p.name} onCommit={(name) => rename(p.id, name)} />
-              </div>
-              <div className="flex items-center gap-2 min-h-6">
-                <span className="w-[52px] shrink-0 text-[11px] text-[var(--f-text-secondary)]">Value</span>
-                {p.type === "boolean" && <Switch label="Default value" checked={Boolean(p.value)} onChange={(v) => ops.setPropertyValue(holder.id, p.id, v)} />}
-                {p.type === "text" && <TextInput label="Default value" value={String(p.value)} onCommit={(v) => ops.setPropertyValue(holder.id, p.id, v)} />}
-                {p.type === "instanceSwap" && <Select label="Default component" value={String(p.value)} options={options} onChange={(v) => ops.setPropertyValue(holder.id, p.id, v)} />}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-      {isSet ? (
-        <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">{variantsOf(holder).length} {variantsOf(holder).length === 1 ? "variant" : "variants"}.</p>
-      ) : props.length === 0 ? (
-        <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">No properties yet. &quot;+&quot; adds one; a layer binds to it from its own panel.</p>
-      ) : null}
-    </Section>
+        </PropertyWindow>
+      )}
+      {editing && editedProp && (
+        <PropertyWindow title={PROPERTY_TITLE[editedProp.type]} anchor={editing.anchor} onClose={close}>
+          <WindowRow label="Name">
+            <TextInput autoFocus label="Property name" value={editedProp.name} onCommit={(name) => rename(editedProp.id, name)} />
+          </WindowRow>
+          <WindowRow label="Value">
+            {editedProp.type === "boolean" && (
+              <>
+                <Switch label="Default value" checked={Boolean(editedProp.value)} onChange={(v) => ops.setPropertyValue(holder.id, editedProp.id, v)} />
+                <span className="text-[11px] text-[var(--f-text)]">{editedProp.value ? "True" : "False"}</span>
+              </>
+            )}
+            {editedProp.type === "text" && <TextInput label="Default value" value={String(editedProp.value)} onCommit={(v) => ops.setPropertyValue(holder.id, editedProp.id, v)} />}
+            {editedProp.type === "instanceSwap" && <Select outlined label="Default component" prefix={<span className="flex shrink-0 pl-1 text-[var(--f-icon)]">{fi("16.instance")}</span>} value={String(editedProp.value)} options={options} onChange={(v) => ops.setPropertyValue(holder.id, editedProp.id, v)} />}
+          </WindowRow>
+        </PropertyWindow>
+      )}
+    </section>
   );
 }
 
-function InstanceSection({ node, nodes, ops, lang }: { node: FrameNode; nodes: SceneNode[]; ops: EditorOps; lang: "tr" | "en" }) {
+function InstanceSection({ node, nodes, ops, lang }: { node: FrameNode; nodes: SceneNode[]; ops: EditorOps; lang: LangCode }) {
   const main = node.mainId ? findComponent(nodes, node.mainId) : null;
   const set = main ? setOf(nodes, main.id) : null;
   const variantProps = set ? variantProperties(set) : [];
   const props = main ? propertiesOf(nodes, main.id) : [];
   const values = main ? propertyValues(nodes, main, node) : {};
-  const overridden = Boolean(node.overrides && Object.keys(node.overrides).length) || Boolean(node.props && Object.keys(node.props).length) || Boolean(node.propsEn && Object.keys(node.propsEn).length);
+  const overridden = Boolean(node.overrides && Object.keys(node.overrides).length) || Boolean(node.props && Object.keys(node.props).length) || Boolean(node.propsEn && Object.keys(node.propsEn).length) || Boolean(node.propsI18n && Object.keys(node.propsI18n).length);
   // Inside a main component: which component it shows can follow an instance swap property.
   const around = componentAround(nodes, node.id);
   const holder = around?.holder ?? null;
@@ -1359,47 +1537,46 @@ function InstanceSection({ node, nodes, ops, lang }: { node: FrameNode; nodes: S
     const all = swapOptions(nodes, null).filter((o) => !preferred.some((x) => x.value === o.value));
     return [...preferred, ...all];
   };
+  // As Figma's instance panel: under the header (the component's name), where it is from and its main component's button, then its properties — no section title.
   return (
-    <Section title="Instance" icons={<>
-      {overridden && <IconButton label="Reset all changes" icon={fi("reset.instance.small")} onClick={ops.resetOverrides} />}
-      {holder && (
-        <IconButton label="Apply instance swap property" icon={fi("24.instance.swap.small")} active={Boolean(boundSwap)} onClick={(e) => ops.menu(e.currentTarget, [
-          ...swaps.map((p) => ({ label: p.name, icon: fi("24.instance.swap.small", 16), checked: p.id === node.mainProp, onSelect: () => ops.bindProperty(node.id, "instance", p.id) })),
-          ...(swaps.length ? ["-" as const] : []),
-          { label: "Create property", onSelect: createSwap },
-          ...(boundSwap ? [{ label: "Detach property", onSelect: () => ops.bindProperty(node.id, "instance", undefined) }] : []),
-        ])} />
-      )}
-      <IconButton label="Go to main component" icon={fi("go.to.main.component.small")} onClick={ops.goToMain} />
-      <IconButton label="Detach instance (⌥⌘B)" icon={fi("detach.small")} onClick={ops.detach} />
-    </>}>
-      <PropRow icons={<span className="w-6" />}>
-        <div className="flex flex-1 items-center gap-1 h-6 px-1 rounded-[5px] bg-[var(--f-bg-secondary)] text-[11px] text-[var(--f-text-component)]">
-          <FigmaIcon name="16.instance" />
-          <span className="truncate">{main ? (set ? set.name : main.name) : "No main component"}</span>
-        </div>
-      </PropRow>
+    <section aria-label="Instance" data-instant="" className="flex flex-col pb-2 border-b border-[var(--f-border)]">
+      <div className="flex items-center gap-1 h-8 pl-4 pr-3">
+        <span className="text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)] select-none">{main ? "From this file" : "No main component"}</span>
+        <IconButton label="Go to main component" icon={fi("16.instance")} disabled={!main} onClick={ops.goToMain} />
+        <span className="f-icons ml-auto flex items-center gap-1">
+          {overridden && <IconButton label="Reset all changes" icon={fi("reset.instance.small")} onClick={ops.resetOverrides} />}
+          {holder && (
+            <IconButton label="Apply instance swap property" icon={fi("24.instance.swap.small")} active={Boolean(boundSwap)} onClick={(e) => ops.menu(e.currentTarget, [
+              ...swaps.map((p) => ({ label: p.name, icon: fi("24.instance.swap.small", 16), checked: p.id === node.mainProp, onSelect: () => ops.bindProperty(node.id, "instance", p.id) })),
+              ...(swaps.length ? ["-" as const] : []),
+              { label: "Create property", onSelect: createSwap },
+              ...(boundSwap ? [{ label: "Detach property", onSelect: () => ops.bindProperty(node.id, "instance", undefined) }] : []),
+            ])} />
+          )}
+          <IconButton label="Detach instance (⌥⌘B)" icon={fi("detach.small")} onClick={ops.detach} />
+        </span>
+      </div>
       {boundSwap && (
-        <div className="flex items-center gap-2 pl-4 pr-2 pb-1">
+        <div className="flex items-center gap-2 pl-4 pr-3 pb-1">
           <span className="flex flex-1 items-center gap-1 h-6 px-1 rounded-[5px] bg-[var(--f-bg-secondary)] text-[11px] text-[var(--f-text-component)]">{fi("24.instance.swap.small", 16)}<span className="truncate">{boundSwap.name}</span></span>
           <IconButton label="Detach property" icon={fi("detach.small")} onClick={() => ops.bindProperty(node.id, "instance", undefined)} />
         </div>
       )}
       {variantProps.map((p) => (
         <PropertyRow key={p.name} name={p.name}>
-          <Select label={p.name} value={main ? variantValue(main, p.name) : ""} options={p.values.map((v) => ({ value: v, label: v }))} onChange={(v) => ops.swapVariant(node.id, p.name, v)} />
+          <Select outlined label={p.name} value={main ? variantValue(main, p.name) : ""} options={p.values.map((v) => ({ value: v, label: v }))} onChange={(v) => ops.swapVariant(node.id, p.name, v)} />
         </PropertyRow>
       ))}
       {props.map((p) => (
         <PropertyRow key={p.id} name={p.name}>
           {p.type === "boolean" && <Switch label={p.name} checked={Boolean(values[p.id])} onChange={(v) => ops.setInstanceProp(node.id, p.id, v)} />}
           {p.type === "text" && (
-            <TextInput label={p.name} value={lang === "en" ? node.propsEn?.[p.id] ?? "" : String(values[p.id] ?? "")} placeholder={lang === "en" ? String(values[p.id] ?? "") : undefined} onCommit={(v) => ops.setInstanceProp(node.id, p.id, v, lang === "en")} />
+            <TextInput label={p.name} value={lang !== BASE_LANGUAGE ? propsIn(node, lang)?.[p.id] ?? "" : String(values[p.id] ?? "")} placeholder={lang !== BASE_LANGUAGE ? String(values[p.id] ?? "") : undefined} onCommit={(v) => ops.setInstanceProp(node.id, p.id, v, lang)} />
           )}
-          {p.type === "instanceSwap" && <Select label={p.name} value={String(values[p.id] ?? "")} options={swapItems(p)} onChange={(v) => ops.setInstanceProp(node.id, p.id, v)} />}
+          {p.type === "instanceSwap" && <Select outlined label={p.name} prefix={<span className="flex shrink-0 pl-1 text-[var(--f-icon)]">{fi("16.instance")}</span>} value={String(values[p.id] ?? "")} options={swapItems(p)} onChange={(v) => ops.setInstanceProp(node.id, p.id, v)} />}
         </PropertyRow>
       ))}
-    </Section>
+    </section>
   );
 }
 
@@ -1407,6 +1584,8 @@ function InstanceSection({ node, nodes, ops, lang }: { node: FrameNode; nodes: S
 
 function PrototypeSection({ node, nodes, ops, flows }: { node: SceneNode | null; nodes: SceneNode[]; ops: EditorOps; flows: { id: string; name: string }[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  // Where the Interaction window opens: beside the row (or the "+") it came from.
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
   const variant = node?.type === "component" ? node : node?.type === "instance" && node.mainId ? findComponent(nodes, node.mainId) : null;
   const set = variant ? setOf(nodes, variant.id) : null;
   const flowsGroup = (
@@ -1435,51 +1614,50 @@ function PrototypeSection({ node, nodes, ops, flows }: { node: SceneNode | null;
   const others = variantsOf(set).filter((v) => v.id !== variant.id);
   const set_ = (next: Reaction[]) => ops.setReactions(variant.id, next);
   const nameOf = (id: string) => { const v = getNode(nodes, id); return v && v.type === "component" ? variantName(v) : "—"; };
+  const editing = openId ? reactions.find((r) => r.id === openId) : undefined;
+  const patch = (id: string, p: Partial<Reaction>) => set_(reactions.map((x) => (x.id === id ? { ...x, ...p } : x)));
+  // Figma's Interaction window: the trigger, the action and what it changes to, the animation — in sections.
+  const windowRow = (label: string, field: ReactNode) => (
+    <div className="flex items-center gap-2 min-h-8 px-4 py-0.5">
+      <span className="w-[88px] shrink-0 text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)]">{label}</span>
+      <div className="flex flex-1 min-w-0 items-center gap-2">{field}</div>
+    </div>
+  );
   return (
     <>
-      <Section title="Interactions" muted={reactions.length === 0} icons={<IconButton label="Add interaction" icon={fi("plus.small")} onClick={() => { const r: Reaction = { id: nid("r"), trigger: "click", target: others[0]?.id ?? variant.id, animation: "smart", easing: "ease-out", duration: 300 }; set_([...reactions, r]); setOpenId(r.id); }} />}>
-        {reactions.map((r) => {
-          const patch = (p: Partial<Reaction>) => set_(reactions.map((x) => (x.id === r.id ? { ...x, ...p } : x)));
-          const open = openId === r.id;
-          return (
-            <div key={r.id} className="flex flex-col">
-              <div className="px-2 py-0.5">
-                <div className={cn("group/reaction flex items-center gap-2 h-8 px-2 rounded-[5px] cursor-pointer hover:bg-[var(--f-bg-hover)]", open && "bg-[var(--f-bg-selected)]")} onClick={() => setOpenId(open ? null : r.id)}>
-                  <div className="min-w-0 flex-1 flex flex-col leading-4">
-                    <span className="truncate text-[11px] text-[var(--f-text)]">{TRIGGERS[r.trigger]}</span>
-                    <span className="truncate text-[11px] text-[var(--f-text-secondary)]">Change to {nameOf(r.target)}</span>
-                  </div>
-                  <span className="hidden group-hover/reaction:flex" onClick={(e) => e.stopPropagation()}>
-                    <IconButton label="Remove" icon={fi("minus.small")} onClick={() => set_(reactions.filter((x) => x.id !== r.id))} />
-                  </span>
+      <Section title="Interactions" muted={reactions.length === 0} icons={<IconButton label="Add interaction" icon={fi("plus.small")} onClick={(e) => { const r: Reaction = { id: nid("r"), trigger: "click", target: others[0]?.id ?? variant.id, animation: "smart", easing: "ease-out", duration: 300 }; set_([...reactions, r]); setOpenId(r.id); setAnchor(anchorOf(e.currentTarget)); }} />}>
+        <div data-instant="">
+          {reactions.map((r) => {
+            const open = openId === r.id;
+            return (
+              <div key={r.id} className="group/reaction flex items-center gap-1 h-8 pl-4 pr-3">
+                <div role="button" tabIndex={0} data-picker-anchor="" onClick={(e) => { setOpenId(open ? null : r.id); setAnchor(anchorOf(e.currentTarget)); }} className={cn("flex flex-1 min-w-0 items-center gap-2 h-6 px-2 rounded-[5px] cursor-pointer select-none", open ? "bg-[var(--f-bg-tertiary)]" : "bg-[var(--f-bg-secondary)] hover:bg-[var(--f-bg-tertiary)]")}>
+                  <span className="truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">{TRIGGERS[r.trigger]}</span>
+                  <span className="flex shrink-0 text-[var(--f-icon)]">{fi("24.instance.swap.small", 16)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">{nameOf(r.target)}</span>
                 </div>
+                <span className="f-icons hidden group-hover/reaction:flex group-focus-within/reaction:flex" onClick={(e) => e.stopPropagation()}>
+                  <IconButton label="Remove" icon={fi("minus.small")} onClick={() => { if (open) setOpenId(null); set_(reactions.filter((x) => x.id !== r.id)); }} />
+                </span>
               </div>
-              {open && (
-                <div className="flex flex-col pb-1">
-                  <Labels a="Trigger" />
-                  <PropRow icons={<span className="w-6" />}>
-                    <Select label="Trigger" value={r.trigger} options={(Object.keys(TRIGGERS) as InteractionTrigger[]).map((t) => ({ value: t, label: TRIGGERS[t] }))} onChange={(trigger) => patch({ trigger: trigger as InteractionTrigger })} />
-                    {r.trigger === "delay" ? <NumericInput label="Delay" prefix={<Prefix>ms</Prefix>} value={r.delay ?? 800} min={0} onChange={(delay) => patch({ delay })} /> : <span className="flex-1" />}
-                  </PropRow>
-                  <Labels a="Action" />
-                  <PropRow icons={<span className="w-6" />}>
-                    <Select label="Change to" value={r.target} options={variantsOf(set).map((v) => ({ value: v.id, label: `Change to ${variantName(v)}` }))} onChange={(target) => patch({ target })} />
-                  </PropRow>
-                  <Labels a="Animation" />
-                  <PropRow icons={<span className="w-6" />}>
-                    <Select label="Animation" value={r.animation} options={(Object.keys(ANIMATIONS) as InteractionAnimation[]).map((a) => ({ value: a, label: ANIMATIONS[a] }))} onChange={(animation) => patch({ animation: animation as InteractionAnimation })} />
-                  </PropRow>
-                  {r.animation !== "instant" && (
-                    <PropRow icons={<span className="w-6" />}>
-                      <Select label="Easing" value={r.easing} options={(Object.keys(EASINGS) as InteractionEasing[]).map((e) => ({ value: e, label: EASINGS[e].label }))} onChange={(easing) => patch({ easing: easing as InteractionEasing })} />
-                      <NumericInput label="Duration" prefix={<Prefix>ms</Prefix>} value={r.duration} min={0} onChange={(duration) => patch({ duration })} />
-                    </PropRow>
-                  )}
-                </div>
-              )}
+            );
+          })}
+        </div>
+        {editing && anchor && (
+          <PropertyWindow title="Interaction" anchor={anchor} onClose={() => setOpenId(null)}>
+            {windowRow("Trigger", <Select outlined label="Trigger" value={editing.trigger} options={(Object.keys(TRIGGERS) as InteractionTrigger[]).map((t) => ({ value: t, label: TRIGGERS[t] }))} onChange={(trigger) => patch(editing.id, { trigger: trigger as InteractionTrigger })} />)}
+            {editing.trigger === "delay" && windowRow("Delay", <NumericInput label="Delay" prefix={<Prefix>ms</Prefix>} value={editing.delay ?? 800} min={0} onChange={(delay) => patch(editing.id, { delay })} />)}
+            <div className="flex flex-col mt-1 pt-1 border-t border-[var(--f-border)]">
+              {windowRow("Action", <Select outlined label="Action" value="change" options={[{ value: "change", label: "Change to" }]} onChange={() => undefined} />)}
+              {windowRow("Variant", <Select outlined label="Change to" value={editing.target} options={variantsOf(set).map((v) => ({ value: v.id, label: variantName(v) }))} onChange={(target) => patch(editing.id, { target })} />)}
             </div>
-          );
-        })}
+            <div className="flex flex-col mt-1 pt-1 border-t border-[var(--f-border)]">
+              {windowRow("Animation", <Select outlined label="Animation" value={editing.animation} options={(Object.keys(ANIMATIONS) as InteractionAnimation[]).map((a) => ({ value: a, label: ANIMATIONS[a] }))} onChange={(animation) => patch(editing.id, { animation: animation as InteractionAnimation })} />)}
+              {editing.animation !== "instant" && windowRow("Easing", <Select outlined label="Easing" value={editing.easing} options={(Object.keys(EASINGS) as InteractionEasing[]).map((e) => ({ value: e, label: EASINGS[e].label }))} onChange={(easing) => patch(editing.id, { easing: easing as InteractionEasing })} />)}
+              {editing.animation !== "instant" && windowRow("Duration", <NumericInput label="Duration" prefix={<Prefix>ms</Prefix>} value={editing.duration} min={0} onChange={(duration) => patch(editing.id, { duration })} />)}
+            </div>
+          </PropertyWindow>
+        )}
       </Section>
       {flowsGroup}
     </>
@@ -1522,7 +1700,7 @@ function LayoutGuideSection({ frame, ops }: { frame: FrameNode; ops: EditorOps }
 /** A row of the Embed and Link sections: what the field is, then the field. */
 function FieldRow({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 min-h-8 pl-4 pr-2 py-1">
+    <div className="flex items-center gap-2 min-h-8 pl-4 pr-3 py-1">
       <span className="w-[64px] shrink-0 truncate text-[11px] leading-4 text-[var(--f-text-secondary)]" title={name}>{name}</span>
       <div className="min-w-0 flex-1 flex items-center">{children}</div>
     </div>
@@ -1547,7 +1725,7 @@ function TextArea({ label, value, placeholder, rows = 3, mono = false, onCommit 
         if (draft !== null) { onCommit(draft); setDraft(null); }
       }}
       onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { cancelled.current = true; setDraft(null); e.currentTarget.blur(); } }}
-      className={cn("min-w-0 flex-1 px-2 py-1 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent hover:border-[var(--f-border)] focus:border-[var(--f-border-selected)] text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none resize-y", mono ? "font-mono" : "font-[450]")}
+      className={cn("min-w-0 flex-1 px-2 py-1 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent [&:hover:not(:focus)]:border-[var(--f-border)] focus:border-[var(--f-border-selected)] text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none resize-y", mono ? "font-mono" : "font-[450]")}
     />
   );
 }
@@ -1559,7 +1737,7 @@ const ASPECTS = ["16/9", "4/3", "1/1", "3/4", "9/16"].map((r) => ({ value: r, la
  * what it draws from — an address, a code sample, the pictures of a before /
  * after or of the devices — and its caption, in the language being edited.
  */
-function EmbedSection({ node, ops, lang }: { node: FrameNode; ops: EditorOps; lang: "tr" | "en" }) {
+function EmbedSection({ node, ops, lang }: { node: FrameNode; ops: EditorOps; lang: LangCode }) {
   const embed = node.embed!;
   const set = (p: Partial<Embed>) => {
     const next = { ...embed, ...p } as Record<string, unknown>;
@@ -1585,7 +1763,7 @@ function EmbedSection({ node, ops, lang }: { node: FrameNode; ops: EditorOps; la
       {embed.kind === "video" && (
         <>
           {field("Video", "src", "YouTube, Vimeo, .mp4")}
-          <div className="pl-4 pr-2 py-1"><Checkbox label="Loop, muted, without controls" checked={Boolean(embed.videoLoop)} onChange={(v) => set({ videoLoop: v || undefined })} /></div>
+          <div className="pl-4 pr-3 py-1"><Checkbox label="Loop, muted, without controls" checked={Boolean(embed.videoLoop)} onChange={(v) => set({ videoLoop: v || undefined })} /></div>
         </>
       )}
       {embed.kind === "code" && (
@@ -1648,8 +1826,8 @@ function EmbedSection({ node, ops, lang }: { node: FrameNode; ops: EditorOps; la
           <Select label="Aspect ratio" value={embed.aspectRatio ?? "16/9"} options={embed.kind === "image" ? ASPECTS.slice(0, 3) : ASPECTS} onChange={(value) => set({ aspectRatio: value as Embed["aspectRatio"] })} />
         </FieldRow>
       )}
-      <FieldRow name={lang === "en" ? "Caption (EN)" : "Caption"}>
-        <TextArea label="Caption" value={(lang === "en" ? embed.captionEn : embed.caption) ?? ""} placeholder="Optional" rows={2} onCommit={(value) => set(lang === "en" ? { captionEn: value } : { caption: value })} />
+      <FieldRow name={lang === BASE_LANGUAGE ? "Caption" : `Caption (${lang.toUpperCase()})`}>
+        <TextArea label="Caption" value={(lang === BASE_LANGUAGE ? embed.caption : lang === "en" ? embed.captionEn : embed.captionI18n?.[lang]) ?? ""} placeholder="Optional" rows={2} onCommit={(value) => set(captionPatch(embed, lang, value))} />
       </FieldRow>
     </Section>
   );
@@ -1723,6 +1901,96 @@ function SelectionColors({ nodes, selection, ops, byId, mode }: { nodes: SceneNo
 
 // ── The panel ─────────────────────────────────────────────────────────────────
 
+/** Languages offered when one is added (a code and its name as its speakers write it). */
+const LANGUAGE_SUGGESTIONS: Language[] = [
+  { code: "de", name: "Deutsch" },
+  { code: "fr", name: "Français" },
+  { code: "es", name: "Español" },
+  { code: "it", name: "Italiano" },
+  { code: "pt", name: "Português" },
+  { code: "nl", name: "Nederlands" },
+  { code: "ru", name: "Русский" },
+  { code: "ar", name: "العربية" },
+  { code: "ja", name: "日本語" },
+  { code: "ko", name: "한국어" },
+  { code: "zh", name: "中文" },
+  { code: "az", name: "Azərbaycanca" },
+];
+
+/** A language code: two or three letters, and a region after a dash ("pt-br"). */
+const LANGUAGE_CODE = /^[a-z]{2,3}(-[a-z0-9]{2,4})?$/;
+
+/**
+ * The language the file is edited in, as Figma's variable mode row: the
+ * collection's name at the left, the mode in an outlined field with its menu
+ * (the languages, ticked; "Add language…" under a line), and "−" at the end
+ * — which takes the language off with its words (not the base one).
+ */
+function LanguageRow({ languages, lang, ops }: { languages: Language[]; lang: LangCode; ops: EditorOps }) {
+  const [adding, setAdding] = useState<{ top: number; right: number } | null>(null);
+  const current = languages.find((l) => l.code === lang) ?? languages[0];
+  const close = useCallback(() => setAdding(null), []);
+  return (
+    <>
+      <PropRow icons={<IconButton label="Remove language" icon={fi("minus.small")} disabled={current.code === BASE_LANGUAGE} onClick={() => ops.removeLanguage(current.code)} />}>
+        <span className="flex-1 min-w-0 truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)] select-none">Language</span>
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-label="Language"
+          data-picker-anchor=""
+          onClick={(e) => {
+            const el = e.currentTarget;
+            ops.menu(el, [
+              ...languages.map((l) => ({ label: l.name, checked: l.code === current.code, onSelect: () => ops.setLanguage(l.code) })),
+              "-",
+              { label: "Add language…", onSelect: () => setAdding(anchorOf(el)) },
+            ]);
+          }}
+          className={cn(FIELD_OUTLINED, "flex-1 pl-2 pr-1 cursor-pointer text-left")}
+        >
+          <span className="flex-1 min-w-0 truncate text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)]">{current.name}</span>
+          <span className="shrink-0 text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span>
+        </button>
+      </PropRow>
+      {adding && <AddLanguageWindow languages={languages} anchor={adding} onAdd={(language) => { ops.addLanguage(language); close(); }} onClose={close} />}
+    </>
+  );
+}
+
+/** The window that adds a language: its name and code (a suggestion fills both), then "Add". */
+function AddLanguageWindow({ languages, anchor, onAdd, onClose }: { languages: Language[]; anchor: { top: number; right: number }; onAdd: (language: Language) => void; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const taken = new Set(languages.map((l) => l.code));
+  const clean = code.trim().toLowerCase();
+  const problem = !name.trim() ? "" : !LANGUAGE_CODE.test(clean) ? "A code is two or three letters, like de or pt-br." : taken.has(clean) ? "That language is already in the file." : "";
+  const ready = Boolean(name.trim()) && LANGUAGE_CODE.test(clean) && !taken.has(clean);
+  const submit = () => ready && onAdd({ code: clean, name: name.trim() });
+  return (
+    <PropertyWindow title="Add language" anchor={anchor} onClose={onClose}>
+      <WindowRow label="Name">
+        <TextInput autoFocus label="Language name" value={name} placeholder="Deutsch" onChange={setName} />
+      </WindowRow>
+      <WindowRow label="Code">
+        <TextInput label="Language code" value={code} placeholder="de" onChange={setCode} />
+      </WindowRow>
+      <div className="flex flex-col gap-2 mt-2 px-4 pt-3 pb-1 border-t border-[var(--f-border)]">
+        <span className="h-4 flex items-center text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)]">Suggestions</span>
+        <div className="flex flex-wrap gap-1">
+          {LANGUAGE_SUGGESTIONS.filter((l) => !taken.has(l.code)).map((l) => (
+            <button key={l.code} type="button" onClick={() => { setName(l.name); setCode(l.code); }} className="h-6 px-2 rounded-[5px] bg-[var(--f-bg-secondary)] text-[11px] leading-4 text-[var(--f-text)] cursor-pointer hover:bg-[var(--f-bg-hover)]">{l.name}</button>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1">
+        <span className="min-w-0 text-[11px] leading-4 text-[var(--f-text-secondary)]">{problem}</span>
+        <BrandButton disabled={!ready} onClick={submit}>Add</BrandButton>
+      </div>
+    </PropertyWindow>
+  );
+}
+
 function PageColor({ background, ops, variables, byId, mode }: { background: string; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode }) {
   const [picker, setPicker] = useState<{ top: number; right: number } | null>(null);
   // The page colour with its opacity, as Figma's row: kept as #RRGGBBAA when under 100.
@@ -1730,7 +1998,7 @@ function PageColor({ background, ops, variables, byId, mode }: { background: str
   const opacity = background.length === 9 ? Math.round((parseInt(background.slice(7, 9), 16) / 255) * 100) : 100;
   const withOpacity = (h: string, o: number) => (o >= 100 ? h : `${h}${Math.round((o / 100) * 255).toString(16).padStart(2, "0")}`);
   return (
-    <div className="relative flex flex-1">
+    <div className="relative flex flex-1 min-w-0">
       <ColorInput label="Canvas color" color={hex} opacity={opacity} onColor={(h) => ops.setBackground(withOpacity(h, opacity))} onOpacity={(o) => ops.setBackground(withOpacity(hex, o))} chit={<button type="button" data-picker-anchor="" aria-label="Color picker" onClick={(e) => setPicker(picker ? null : anchorOf(e.currentTarget))} className="cursor-pointer"><Chit color={background} /></button>} />
       {picker && <ColorPicker color={hex} opacity={opacity} anchor={picker} variables={variables} byId={byId} mode={mode} pageColors={ops.pageColors} onChange={(h, o) => ops.setBackground(withOpacity(h, o))} onClose={() => setPicker(null)} />}
     </div>
@@ -1751,7 +2019,7 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
   byId: Map<string, DesignVariable>;
   mode: ThemeMode;
   textStyles: TextStyle[];
-  lang: "tr" | "en";
+  lang: LangCode;
   background: string;
   header: (node: SceneNode) => MenuItem[];
 }) {
@@ -1781,6 +2049,7 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
           <PropRow icons={<IconButton label="Show" icon={fi("eye.small")} />}>
             <PageColor background={background} ops={ops} variables={variables} byId={byId} mode={mode} />
           </PropRow>
+          <LanguageRow languages={ops.languages} lang={lang} ops={ops} />
         </Section>
         <Section title="Styles" icons={<IconButton label="Create style" icon={fi("plus.small")} onClick={(e) => ops.menu(e.currentTarget, [{ label: "Create text style", onSelect: () => ops.createTextStyle(null) }, { label: "Create color style", onSelect: () => ops.createColorStyle("#000000") }, { label: "Create effect style", hint: "select a layer", disabled: true }])} />} pb={12}>
           <Labels a="Text styles" />
@@ -1802,22 +2071,45 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
 
   const multi = selection.length > 1;
   const inAuto = Boolean(parent && parent.layoutMode !== "none");
-  const purple = node.type === "component" || node.type === "componentSet" || node.type === "instance" || Boolean(composite);
-  const title = multi ? `${selection.length} selected` : KIND[node.type];
+  // As Figma's: the header reads in the text's colour — a layer inside an instance in the component's purple.
+  const purple = Boolean(composite);
+  // As Figma's: a component, a set or an instance is headed by its (main) component's name; any other layer by its kind.
+  const instanceMain = node.type === "instance" && node.mainId ? findComponent(nodes, node.mainId) : null;
+  const instanceSet = instanceMain ? setOf(nodes, instanceMain.id) : null;
+  const title = multi
+    ? `${selection.length} selected`
+    : node.type === "instance"
+      ? instanceSet?.name ?? instanceMain?.name ?? node.name
+      : node.type === "component" || node.type === "componentSet"
+        ? node.name
+        : KIND[node.type];
   // The selected layers themselves (several: their shared values, or "Mixed"), and whether they share a parent (the spacing between them).
   const selectedNodes = ownIds.map((id) => findNode(nodes, id)).filter((f): f is NonNullable<typeof f> => Boolean(f));
   const sameParent = selectedNodes.length > 1 && selectedNodes.every((f) => (f.parent?.id ?? null) === (selectedNodes[0].parent?.id ?? null));
   const headerMenu = multi || composite ? [] : header(node);
+  // A variant's set (a component in one).
+  const componentSet = node.type === "component" ? setOf(nodes, node.id) : null;
 
   return (
     <div className="flex flex-col">
       {/* The layer header, as Figma's: the kind with its menu (the layers holding it); at the right, create component and "…". */}
-      <div className="flex items-center justify-between h-12 pl-4 pr-2 py-1 border-b border-[var(--f-border)]">
+      <div className="flex items-center justify-between h-12 pl-4 pr-3 py-1 border-b border-[var(--f-border)]">
         <ChevronMenu label="Layer" items={headerMenu.map((m) => ({ label: m.label, hint: m.hint, onSelect: m.onSelect }))} width={200} className={cn(headerMenu.length === 0 && "pointer-events-none")}>
           <span className={cn("truncate text-[13px] font-[550] leading-[22px] tracking-[-0.0325px]", purple ? "text-[var(--f-text-component)]" : "text-[var(--f-text)]")}>{title}</span>
         </ChevronMenu>
         <div className="flex items-center gap-2">
           {!composite && !multi && node.type === "frame" && <IconButton label="Create component (⌥⌘K)" icon={fi("component.small")} onClick={ops.createComponent} />}
+          {/* A main component's, as Figma's: its variants selected (a set's, a variant's set's), its set, a variant added; its properties' menu. */}
+          {!composite && !multi && (node.type === "componentSet" || componentSet) && (
+            <IconButton label="Select all variants" icon={fi("select-matching.small")} onClick={() => { const set = node.type === "componentSet" ? node : componentSet!; ops.select(variantsOf(set).map((v) => v.id)); }} />
+          )}
+          {!composite && !multi && componentSet && <IconButton label="Select component set" icon={fi("16.component.set")} onClick={() => ops.select([componentSet.id])} />}
+          {!composite && !multi && (node.type === "componentSet" || (node.type === "component" && !componentSet)) && (
+            <IconButton label="Add variant" icon={fi("add-variant.small")} onClick={() => ops.addVariant(node.id)} />
+          )}
+          {!composite && !multi && (node.type === "componentSet" || node.type === "component") && (
+            <IconButton label="Add property" icon={fi("24.adjust.small")} onClick={(e) => ops.menu(e.currentTarget, addPropertyEntries(node.type === "componentSet" ? node : componentSet ?? node, nodes, ops))} />
+          )}
           {multi && <IconButton label={`Use as mask (${"^" + keys("mod", "m")})`} icon={fi("24.mask")} onClick={() => ops.maskWith(ownIds[0])} />}
           <IconButton label="More" icon={<span className="text-[var(--f-icon)]">{fi("24.more")}</span>} onClick={(e) => ops.more(e.currentTarget)} />
         </div>
@@ -1828,7 +2120,7 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
         <>
           <Section title="Instance layer">
             <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">Layer of the main component: changes apply to this instance only.</p>
-            <div className="pl-4 pr-2 py-2"><Checkbox label="Visible" checked={node.visible !== false} onChange={(v) => ops.override(composite, { visible: v ? undefined : false })} /></div>
+            <div className="pl-4 pr-3 py-2"><Checkbox label="Visible" checked={node.visible !== false} onChange={(v) => ops.override(composite, { visible: v ? undefined : false })} /></div>
           </Section>
           {node.type === "text" && <TextSection node={node} nodes={nodes} ops={ops} variables={variables} byId={byId} mode={mode} textStyles={textStyles} lang={lang} compositeId={composite} />}
           <FillSection node={node} ops={ops} variables={variables} byId={byId} mode={mode} compositeId={composite} />
@@ -1838,8 +2130,8 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
         <>
           {!multi && isFrameLike(node) && node.embed && <EmbedSection key={node.id} node={node} ops={ops} lang={lang} />}
           {!multi && node.type === "instance" && <InstanceSection node={node} nodes={nodes} ops={ops} lang={lang} />}
-          {!multi && node.type === "component" && <ComponentSection node={node} nodes={nodes} ops={ops} />}
-          {!multi && node.type === "component" && !setOf(nodes, node.id) && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
+          {!multi && node.type === "component" && componentSet && <CurrentVariantSection node={node} set={componentSet} ops={ops} />}
+          {!multi && node.type === "component" && !componentSet && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
           {!multi && node.type === "componentSet" && <PropertiesSection holder={node} nodes={nodes} ops={ops} />}
           <PositionSection node={node} inAuto={inAuto} ops={ops} multi={selection} selected={selectedNodes.map((f) => f.node)} />
           {multi && selectedNodes.length > 1 ? (

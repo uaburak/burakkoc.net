@@ -7,7 +7,7 @@ import { isSafeHref, renderRichText } from "@/components/project/RichText";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { colorWithAlpha, fillsCss, frameLayoutCss, nodeCss, motionCss } from "./css";
 import { EmbedView } from "./EmbedView";
-import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, type FrameNode, type LayoutGrid, type LayoutMode, type Paint, type Reaction, type SceneNode, type ShapeNode, type TextNode } from "./model";
+import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, wordsIn, type FrameNode, type LangCode, type LayoutGrid, type LayoutMode, type Paint, type Reaction, type SceneNode, type ShapeNode, type TextNode } from "./model";
 
 /**
  * The nodes drawn as DOM — the editor's canvas and the site's page share it.
@@ -29,7 +29,7 @@ import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, type Fram
 export interface RenderContext {
   nodes: readonly SceneNode[];
   byId: Map<string, DesignVariable>;
-  lang: "tr" | "en";
+  lang: LangCode;
   /** Prototypes play: reactions turn instances into other variants */
   play: boolean;
   /** The text being typed in place (the editor), and where its words go */
@@ -107,8 +107,8 @@ function PictureView({ node, paint, style, id }: { node: ShapeNode; paint: Paint
 
 export const RenderContextCtx = createContext<RenderContext>({ nodes: [], byId: new Map(), lang: "tr", play: false });
 
-/** A text's words in the language shown (the Turkish ones when there are no English). */
-export const textOf = (node: TextNode, lang: "tr" | "en") => (lang === "en" ? node.charactersEn || node.characters : node.characters);
+/** A text's words in the language shown (the base language's own when there are none in it). */
+export const textOf = (node: TextNode, lang: LangCode) => wordsIn(node, lang) || node.characters;
 
 /** A text typed in place: the same element, contentEditable — its words written on every keystroke (never re-seeded, so the caret stays). */
 function EditableTextNode({ node, style, id }: { node: TextNode; style: CSSProperties; id: string }) {
@@ -139,6 +139,7 @@ function EditableTextNode({ node, style, id }: { node: TextNode; style: CSSPrope
       ref={ref}
       data-node-id={id}
       data-node-type="text"
+      data-text-style={node.textStyle}
       data-editing=""
       contentEditable="plaintext-only"
       suppressContentEditableWarning

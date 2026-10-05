@@ -182,6 +182,8 @@ export interface Embed extends Pick<Block,
   | "entries" | "variant"
 > {
   kind: EmbedKind;
+  /** Its caption in the languages beyond Turkish and English (by language code) */
+  captionI18n?: Record<string, string>;
 }
 
 export const EMBED_LABEL: Record<EmbedKind, string> = { image: "Image", video: "Video", code: "Code", figma: "Figma", iframe: "iFrame", compare: "Before / After", devices: "Device frame" };
@@ -259,6 +261,8 @@ export interface TextNode extends BaseNode {
   characters: string;
   /** Its English text, when the site shows English */
   charactersEn?: string;
+  /** Its text in the languages beyond Turkish and English (by language code) */
+  translations?: Record<string, string>;
   fontSize: VariableValue;
   fontWeight: VariableValue;
   /** px — auto when unset */
@@ -332,6 +336,8 @@ export interface FrameNode extends BaseNode, Geometry {
   props?: PropertyValues;
   /** An instance's English words for its text properties */
   propsEn?: Record<string, string>;
+  /** Its words for its text properties in the languages beyond Turkish and English (by language code, then property id) */
+  propsI18n?: Record<string, Record<string, string>>;
   /** An instance inside a main component: its component from this instance swap property (its id) */
   mainProp?: string;
   /**
@@ -347,6 +353,7 @@ export interface FrameNode extends BaseNode, Geometry {
 export interface NodeOverride {
   characters?: string;
   charactersEn?: string;
+  translations?: Record<string, string>;
   fills?: Paint[];
   strokes?: StrokeStyle[];
   visible?: boolean;
@@ -366,6 +373,112 @@ export interface DocumentPage {
   background?: string;
 }
 
+// ── Languages ─────────────────────────────────────────────────────────────────
+//
+// The file is written in its base language (Turkish: the nodes' own words) and
+// translated into the others. English keeps its own fields (charactersEn,
+// propsEn, captionEn) as it always had; every language added beyond the two
+// keeps its words in a map by language code (translations, propsI18n,
+// captionI18n). The helpers below are the one place that knows where a
+// language's words are.
+
+/** A language code, lower case ("tr", "en", "de", "pt-br"). */
+export type LangCode = string;
+
+export interface Language {
+  code: LangCode;
+  /** As its speakers write it: "Türkçe", "Deutsch" */
+  name: string;
+}
+
+export const BASE_LANGUAGE: LangCode = "tr";
+export const DEFAULT_LANGUAGES: Language[] = [{ code: "tr", name: "Türkçe" }, { code: "en", name: "English" }];
+
+/** The file's languages, the base first. */
+export const languagesOf = (doc: Pick<FigmaDocument, "languages">): Language[] => (doc.languages?.length ? doc.languages : DEFAULT_LANGUAGES);
+
+/** A text layer's — or an override's — words in a language; undefined where it has none of its own. */
+export function wordsIn(node: Pick<TextNode, "characters" | "charactersEn" | "translations"> | Pick<NodeOverride, "characters" | "charactersEn" | "translations">, lang: LangCode): string | undefined {
+  if (lang === BASE_LANGUAGE) return node.characters;
+  if (lang === "en") return node.charactersEn;
+  return node.translations?.[lang];
+}
+
+/** The fields that put `value` as a text layer's (or override's) words in a language. */
+export function wordsPatch(node: Pick<TextNode, "translations"> | Pick<NodeOverride, "translations">, lang: LangCode, value: string): { characters: string } | { charactersEn: string } | { translations: Record<string, string> } {
+  if (lang === BASE_LANGUAGE) return { characters: value };
+  if (lang === "en") return { charactersEn: value };
+  return { translations: { ...node.translations, [lang]: value } };
+}
+
+/** An instance's words for its text properties in a language (by property id). */
+export function propsIn(instance: Pick<FrameNode, "propsEn" | "propsI18n">, lang: LangCode): Record<string, string> | undefined {
+  if (lang === "en") return instance.propsEn;
+  return instance.propsI18n?.[lang];
+}
+
+/** The fields that put `value` as an instance's words for a text property in a language (the base language's are its values: not here). */
+export function propsPatch(instance: Pick<FrameNode, "propsEn" | "propsI18n">, lang: LangCode, propId: string, value: string): { propsEn: Record<string, string> } | { propsI18n: Record<string, Record<string, string>> } {
+  if (lang === "en") return { propsEn: { ...instance.propsEn, [propId]: value } };
+  return { propsI18n: { ...instance.propsI18n, [lang]: { ...instance.propsI18n?.[lang], [propId]: value } } };
+}
+
+/** An embed's caption in a language (the base one where it has none). */
+export const captionIn = (embed: Pick<Embed, "caption" | "captionEn" | "captionI18n">, lang: LangCode): string | undefined =>
+  lang === BASE_LANGUAGE ? embed.caption : (lang === "en" ? embed.captionEn : embed.captionI18n?.[lang]) || embed.caption;
+
+/** The fields that put `value` as an embed's caption in a language. */
+export function captionPatch(embed: Pick<Embed, "captionI18n">, lang: LangCode, value: string): { caption: string } | { captionEn: string } | { captionI18n: Record<string, string> } {
+  if (lang === BASE_LANGUAGE) return { caption: value };
+  if (lang === "en") return { captionEn: value };
+  return { captionI18n: { ...embed.captionI18n, [lang]: value } };
+}
+
+/** The file without a language: its words in it go too (the base language stays). */
+export function withoutLanguage(doc: FigmaDocument, code: LangCode): FigmaDocument {
+  if (code === BASE_LANGUAGE) return doc;
+  const strip = (node: SceneNode): SceneNode => {
+    let next: SceneNode = node;
+    if (next.type === "text") {
+      const { charactersEn, translations, ...rest } = next;
+      const kept = translations ? Object.fromEntries(Object.entries(translations).filter(([k]) => k !== code)) : undefined;
+      next = { ...rest, ...(code !== "en" && charactersEn !== undefined ? { charactersEn } : {}), ...(kept && Object.keys(kept).length ? { translations: kept } : {}) } as TextNode;
+    } else if (isFrameLike(next)) {
+      const { propsEn, propsI18n, ...rest } = next as FrameNode;
+      const kept = propsI18n ? Object.fromEntries(Object.entries(propsI18n).filter(([k]) => k !== code)) : undefined;
+      const embed = (next as FrameNode).embed;
+      const keptCaptions = embed?.captionI18n ? Object.fromEntries(Object.entries(embed.captionI18n).filter(([k]) => k !== code)) : undefined;
+      // An override left with nothing in it goes.
+      const overrides = (next as FrameNode).overrides && Object.fromEntries(Object.entries((next as FrameNode).overrides!).map(([key, o]) => [key, stripOverride(o)]).filter(([, o]) => Object.keys(o).length));
+      next = {
+        ...rest,
+        ...(code !== "en" && propsEn ? { propsEn } : {}),
+        ...(kept && Object.keys(kept).length ? { propsI18n: kept } : {}),
+        ...(embed ? { embed: code === "en" ? (({ captionEn, ...e }) => { void captionEn; return e; })(embed) : { ...embed, captionI18n: keptCaptions && Object.keys(keptCaptions).length ? keptCaptions : undefined } } : {}),
+        ...(overrides ? { overrides } : {}),
+        children: (next as FrameNode).children.map(strip),
+      } as FrameNode;
+    }
+    return next;
+  };
+  const stripOverride = (o: NodeOverride): NodeOverride => {
+    const { charactersEn, translations, overrides, ...rest } = o;
+    const kept = translations ? Object.fromEntries(Object.entries(translations).filter(([k]) => k !== code)) : undefined;
+    return {
+      ...rest,
+      ...(code !== "en" && charactersEn !== undefined ? { charactersEn } : {}),
+      ...(kept && Object.keys(kept).length ? { translations: kept } : {}),
+      ...(overrides ? { overrides: Object.fromEntries(Object.entries(overrides).map(([key, v]) => [key, stripOverride(v)]).filter(([, v]) => Object.keys(v).length)) } : {}),
+    };
+  };
+  return {
+    ...doc,
+    languages: languagesOf(doc).filter((l) => l.code !== code),
+    nodes: doc.nodes.map(strip),
+    pages: doc.pages?.map((pg) => ({ ...pg, nodes: pg.nodes.map(strip) })),
+  };
+}
+
 export interface FigmaDocument {
   version: 1;
   /** The canvas's top-level nodes, back to front */
@@ -382,6 +495,8 @@ export interface FigmaDocument {
   currentPage?: string;
   /** The file's effect styles */
   effectStyles?: EffectStyle[];
+  /** The languages the file is written in (Turkish and English when unset) — the first is the base: its words are the nodes' own, the rest are translations */
+  languages?: Language[];
   /** Which starting library its Components page was seeded from (see library.ts) */
   libraryVersion?: number;
   /** Its page was made from the project's page as it was before the Figma editor: the version of what made it (see withLegacyPage) */
@@ -777,12 +892,15 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
   const overrides = instance.overrides ?? {};
   const values = propertyValues(nodes, main, instance);
   const valuesEn = instance.propsEn ?? {};
+  const valuesI18n = instance.propsI18n;
   // A layer bound to a property: shown by a boolean, worded by a text, swapped by an instance swap.
   const applyProps = <T extends SceneNode>(node: T): T => {
     let next = node;
     if (node.visibleProp && node.visibleProp in values) next = { ...next, visible: Boolean(values[node.visibleProp]) };
     if (next.type === "text" && next.charactersProp && typeof values[next.charactersProp] === "string") {
-      next = { ...next, characters: values[next.charactersProp] as string, charactersEn: valuesEn[next.charactersProp] } as T;
+      const prop = next.charactersProp;
+      const translations = valuesI18n ? Object.fromEntries(Object.entries(valuesI18n).flatMap(([code, words]) => (words[prop] !== undefined ? [[code, words[prop]]] : []))) : undefined;
+      next = { ...next, characters: values[prop] as string, charactersEn: valuesEn[prop], translations: translations && Object.keys(translations).length ? translations : undefined } as T;
     }
     if (next.type === "instance" && (next as FrameNode).mainProp) {
       const id = values[(next as FrameNode).mainProp!];
@@ -799,6 +917,7 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
     if (next.type === "text") {
       if (o.characters !== undefined) (next as TextNode).characters = o.characters;
       if (o.charactersEn !== undefined) (next as TextNode).charactersEn = o.charactersEn;
+      if (o.translations) (next as TextNode).translations = { ...(next as TextNode).translations, ...o.translations };
       if (o.fills) (next as TextNode).fills = o.fills;
     } else {
       if (o.fills) (next as FrameNode | ShapeNode).fills = o.fills;
@@ -880,6 +999,17 @@ export function withOverride(overrides: Record<string, NodeOverride> | undefined
   const next = { ...overrides, [key]: current as NodeOverride };
   if (!Object.keys(current).length) delete next[key];
   return Object.keys(next).length ? next : undefined;
+}
+
+/** The override an instance holds at these keys (a nested one's through its outer's), as stored. */
+export function overrideAt(overrides: Record<string, NodeOverride> | undefined, keys: readonly string[]): NodeOverride | undefined {
+  let at: NodeOverride | undefined;
+  let level = overrides;
+  for (const key of keys) {
+    at = level?.[key];
+    level = at?.overrides;
+  }
+  return at;
 }
 
 /**

@@ -9,7 +9,7 @@ import { ContextMenu, type MenuEntry } from "@/components/admin/ContextMenu";
 /**
  * Figma's UI3 pieces, at the kit's measures (UI3: Figma's UI Kit): 11px /
  * 16px Inter — 450 for text, 550 for strong — 24px fields and icon buttons
- * in 32px rows, 40px section headers, 16px in from the left and 8px from the
+ * in 32px rows, 40px section headers, 16px in from the left and 12px from the
  * right, 5px corners; fields on the secondary background.
  */
 
@@ -17,7 +17,7 @@ import { ContextMenu, type MenuEntry } from "@/components/admin/ContextMenu";
 export function Section({ title, strong = true, muted = false, icons, pb = 8, children }: { title: string; strong?: boolean; muted?: boolean; icons?: ReactNode; pb?: 8 | 12 | 0; children?: ReactNode }) {
   return (
     <section className={cn("flex flex-col border-b border-[var(--f-border)]", pb === 12 ? "pb-3" : pb === 8 ? "pb-2" : "")}>
-      <div className="flex items-center gap-1 h-10 pl-4 pr-2">
+      <div className="flex items-center gap-1 h-10 pl-4 pr-3">
         <span className={cn("flex-1 min-w-0 truncate text-[11px] leading-4 tracking-[0.055px] select-none", strong ? "font-[550]" : "font-[450]", muted ? "text-[var(--f-text-secondary)]" : "text-[var(--f-text)]")}>{title}</span>
         <span className="f-icons flex items-center gap-1">{icons}</span>
       </div>
@@ -29,7 +29,7 @@ export function Section({ title, strong = true, muted = false, icons, pb = 8, ch
 /** A property row: 32px, its fields side by side (8px apart), the row's icons at its end. */
 export function PropRow({ children, icons, className }: { children: ReactNode; icons?: ReactNode; className?: string }) {
   return (
-    <div className={cn("flex items-start gap-2 pl-4 pr-2 py-1", className)}>
+    <div className={cn("flex items-start gap-2 pl-4 pr-3 py-1", className)}>
       <div className="flex flex-1 min-w-0 items-center gap-2">{children}</div>
       {icons && <div className="f-icons flex shrink-0 items-center gap-1">{icons}</div>}
     </div>
@@ -67,7 +67,9 @@ export function Prefix({ children }: { children: ReactNode }) {
   return <span className="flex shrink-0 items-center justify-center w-6 h-6 text-[11px] font-[450] text-[var(--f-text-secondary)] select-none">{children}</span>;
 }
 
-const FIELD = "group/field flex items-center h-6 min-w-0 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent hover:border-[var(--f-border)] focus-within:border-[var(--f-border-selected)] transition-colors";
+const FIELD = "group/field flex items-center h-6 min-w-0 rounded-[5px] bg-[var(--f-bg-secondary)] border border-transparent [&:hover:not(:focus-within)]:border-[var(--f-border)] focus-within:border-[var(--f-border-selected)] transition-colors";
+/** A dropdown as Figma draws a component's: no fill, a hairline round it. */
+export const FIELD_OUTLINED = "group/field flex items-center h-6 min-w-0 rounded-[5px] bg-transparent border border-[var(--f-border)] [&:hover:not(:focus-within)]:border-[var(--f-icon-tertiary)] focus-within:border-[var(--f-border-selected)] transition-colors";
 
 /**
  * As Figma's fields: a click on an unfocused field selects everything in it,
@@ -181,14 +183,30 @@ export function NumericInput({ label, prefix, value, min = -100000, max = 100000
   );
 }
 
+/**
+ * Figma's toggle: a boolean property's value — a 28 × 16 track, an oval
+ * knob. On: the brand blue under a white knob at the right. Off: a grey fill
+ * and outline under the knob (at the left); the knob, the innermost, always
+ * white. Drawn by EDITOR_CSS ([data-switch]), not by classes: the editor's
+ * own CSS is always current, a dev server's generated classes can lag.
+ */
+export function Switch({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} data-switch="" data-motion="" onClick={() => onChange(!checked)}>
+      <span />
+    </button>
+  );
+}
+
 /** A one-line text field in the kit's box. */
-export function TextInput({ label, value, placeholder, prefix, onChange, onCommit, className }: { label: string; value: string; placeholder?: string; prefix?: ReactNode; onChange?: (value: string) => void; onCommit?: (value: string) => void; className?: string }) {
+export function TextInput({ label, value, placeholder, prefix, onChange, onCommit, className, autoFocus = false }: { label: string; value: string; placeholder?: string; prefix?: ReactNode; onChange?: (value: string) => void; onCommit?: (value: string) => void; className?: string; autoFocus?: boolean }) {
   const [draft, setDraft] = useState<string | null>(null);
   return (
     <div className={cn(FIELD, "flex-1", className)}>
       {prefix}
       <input
         aria-label={label}
+        autoFocus={autoFocus}
         value={draft ?? value}
         placeholder={placeholder}
         {...selectAllOnClick}
@@ -199,16 +217,16 @@ export function TextInput({ label, value, placeholder, prefix, onChange, onCommi
           if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
           if (e.key === "Escape") { setDraft(null); (e.currentTarget as HTMLInputElement).blur(); }
         }}
-        className={cn("min-w-0 flex-1 h-full bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none", !prefix && "pl-2")}
+        className={cn("w-0 min-w-0 flex-1 h-full truncate bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none", !prefix && "pl-2")}
       />
     </div>
   );
 }
 
 /** A dropdown in the kit's box: its value and a chevron, the system's own menu under it. */
-export function Select({ label, value, options, onChange, prefix, className }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; prefix?: ReactNode; className?: string }) {
+export function Select({ label, value, options, onChange, prefix, className, outlined = false }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; prefix?: ReactNode; className?: string; /** A hairline round it, no fill (a component's properties) */ outlined?: boolean }) {
   return (
-    <div className={cn(FIELD, "relative flex-1", className)}>
+    <div className={cn(outlined ? FIELD_OUTLINED : FIELD, "relative flex-1", className)}>
       {prefix}
       <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={cn("w-full h-full pr-6 appearance-none bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] outline-none cursor-pointer", prefix ? "pl-0" : "pl-2")}>
         {options.map((o) => (
@@ -312,7 +330,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, chit, cl
         onChange={(e) => setDraft(e.target.value)}
         onBlur={(e) => commit(e.currentTarget.value)}
         onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); if (e.key === "Escape") { setDraft(null); (e.currentTarget as HTMLInputElement).blur(); } }}
-        className="min-w-0 flex-1 h-full bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] outline-none uppercase"
+        className="w-0 min-w-0 flex-1 h-full bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] outline-none uppercase"
       />
       {onOpacity && (
         <span className="flex w-[53px] h-full shrink-0 items-center border-l border-[var(--f-bg)]">
@@ -337,7 +355,7 @@ export function SidebarRow({ selected = false, onClick, children, className }: {
 /** Figma's 40px collapsible header (Pages, Layers): its chevron and label, its icons at the right. */
 export function CollapseHeader({ label, open, onToggle, icons }: { label: string; open?: boolean; onToggle?: () => void; icons?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between h-10 pr-2 py-1">
+    <div className="flex items-center justify-between h-10 pr-3 py-1">
       <button type="button" onClick={onToggle} className="flex flex-1 min-w-0 items-center pr-2 cursor-pointer">
         <span className={cn("flex w-4 h-4 shrink-0 items-center justify-center text-[var(--f-icon-secondary)] transition-transform", open === false && "-rotate-90")}>{open === undefined ? null : fi("16.chevron.down")}</span>
         <span className={cn("truncate text-[11px] font-[550] leading-4 tracking-[0.055px] text-[var(--f-text)]", open === undefined && "pl-4")}>{label}</span>
@@ -363,18 +381,37 @@ export function BrandButton({ children, disabled, onClick, className }: { childr
  * is selected.
  */
 export const EDITOR_CSS = `
+/* The Page Editor's scrollbar: in sight only while the pointer is over the canvas (or it is dragged), gone the moment it leaves — no fade. */
+[data-page-scrollbar] { opacity: 0; }
+[data-figma-canvas]:hover [data-page-scrollbar], [data-page-scrollbar][data-dragging] { opacity: 0.5; }
+[data-figma-canvas] [data-page-scrollbar]:hover, [data-page-scrollbar][data-dragging] { opacity: 1; }
 [data-grid-cells] { opacity: 0; }
 [data-layer-selected] > [data-grid-cells] { opacity: 1; }
 [data-tip] { position: relative; }
 [data-tip]::after {
-  content: attr(data-tip);
+  content: attr(data-tip); white-space: nowrap;
   position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
   padding: 4px 8px; border-radius: 5px; background: #1e1e1e; color: #fff;
-  font-size: 11px; line-height: 16px; font-weight: 400; letter-spacing: 0.055px; white-space: nowrap;
+  font-size: 11px; line-height: 16px; font-weight: 400; letter-spacing: 0.055px;
   pointer-events: none; display: none; z-index: 60;
 }
 /* Shown only while hovered (a hidden tooltip past the panel's edge would still make it scroll sideways); it fades in after a beat. */
-[data-tip]:hover::after { display: block; animation: f-tip 0.1s 0.5s both; }
+[data-tip]:hover::after { display: block; animation: f-tip 0s 0.5s both; }
 @keyframes f-tip { from { opacity: 0; } to { opacity: 1; } }
+[data-tip-key]::after { content: attr(data-tip) "   " attr(data-tip-key); white-space: pre; }
 .f-icons [data-tip]::after { left: auto; right: 0; transform: none; }
+/* The toggle (see Switch): its track, its knob, hovered, on. */
+[data-switch] { position: relative; flex-shrink: 0; width: 28px; height: 16px; box-sizing: border-box; padding: 0; border-radius: 9999px; border: 1px solid var(--f-icon-tertiary); background: var(--f-bg-tertiary); cursor: pointer; }
+[data-switch]:hover { background: var(--f-bg-toggle-hover); }
+[data-switch] > span { position: absolute; top: 50%; left: 2px; width: 14px; height: 10px; box-sizing: border-box; transform: translateY(-50%); border-radius: 9999px; border: 1px solid var(--f-icon-tertiary); background: #fff; }
+[data-switch][aria-checked="true"], [data-switch][aria-checked="true"]:hover { background: var(--f-bg-brand); border-color: var(--f-bg-brand); }
+[data-switch][aria-checked="true"] > span { left: 10px; border-color: #fff; }
+/* The one thing in them that moves: a toggle's knob slides and its colours fade (150ms). */
+[data-instant] [data-motion], [data-instant] [data-motion] * { transition: background-color 150ms ease, border-color 150ms ease, left 150ms ease !important; }
+/* At the sidebar's left edge: from the button's left, not centred (it would go under the navigation bar). */
+.f-tip-start [data-tip]::after { left: 0; transform: none; }
+/* The editor's panels (navigation, sidebars, toolbar, menus, windows): hovers, toggles and selections change at once — no transitions, as Figma's. */
+[data-instant], [data-instant] * { transition: none !important; }
+/* The navigation bar's tabs (icons only): their names to the right of them, as Figma's. */
+.f-nav [data-tip]::after { left: calc(100% + 2px); top: 50%; transform: translateY(-50%); }
 `;

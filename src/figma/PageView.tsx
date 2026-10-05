@@ -8,7 +8,7 @@ import { SplitText } from "gsap/SplitText";
 import type { DesignVariable } from "@/types/design";
 import { useDesignVariables } from "@/components/project/designVariables";
 import type { CSSProperties } from "react";
-import { byIdMap, libraryOf, numberOf, type FigmaDocument, type FrameNode } from "./model";
+import { byIdMap, libraryOf, numberOf, type FigmaDocument, type FrameNode, type LangCode } from "./model";
 import { MotionStyle, NodeView, PAGE_CSS, PAGE_TOP_NARROW, RenderProvider } from "./NodeView";
 import { revealPlan } from "./site";
 
@@ -22,7 +22,7 @@ gsap.registerPlugin(ScrollTrigger, SplitText);
  * see revealPlan). Render it inside the design scope (DesignSystemStyle puts
  * the variables there).
  */
-export function PageView({ doc, lang = "tr", variables, effects = true }: { doc: FigmaDocument; lang?: "tr" | "en"; variables?: DesignVariable[]; /** The scroll effects (off: everything simply there) */ effects?: boolean }) {
+export function PageView({ doc, lang = "tr", variables, effects = true }: { doc: FigmaDocument; lang?: LangCode; variables?: DesignVariable[]; /** The scroll effects (off: everything simply there) */ effects?: boolean }) {
   const fromContext = useDesignVariables();
   const byId = useMemo(() => byIdMap(variables ?? fromContext), [variables, fromContext]);
   const page = doc.nodes.find((n): n is FrameNode => n.id === doc.pageId && (n.type === "frame" || n.type === "component"));
