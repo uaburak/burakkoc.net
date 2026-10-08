@@ -6,7 +6,6 @@ import gsap from "gsap";
 import { TopBar } from "@/components/TopBar";
 import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
 import { ProjectData } from "@/types/project";
-import { sectionBlocks } from "@/lib/projectLayout";
 import PageEntrance from "@/components/PageEntrance";
 
 export default function ProjectsClient({ initialProjects }: { initialProjects: ProjectData[] }) {
@@ -82,7 +81,7 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
     if (!imgUrl) {
       for (const item of (project.items || [])) {
         if (item.kind === "section") {
-          const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
+          const imgBlock = (item.blocks || []).find((b) => b.type === "image" && b.src);
           if (imgBlock?.src) {
             imgUrl = imgBlock.src;
             break;

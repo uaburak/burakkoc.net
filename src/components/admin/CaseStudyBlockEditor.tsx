@@ -8,8 +8,6 @@ import { PillButton } from "@/components/Button";
 import { Segmented } from "@/components/Segmented";
 import { Select } from "@/components/Select";
 import { UploadZone } from "@/components/admin/ImageBlockEditor";
-import { SortableGroup, SortableItem } from "@/components/project/Sortable";
-import { arrayMove } from "@dnd-kit/sortable";
 
 /**
  * Editors for the case-study blocks. Most blocks are a list of `entries`
@@ -474,12 +472,7 @@ export function CaseStudyBlockEditor({ block, onChange, lang, projectSlug }: Cas
         </div>
       )}
 
-      {/* Entries — drag by pressing and holding a row's header (inputs stay typeable) */}
-      <SortableGroup ids={entries.map((e) => e.id)} onMove={(activeId, overId) => {
-        const from = entries.findIndex((e) => e.id === activeId);
-        const to = entries.findIndex((e) => e.id === overId);
-        if (from >= 0 && to >= 0) setEntries(arrayMove(entries, from, to));
-      }}>
+      {/* Entries */}
       <div className="flex flex-col gap-1.5 w-full">
         {entries.map((entry, idx) => {
           const dots = (
@@ -492,15 +485,13 @@ export function CaseStudyBlockEditor({ block, onChange, lang, projectSlug }: Cas
           );
           if (singleLine) {
             return (
-              <SortableItem key={entry.id} id={entry.id} outline={false} className="rounded-full">
-                <Input type="text" bgContext="block" size="md" value={read(entry, fields[0])}
-                  onChange={(e) => writeField(idx, fields[0], e.target.value)} placeholder={fields[0].placeholder}
-                  endContent={dots} />
-              </SortableItem>
+              <Input key={entry.id} type="text" bgContext="block" size="md" value={read(entry, fields[0])}
+                onChange={(e) => writeField(idx, fields[0], e.target.value)} placeholder={fields[0].placeholder}
+                endContent={dots} />
             );
           }
           return (
-            <SortableItem key={entry.id} id={entry.id} outline={false} className="flex flex-col gap-2 p-2.5 rounded-[22px] border border-dashed border-[var(--border-hover)] bg-[var(--bg-4)]">
+            <div key={entry.id} className="flex flex-col gap-2 p-2.5 rounded-[22px] border border-dashed border-[var(--border-hover)]">
               <div className="flex items-center justify-between px-1.5">
                 <span className="text-[13px] font-medium text-[var(--text-subtitle)] select-none">
                   {type === "compare" ? (idx === 0 ? "Önce" : "Sonra") : `${ENTRY_NOUN[type]} ${idx + 1}`}
@@ -517,11 +508,10 @@ export function CaseStudyBlockEditor({ block, onChange, lang, projectSlug }: Cas
                   size="md"
                 />
               )}
-            </SortableItem>
+            </div>
           );
         })}
       </div>
-      </SortableGroup>
 
       {/* Caption for media / data blocks */}
       {(type === "gallery" || type === "compare" || type === "mockup" || type === "bars") &&

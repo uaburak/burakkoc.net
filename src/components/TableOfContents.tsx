@@ -4,15 +4,10 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 export interface TocItem {
-  /** Its section's element: its `id` — or, on a page made in the Figma editor, its layer's (`data-node-id`) */
   id: string;
   label: string;
   level?: 1 | 2;
 }
-
-/** An item's element on the page. */
-const elementOf = (id: string): HTMLElement | null =>
-  document.getElementById(id) ?? document.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
 
 interface TableOfContentsProps {
   items: TocItem[];
@@ -49,7 +44,7 @@ export function TableOfContents({ items }: TableOfContentsProps) {
     let currentId = items[0]?.id ?? "";
 
     for (const item of items) {
-      const el = elementOf(item.id);
+      const el = document.getElementById(item.id);
       if (!el) continue;
       const target = el.querySelector("h1, h2, h3") || el;
       const rect = target.getBoundingClientRect();
@@ -146,7 +141,7 @@ export function TableOfContents({ items }: TableOfContentsProps) {
       return;
     }
 
-    const el = elementOf(id);
+    const el = document.getElementById(id);
     if (!el) return;
 
     // Find the heading element inside the section to align directly to the heading text

@@ -12,14 +12,11 @@ import { Fragment, ReactNode } from "react";
 
 const TOKEN = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
 
-const LINK_CLASS = "font-normal text-[var(--text-title)] underline decoration-[var(--project-accent,var(--border-hover))] underline-offset-4 transition-colors duration-200 hover:decoration-[var(--project-accent,var(--text-title))]";
-
 export function isSafeHref(href: string) {
   return /^(https?:\/\/|mailto:|\/)/i.test(href);
 }
 
-/** Links drawn as links (`links`, the default) — or only as their look (a link inside another, the editor's canvas): no anchor to follow. */
-export function renderRichText(text: string, { links = true }: { links?: boolean } = {}): ReactNode[] {
+export function renderRichText(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
   let key = 0;
@@ -35,12 +32,6 @@ export function renderRichText(text: string, { links = true }: { links?: boolean
           {bold}
         </strong>
       );
-    } else if (isSafeHref(href) && !links) {
-      nodes.push(
-        <span key={key++} className={LINK_CLASS}>
-          {label}
-        </span>
-      );
     } else if (isSafeHref(href)) {
       const external = /^https?:\/\//i.test(href);
       nodes.push(
@@ -48,7 +39,7 @@ export function renderRichText(text: string, { links = true }: { links?: boolean
           key={key++}
           href={href}
           {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-          className={LINK_CLASS}
+          className="font-normal text-[var(--text-title)] underline decoration-[var(--border-hover)] underline-offset-4 transition-colors duration-200 hover:decoration-[var(--text-title)]"
         >
           {label}
         </a>

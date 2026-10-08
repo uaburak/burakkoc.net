@@ -1,5 +1,5 @@
 import { ProjectDetailClient } from "./ProjectDetailClient";
-import { loadDesignComponents, loadDesignVariables, loadProject, listProjects, loadTextStyles } from "@/lib/firestore";
+import { loadProject, listProjects } from "@/lib/firestore";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -27,8 +27,8 @@ export async function generateMetadata({ params }: Props) {
     const project = await loadProject(slug);
     if (project) {
       return {
-        title: `${project.title || slug} | Burak Koç`,
-        description: [project.category, project.year].filter(Boolean).join(" · ") || undefined,
+        title: `${project.title} | Burak Koç`,
+        description: `${project.category} · ${project.year}`,
       };
     }
   } catch (err) {
@@ -41,21 +41,14 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function ProjectDetailPage({ params }: Props) {
   const { slug } = await params;
-  // Paralel çek — Firestore istekleri birbirini beklemesin.
-  const [project, projects, { components }, variables, textStyles] = await Promise.all([
-    loadProject(slug),
-    listProjects(),
-    loadDesignComponents(),
-    loadDesignVariables(),
-    loadTextStyles(),
-  ]);
+  // Paralel çek — iki Firestore isteği birbirini beklemesin.
+  const [project, projects] = await Promise.all([loadProject(slug), listProjects()]);
 
   return (
     <ProjectDetailClient
       slug={slug}
       initialProject={project}
       initialProjects={projects}
-      design={{ variables, textStyles, components }}
     />
   );
 }

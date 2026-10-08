@@ -91,7 +91,7 @@ function ErrorIcon() {
 
 // ── Nav controls (rendered in the top nav) ───────────────────────────────────
 
-export function EditorNavControls({ size = "md" }: { size?: "sm" | "md" }) {
+export function EditorNavControls() {
   const { editLang, setEditLang, saveStatus, triggerSave } = useEditorContext();
 
   async function handleSave() {
@@ -104,7 +104,7 @@ export function EditorNavControls({ size = "md" }: { size?: "sm" | "md" }) {
   const isError  = saveStatus === "error";
 
   const saveIcon = isSaving ? <SpinIcon /> : isSaved ? <CheckIcon /> : isError ? <ErrorIcon /> : <SaveIcon />;
-  const saveLabel = isSaving ? "Saving…" : isSaved ? "Saved" : isError ? "Couldn't save" : "Save";
+  const saveLabel = isSaving ? "Kaydediliyor…" : isSaved ? "Kaydedildi" : isError ? "Hata!" : "Kaydet";
   const saveVariant: "default" | "filled" | "ghost" = isSaved ? "filled" : "default";
 
   return (
@@ -114,12 +114,12 @@ export function EditorNavControls({ size = "md" }: { size?: "sm" | "md" }) {
         options={["TR", "EN"]}
         value={editLang.toUpperCase()}
         onChange={(v) => setEditLang(v.toLowerCase() as "tr" | "en")}
-        size={size}
+        size="md"
       />
 
       {/* ── Save button using shared PillButton sm=32px ── */}
       <PillButton
-        size={size}
+        size="md"
         variant={saveVariant}
         startIcon={saveIcon}
         onClick={handleSave}

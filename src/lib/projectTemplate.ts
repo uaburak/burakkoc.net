@@ -1,5 +1,4 @@
 import { ProjectData } from "@/types/project";
-import { normalizeItems } from "@/lib/projectLayout";
 
 /**
  * Şablon görselleri — Firebase Storage'daki mevcut proje görsellerinden.
@@ -29,18 +28,6 @@ const TEMPLATE_MEDIA = {
 };
 
 /**
- * Örnek künye — kategori, açıklama ve kapak görseli. Yeni bir projenin
- * Overview'u bunlarla dolu açılır (bkz. src/figma/overview.ts); şablon
- * proje de bunları kullanır.
- */
-export const TEMPLATE_OVERVIEW = {
-  category: "UX / UI Design",
-  description:
-    "Projeyi tek cümlede özetleyin: ne yapıldı, kimin için ve hangi sonucu doğurdu. Bu metin sayfanın en üstünde, kapak görselinin hemen üzerinde görünür.",
-  coverImage: TEMPLATE_MEDIA.oxtvCover,
-};
-
-/**
  * Şablon proje — bir vaka çalışmasının iskeleti.
  *
  * Mevcut bütün blok tiplerini kullanır ve her blokta oraya ne yazılacağını
@@ -51,10 +38,13 @@ export const TEMPLATE_OVERVIEW = {
  * konacağını anlatmaya devam ediyor.
  */
 export function createProjectTemplate(): Omit<ProjectData, "slug"> {
-  const template = {
+  return {
     title: "Şablon Proje",
+    category: "UX / UI Design",
     year: new Date().getFullYear().toString(),
-    ...TEMPLATE_OVERVIEW,
+    description:
+      "Projeyi tek cümlede özetleyin: ne yapıldı, kimin için ve hangi sonucu doğurdu. Bu metin sayfanın en üstünde, kapak görselinin hemen üzerinde görünür.",
+    coverImage: TEMPLATE_MEDIA.oxtvCover,
     items: [
       // ── 01 · Genel Bakış ────────────────────────────────────────────────
       {
@@ -462,6 +452,4 @@ export function createProjectTemplate(): Omit<ProjectData, "slug"> {
       },
     ],
   };
-  // Written as sections of components; each section gets one full-width Blok (group).
-  return { ...template, items: normalizeItems(template.items) };
 }

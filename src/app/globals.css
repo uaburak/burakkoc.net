@@ -19,20 +19,6 @@
   --border:       #f2f2f2;
   --border-hover: #e4e4e4;   /* Kutu/Active Light: rgba(228,228,228,1) */
 
-  /* Admin editors: text being edited (red); as Figma, frames, texts and images
-     in its blue, components and their instances in its purple (the live
-     editor); the form editor's levels: Blok (green), Bileşen by its kind
-     (text, media, data, research). */
-  --edit-accent: #0d99ff;
-  --edit-component: #9747ff;
-  --edit-active: #e5484d;
-  --edit-group: #16a34a;
-  --edit-text: #7c4dff;
-  --edit-media: #ea580c;
-  --edit-data: #db2777;
-  --edit-research: #a16207;
-  --edit-snap: #ff00ff; /* Smart guides: Figma's own magenta, dragging one thing near another */
-
   /* Progress Bar */
   --progress-track: #e6e6e6;
   --progress-fill:  #c5c5c5;
@@ -62,16 +48,6 @@
   /* Border — Figma: border uses Background/4 token */
   --border:       #1e1e1e;   /* Background/4 Dark: rgba(30,30,30,1)  */
   --border-hover: #343434;   /* Background/5 Dark: rgba(52,52,52,1)  */
-
-  --edit-accent: #0c8ce9;
-  --edit-component: #a970ff;
-  --edit-active: #ff6369;
-  --edit-group: #3fbf6f;
-  --edit-text: #a384ff;
-  --edit-media: #ff8a3d;
-  --edit-data: #f0619e;
-  --edit-research: #d69e2e;
-  --edit-snap: #ff00ff;
 
   /* Progress Bar */
   --progress-track: #1e1e1e;
@@ -121,18 +97,6 @@ html {
   min-height: 100%;
   min-height: 100dvh;
   background-color: var(--bg-1);
-}
-
-/* The editor keeps the system's own text selection colours: the greys above are the site's. */
-html [data-no-page-scroll] ::selection {
-  background-color: Highlight !important;
-  color: HighlightText !important;
-}
-
-/* The project editor fills the window and scrolls inside its own panels: no page scrollbar beside it
-   (the rule above keeps one on the site's pages so they don't shift). */
-html:has([data-no-page-scroll]) {
-  overflow-y: hidden;
 }
 
 /* ── Selection (Mouse text selection highlight) ──────────── */
@@ -242,11 +206,8 @@ iframe::-webkit-scrollbar-corner {
 
 /* ── Custom Cursor ─────────────────────────────────────────── */
 @media (pointer: fine) {
-  /* Hide standard browser cursor globally — except on pages that opt out
-     (the admin pages — see app/admin/layout.tsx) */
-  html:not(:has([data-native-cursor])) *,
-  html:not(:has([data-native-cursor])) *::before,
-  html:not(:has([data-native-cursor])) *::after {
+  /* Hide standard browser cursor globally */
+  *, *::before, *::after {
     cursor: none !important;
   }
 
@@ -501,28 +462,4 @@ pre[class*="language-"] {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-}
-
-/* ── Project theme: corner radius ──────────────────────────────
-   Only active when the project sets a radius (see projectTheme.ts):
-   large surfaces take --project-radius, cards and rows --project-radius-sm. */
-[data-project-radius] .rounded-\[32px\] {
-  border-radius: var(--project-radius) !important;
-}
-
-[data-project-radius] .rounded-\[28px\],
-[data-project-radius] .rounded-\[24px\],
-[data-project-radius] .rounded-\[22px\],
-[data-project-radius] .rounded-\[20px\],
-[data-project-radius] .rounded-\[18px\],
-[data-project-radius] .rounded-\[16px\] {
-  border-radius: var(--project-radius-sm) !important;
-}
-
-
-/* ── Editors: Alt (⌥) held while dragging ──────────────────────
-   The drop leaves a copy (see altDrag in Sortable.tsx). */
-html[data-drag-copy],
-html[data-drag-copy] * {
-  cursor: copy !important;
 }

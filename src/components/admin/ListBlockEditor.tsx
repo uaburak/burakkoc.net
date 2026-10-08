@@ -4,8 +4,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Block, ListStyle, ListItem } from "@/types/project";
 import { Input } from "@/components/Input";
 import { PillButton } from "@/components/Button";
-import { SortableGroup, SortableItem } from "@/components/project/Sortable";
-import { arrayMove } from "@dnd-kit/sortable";
 
 /* ── tiny uid ─────────────────────────────────────────────────────────────── */
 let _c = 0;
@@ -113,31 +111,19 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
     }
   }
 
-  /* empty list (e.g. made in the live editor): offer the first row — adding it
-     while rendering updated the page mid-render and looped */
+  /* ensure at least one empty row */
   if (items.length === 0) {
-    return (
-      <div className="flex justify-start">
-        <PillButton size="md" bgContext="block" onClick={() => addItem()}>
-          İlk maddeyi ekle
-        </PillButton>
-      </div>
-    );
+    addItem();
+    return null;
   }
 
   return (
     <div className="flex flex-col gap-2.5 w-full">
       {/* items list */}
-      {/* Hold a row's marker or padding to drag it; the text field stays typeable */}
-      <SortableGroup ids={items.map((i) => i.id)} onMove={(activeId, overId) => {
-        const from = items.findIndex((i) => i.id === activeId);
-        const to = items.findIndex((i) => i.id === overId);
-        if (from >= 0 && to >= 0) updateItems(arrayMove(items, from, to));
-      }}>
       <div className="flex flex-col gap-1.5 w-full">
         {items.map((item, idx) => (
-          <SortableItem key={item.id} id={item.id} outline={false} className="rounded-full">
           <Input
+            key={item.id}
             ref={(el) => { if (el) rowRefs.current.set(idx, el); else rowRefs.current.delete(idx); }}
             type="text"
             bgContext="block"
@@ -180,10 +166,8 @@ export function ListBlockEditor({ block, onChange }: ListBlockEditorProps) {
               </div>
             }
           />
-          </SortableItem>
         ))}
       </div>
-      </SortableGroup>
 
       {/* add button — right aligned and compact, exactly like Badge Ekle */}
       <div className="flex justify-end w-full">

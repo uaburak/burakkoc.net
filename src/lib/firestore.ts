@@ -10,9 +10,6 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { ProjectData } from "@/types/project";
-import type { CanvasNode, DesignComponent, DesignVariable, TextStyle } from "@/types/design";
-import { componentsFromLegacy, type LegacyDesigns, type LegacyMolecule } from "@/components/project/legacyDesign";
-import { normalizeItems } from "@/lib/projectLayout";
 
 import { CVData } from "@/types/cv";
 
@@ -50,31 +47,6 @@ function stripUndefined<T extends Record<string, any>>(obj: T): T {
   return result;
 }
 
-// ── The Figma file, as stored ─────────────────────────────────────────────────
-
-/**
- * A project's Figma file (ProjectData.canvas) is kept as one JSON text, not
- * as Firestore maps: Firestore takes no map or array nested more than 20
- * deep, and a design's frames nest deeper than that soon (each frame inside
- * another is two levels: its children, then itself) — a save would be
- * refused ("contains an invalid nested entity"). Files saved before are
- * maps under `canvas`; they are still read.
- */
-const CANVAS_TEXT = "canvasJson";
-
-function storedCanvas(raw: Record<string, unknown>): ProjectData["canvas"] | undefined {
-  let canvas: unknown = raw.canvas;
-  if (typeof raw[CANVAS_TEXT] === "string") {
-    try {
-      canvas = JSON.parse(raw[CANVAS_TEXT] as string);
-    } catch (err) {
-      console.error("The project's Figma file could not be read:", err);
-      return undefined;
-    }
-  }
-  return canvas && typeof canvas === "object" && Array.isArray((canvas as { nodes?: unknown }).nodes) ? (canvas as ProjectData["canvas"]) : undefined;
-}
-
 // ── Normalization Helper ──────────────────────────────────────────────────────
 
 function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
@@ -87,8 +59,23 @@ function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
     items = cleaned.sections.map((sec: any) => ({ ...sec, kind: "section" }));
   }
 
-  // Sections saved before groups (Blok) existed get one; see normalizeSection.
-  const validItems = normalizeItems(items);
+  const validItems = items.map((item: any) => {
+    if (item.kind === "section") {
+      return {
+        ...item,
+        blocks: Array.isArray(item.blocks) ? item.blocks : [],
+      };
+    }
+    if (item.kind === "divider") {
+      return item;
+    }
+    return {
+      id: item.id || Math.random().toString(36).slice(2, 10),
+      kind: "section" as const,
+      title: item.title || "",
+      blocks: Array.isArray(item.blocks) ? item.blocks : [],
+    };
+  });
 
   const res: ProjectData = {
     slug: String(cleaned.slug || ""),
@@ -103,13 +90,6 @@ function normalizeProjectData(raw: Record<string, unknown>): ProjectData {
   if (cleaned.coverImage) res.coverImage = String(cleaned.coverImage);
   if (cleaned.description) res.description = String(cleaned.description);
   if (cleaned.descriptionEn) res.descriptionEn = String(cleaned.descriptionEn);
-  // Project theme (radius / colours) — was dropped here, so saved themes never came back.
-  if (cleaned.theme && typeof cleaned.theme === "object") res.theme = cleaned.theme as ProjectData["theme"];
-  // The page's frame (size, alignment) — kept like the theme.
-  if (cleaned.frame && typeof cleaned.frame === "object") res.frame = cleaned.frame as ProjectData["frame"];
-  // The Figma editor's file (see FigmaDocument) — as JSON text, or as maps when saved before (see storedCanvas).
-  const canvas = storedCanvas(cleaned);
-  if (canvas) res.canvas = canvas;
 
   return res;
 }
@@ -180,11 +160,8 @@ export async function saveCVData(data: CVData): Promise<void> {
 export async function saveProject(data: ProjectData): Promise<void> {
   if (!data.slug) throw new Error("Project slug is required");
 
-  // The Figma file as JSON text (see storedCanvas): the maps it was saved as before go with this overwrite.
-  const { canvas, ...rest } = data;
   const cleanData = stripUndefined({
-    ...rest,
-    ...(canvas ? { [CANVAS_TEXT]: JSON.stringify(canvas) } : {}),
+    ...data,
     updatedAt: serverTimestamp(),
   });
 
@@ -208,116 +185,6 @@ export async function loadProject(slug: string): Promise<ProjectData | null> {
 export async function listProjects(): Promise<ProjectData[]> {
   const snap = await getDocs(collection(db, COLLECTION));
   return snap.docs.map((d) => normalizeProjectData(d.data() as Record<string, unknown>));
-}
-
-// ── The site's design system (see SiteDesign) ────────────────────────────────
-
-const DESIGN_COLLECTION = "design";
-
-// ── Design variables (site-wide, see DesignVariable) ──────────────────────────
-
-const VARIABLES_DOC_ID = "variables";
-
-/** The variables stored for the site (the starting ones are added by withStartingVariables) — none when they can't be read. */
-export async function loadDesignVariables(): Promise<DesignVariable[]> {
-  try {
-    const snap = await getDoc(doc(db, DESIGN_COLLECTION, VARIABLES_DOC_ID));
-    const list = snap.exists() ? snap.data().variables : undefined;
-    return Array.isArray(list) ? (list as DesignVariable[]) : [];
-  } catch (err) {
-    console.warn("Design variables could not be loaded — using the site's tokens:", err);
-    return [];
-  }
-}
-
-export async function saveDesignVariables(variables: DesignVariable[]): Promise<void> {
-  await setDoc(doc(db, DESIGN_COLLECTION, VARIABLES_DOC_ID), { variables: stripUndefined({ list: variables }).list, updatedAt: serverTimestamp() });
-}
-
-// ── Text styles (site-wide, see TextStyle) ────────────────────────────────────
-
-/** Stored as the atoms were, in the same shape — both branches read and write it. */
-const TEXT_STYLES_DOC_ID = "atoms";
-
-/** The text styles stored for the site (the starting ones are added by withStartingTextStyles) — none when they can't be read. */
-export async function loadTextStyles(): Promise<TextStyle[]> {
-  try {
-    const snap = await getDoc(doc(db, DESIGN_COLLECTION, TEXT_STYLES_DOC_ID));
-    const list = snap.exists() ? snap.data().atoms : undefined;
-    return Array.isArray(list) ? (list as TextStyle[]) : [];
-  } catch (err) {
-    console.warn("Text styles could not be loaded — using the starting ones:", err);
-    return [];
-  }
-}
-
-export async function saveTextStyles(styles: TextStyle[]): Promise<void> {
-  // Each as an atom of text, as the atomic-design branch reads them.
-  const atoms = styles.map((style) => ({ ...style, kind: "text" }));
-  await setDoc(doc(db, DESIGN_COLLECTION, TEXT_STYLES_DOC_ID), { atoms: stripUndefined({ list: atoms }).list, updatedAt: serverTimestamp() });
-}
-
-// ── Components (site-wide, see DesignComponent) ───────────────────────────────
-
-/**
- * Stored apart from the molecules and main components of before (the
- * atomic-design branch's `molecules` / `components`), which are only read:
- * the first time, as what the components start from.
- */
-const COMPONENTS_DOC_ID = "figmaComponents";
-
-async function readList<T>(docId: string, field: string): Promise<T[]> {
-  const snap = await getDoc(doc(db, DESIGN_COLLECTION, docId));
-  const list = snap.exists() ? snap.data()[field] : undefined;
-  return Array.isArray(list) ? (list as T[]) : [];
-}
-
-/**
- * The components stored for the site (the starting ones are added by
- * withStartingComponents). Before any was stored: the ones the legacy
- * designs amount to (componentsFromLegacy) — `fromLegacy`, so that saving
- * stores them. None when they can't be read.
- */
-export async function loadDesignComponents(): Promise<{ components: DesignComponent[]; fromLegacy: boolean }> {
-  try {
-    const snap = await getDoc(doc(db, DESIGN_COLLECTION, COMPONENTS_DOC_ID));
-    if (snap.exists()) {
-      const list = snap.data().components;
-      return { components: Array.isArray(list) ? (list as DesignComponent[]) : [], fromLegacy: false };
-    }
-    const [designs, molecules] = await Promise.all([
-      getDoc(doc(db, DESIGN_COLLECTION, "components")).then((d) => (d.exists() ? (d.data() as LegacyDesigns) : {})),
-      readList<LegacyMolecule>("molecules", "molecules"),
-    ]);
-    delete (designs as Record<string, unknown>).updatedAt;
-    const components = componentsFromLegacy(designs, molecules);
-    return { components, fromLegacy: components.length > 0 };
-  } catch (err) {
-    console.warn("Components could not be loaded — using the starting ones:", err);
-    return { components: [], fromLegacy: false };
-  }
-}
-
-export async function saveDesignComponents(components: DesignComponent[]): Promise<void> {
-  await setDoc(doc(db, DESIGN_COLLECTION, COMPONENTS_DOC_ID), { components: stripUndefined({ list: components }).list, updatedAt: serverTimestamp() });
-}
-
-// ── The Bileşenler page's own drawings (see CanvasNode) ───────────────────────
-
-const CANVAS_DOC_ID = "figmaCanvas";
-
-/** The frames, shapes and texts drawn on the Bileşenler page — none when they can't be read. */
-export async function loadCanvasNodes(): Promise<CanvasNode[]> {
-  try {
-    return await readList<CanvasNode>(CANVAS_DOC_ID, "nodes");
-  } catch (err) {
-    console.warn("The components page's drawings could not be loaded:", err);
-    return [];
-  }
-}
-
-export async function saveCanvasNodes(nodes: CanvasNode[]): Promise<void> {
-  await setDoc(doc(db, DESIGN_COLLECTION, CANVAS_DOC_ID), { nodes: stripUndefined({ list: nodes }).list, updatedAt: serverTimestamp() });
 }
 
 // ── Delete project ────────────────────────────────────────────────────────────
