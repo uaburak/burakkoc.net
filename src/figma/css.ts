@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import type { DesignVariable, VariableValue } from "@/types/design";
+import type { DesignVariable, InteractionAnimation, VariableValue } from "@/types/design";
 import { cssValue } from "@/components/project/designVariables";
-import { EASINGS } from "@/components/project/interactions";
+import { durationOf, easingCss, type Timing } from "@/components/project/interactions";
 import { isFrameLike, type FrameNode, type LayoutMode, type Paint, type SceneNode, type ShapeNode, type StrokeStyle, type TextNode } from "./model";
 
 /**
@@ -250,8 +250,6 @@ export function nodeCss(node: SceneNode, parentLayout: LayoutMode, byId: Map<str
     // A hidden frame stays hidden (its auto layout's display: flex must not show it).
     if (node.visible === false) style.display = "none";
     if (node.clipsContent) style.overflow = "hidden";
-    // A component set: Figma's dashed purple frame around its variants.
-    if (node.type === "componentSet") style.outline = "1px dashed var(--edit-component, #9747ff)";
   }
   return style;
 }
@@ -287,7 +285,7 @@ export function textCss(node: TextNode, byId: Map<string, DesignVariable>): CSSP
 }
 
 /** A prototype animation's CSS on an instance's frame (see MOTION_CSS in interactions.ts). */
-export function motionCss(animation: "smart" | "dissolve" | "instant", easing: keyof typeof EASINGS, duration: number): CSSProperties {
-  if (animation === "instant") return {};
-  return { "--motion-duration": `${duration}ms`, "--motion-easing": EASINGS[easing].css } as CSSProperties;
+export function motionCss(reaction: Timing & { animation: InteractionAnimation }): CSSProperties {
+  if (reaction.animation === "instant") return {};
+  return { "--motion-duration": `${durationOf(reaction)}ms`, "--motion-easing": easingCss(reaction) } as CSSProperties;
 }

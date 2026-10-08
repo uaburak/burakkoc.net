@@ -1,5 +1,7 @@
 "use client";
 
+import "@/lib/lenis";
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 
@@ -51,7 +53,7 @@ export function TableOfContents({ items }: TableOfContentsProps) {
     for (const item of items) {
       const el = elementOf(item.id);
       if (!el) continue;
-      const target = el.querySelector("h1, h2, h3") || el;
+      const target = el.querySelector<HTMLElement>("h1, h2, h3") ?? el;
       const rect = target.getBoundingClientRect();
       if (rect.top <= threshold) {
         currentId = item.id;
@@ -64,7 +66,8 @@ export function TableOfContents({ items }: TableOfContentsProps) {
   }, [items]);
 
   useEffect(() => {
-    updateActiveSection();
+    // Measured once laid out (the next frame), then on every scroll.
+    const first = requestAnimationFrame(updateActiveSection);
 
     const handleScroll = () => {
       updateActiveSection();
@@ -73,12 +76,13 @@ export function TableOfContents({ items }: TableOfContentsProps) {
     window.addEventListener("scroll", handleScroll, { passive: true });
 
     // Also register on Lenis scroll if available
-    const lenis = (window as any).__lenis;
+    const lenis = window.__lenis;
     if (lenis && typeof lenis.on === "function") {
       lenis.on("scroll", handleScroll);
     }
 
     return () => {
+      cancelAnimationFrame(first);
       window.removeEventListener("scroll", handleScroll);
       if (lenis && typeof lenis.off === "function") {
         lenis.off("scroll", handleScroll);
@@ -126,7 +130,7 @@ export function TableOfContents({ items }: TableOfContentsProps) {
       isScrollingRef.current = true;
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
 
-      const lenis = (window as any).__lenis;
+      const lenis = window.__lenis;
       if (lenis && typeof lenis.scrollTo === "function") {
         lenis.scrollTo(0, {
           duration: 1.0,
@@ -150,13 +154,13 @@ export function TableOfContents({ items }: TableOfContentsProps) {
     if (!el) return;
 
     // Find the heading element inside the section to align directly to the heading text
-    const target = el.querySelector("h1, h2, h3") || el;
+    const target = el.querySelector<HTMLElement>("h1, h2, h3") ?? el;
 
     setActive(id);
     isScrollingRef.current = true;
     if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
 
-    const lenis = (window as any).__lenis;
+    const lenis = window.__lenis;
     if (lenis && typeof lenis.scrollTo === "function") {
       lenis.scrollTo(target, {
         offset: -170, // Align exactly with the left sidebar back button text (160px top + 10px py)

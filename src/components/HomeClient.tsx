@@ -4,10 +4,10 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FlyingImages, FlyingImagesRef } from "@/components/FlyingImages";
-import { ProjectData } from "@/types/project";
+import type { ProjectSummary } from "@/types/project";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-export default function HomeClient({ initialProjects }: { initialProjects: ProjectData[] }) {
+export default function HomeClient({ initialProjects }: { initialProjects: ProjectSummary[] }) {
   const router = useRouter();
   const flyingImagesRef = useRef<FlyingImagesRef>(null);
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);

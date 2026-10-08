@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { DesignVariable, InteractionAnimation, InteractionEasing, InteractionTrigger, TextStyle, VariableValue } from "@/types/design";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { DesignVariable, InteractionAction, InteractionAnimation, InteractionDirection, InteractionEasing, TextStyle, VariableValue } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { fi, type FigmaIconName } from "@/components/admin/figmaIcons";
-import { ANIMATIONS, EASINGS, TRIGGERS } from "@/components/project/interactions";
+import { ACTIONS, ANIMATIONS, CHANGE_ANIMATIONS, DIRECTED, DIRECTIONS, EASINGS, TRIGGERS, TRIGGER_GROUPS, TRIGGER_SHORT, durationOf } from "@/components/project/interactions";
 import { boundValue, splitName, type ThemeMode } from "@/components/project/designVariables";
-import { PICKER_WIDTH, VariablePicker, usePopover, type MenuItem } from "@/components/admin/LiveInspector";
+import { PICKER_WIDTH, VariablePicker, usePopover, type MenuItem } from "./popover";
 import { weightLabel } from "./css";
 import { type ChevronItem } from "./ui";
-import { BASE_LANGUAGE, BLEND_MODES, EFFECT_LABEL, EMBED_LABEL, LAYOUT_GRID_LABEL, PAINT_LABEL, allComponents, componentAround, findComponent, findNode, freePropertyName, getNode, isFrameLike, captionPatch, layerAt, newEffect, newLayoutGrid, nid, numberOf, propertiesOf, propertyValues, propsIn, setOf, variantName, variantProperties, variantValue, variantsOf, walk, wordsIn, wordsPatch, type ComponentProperty, type Effect, type EffectStyle, type Embed, type ExportSetting, type FrameNode, type Language, type LangCode, type LayoutGrid, type NodeOverride, type Paint, type PropertyType, type Reaction, type SceneNode, type StrokeStyle, type TextNode } from "./model";
+import { BASE_LANGUAGE, BLEND_MODES, actionOf, variantLabel, EFFECT_LABEL, EMBED_LABEL, LAYOUT_GRID_LABEL, OVERRIDABLE, PAINT_LABEL, allComponents, resolveInstance, componentAround, findComponent, findNode, freePropertyName, getNode, isFrameLike, captionPatch, layerAt, newEffect, newLayoutGrid, nid, numberOf, propertiesOf, propertyValues, propsIn, setOf, variantName, variantProperties, variantValue, variantsOf, walk, wordsIn, wordsPatch, type ComponentProperty, type Effect, type EffectStyle, type Embed, type ExportSetting, type FrameNode, type Language, type LangCode, type LayoutGrid, type NodeOverride, type Paint, type PropertyType, type Reaction, type SceneNode, type StrokeStyle, type TextNode } from "./model";
 import { ColorPicker } from "./ColorPicker";
 import { keys, type MenuEntry } from "@/components/admin/ContextMenu";
 import { BrandButton, Checkbox, ChevronMenu, Chit, ColorInput, FIELD_OUTLINED, IconButton, NumericInput, Prefix, PropRow, Section, Select, Switch, TextInput, hexDigits } from "./ui";
@@ -24,12 +24,24 @@ import { BrandButton, Checkbox, ChevronMenu, Chit, ColorInput, FIELD_OUTLINED, I
 export interface EditorOps {
   patch: (id: string, patch: Partial<SceneNode>) => void;
   patchMany: (ids: readonly string[], patch: Partial<SceneNode>) => void;
+  /** Several layers changed each from its own (rotate each by 90°, flip each) */
+  updateMany: (ids: readonly string[], update: (node: SceneNode) => SceneNode) => void;
   override: (compositeId: string, patch: NodeOverride) => void;
   align: (kind: "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom") => void;
   setAutoLayout: (id: string, mode: FrameNode["layoutMode"]) => void;
   createComponent: () => void;
   detach: () => void;
   resetOverrides: () => void;
+  /** One change of an instance or of a layer inside it reset (see changesAt) — no key: all of that layer's */
+  resetChange: (id: string, key?: string) => void;
+  /** The selected instance's changes into its main component (every instance then shows them) */
+  pushToMain: () => void;
+  /** The instance showing another component (Figma's instance swap): only its text changes are kept */
+  swapInstance: (id: string, componentId: string) => void;
+  /** Every layer like the selected one: its name and kind (Figma's Select matching layers, ⌥⌘A) */
+  selectMatching: () => void;
+  /** An instance's (or an instance layer's) ⋯ menu: swap, reset, push to main, go to main, select matching, detach */
+  instanceActions: (id: string) => MenuEntry[];
   goToMain: () => void;
   /** These layers selected */
   select: (ids: string[]) => void;
@@ -58,7 +70,10 @@ export interface EditorOps {
   setLanguage: (code: LangCode) => void;
   addLanguage: (language: Language) => void;
   removeLanguage: (code: LangCode) => void;
-  setReactions: (variantId: string, reactions: Reaction[]) => void;
+  setReactions: (nodeId: string, reactions: Reaction[]) => void;
+  /** The interaction whose window is open (a row clicked, a noodle on the canvas) */
+  reactionOpen: string | null;
+  openReaction: (id: string | null) => void;
   preview: (id?: string) => void;
   openVariables: () => void;
   setBackground: (color: string) => void;
@@ -450,6 +465,7 @@ function TextStyleEditor({ style, anchor, variables, byId, mode, ops, onClose }:
       <div className="flex flex-col py-2">
         {field("Name", <TextInput label="Name" value={style.name} onCommit={(name) => name.trim() && set({ name: name.trim() })} />)}
         {field("Description", <TextInput label="Description" value={style.description ?? ""} placeholder="What's it for?" onCommit={(description) => set({ description: description.trim() || undefined })} />)}
+        {field("On the site", <Select label="On the site" value={style.tag ?? ""} options={[{ value: "", label: "Plain text" }, ...(["h1", "h2", "h3", "h4", "p"] as const).map((t) => ({ value: t, label: TAG_LABEL[t] }))]} onChange={(tag) => set({ tag: (tag || undefined) as TextStyle["tag"] })} />)}
       </div>
       <div className="flex flex-col pb-3 border-t border-[var(--f-border)]">
         <div className="flex items-center h-10 pl-4 pr-4 font-[550]">Properties</div>
@@ -545,9 +561,10 @@ function PositionSection({ node, inAuto, ops, multi, selected }: { node: SceneNo
       <PropRow icons={<span className="w-6" />}>
         <NumericInput label="Rotation" prefix={<Prefix>{fi("24.rotation")}</Prefix>} value={rotVal} placeholder={rotVal === null ? "Mixed" : undefined} fallback={node.rotation ?? 0} min={-360} max={360} unit={rotVal === null ? undefined : "°"} onChange={(rotation) => set({ rotation: rotation || undefined })} />
         <ButtonGroup>
-          <GroupButton label="Rotate 90°" icon={fi("24.rotate")} onClick={() => set({ rotation: ((node.rotation ?? 0) + 90) % 360 || undefined })} />
-          <GroupButton label="Flip horizontal" shortcut="⇧H" icon={fi("24.flip.horizontal.small")} active={Boolean(node.flipH)} onClick={() => set({ flipH: node.flipH ? undefined : true })} />
-          <GroupButton label="Flip vertical" shortcut="⇧V" icon={fi("24.flip.vertical")} active={Boolean(node.flipV)} onClick={() => set({ flipV: node.flipV ? undefined : true })} />
+          {/* Each layer from its own: rotated by 90° more, flipped the other way. */}
+          <GroupButton label="Rotate 90°" icon={fi("24.rotate")} onClick={() => ops.updateMany(multi.length > 1 ? multi : [node.id], (n) => ({ ...n, rotation: ((n.rotation ?? 0) + 90) % 360 || undefined }))} />
+          <GroupButton label="Flip horizontal" shortcut="⇧H" icon={fi("24.flip.horizontal.small")} active={Boolean(node.flipH)} onClick={() => ops.updateMany(multi.length > 1 ? multi : [node.id], (n) => ({ ...n, flipH: n.flipH ? undefined : true }))} />
+          <GroupButton label="Flip vertical" shortcut="⇧V" icon={fi("24.flip.vertical")} active={Boolean(node.flipV)} onClick={() => ops.updateMany(multi.length > 1 ? multi : [node.id], (n) => ({ ...n, flipV: n.flipV ? undefined : true }))} />
         </ButtonGroup>
       </PropRow>
     </Section>
@@ -799,6 +816,22 @@ function LayoutSection({ node, parent, ops, variables, byId, mode }: { node: Sce
           <Checkbox label="Clip content" checked={Boolean(frame.clipsContent)} onChange={(clipsContent) => ops.patch(frame.id, { clipsContent })} />
         </div>
       )}
+      {/* On the site's narrower screens (see the Page Editor's Tablet / Phone): its layers as they are, stacked, or in two columns. */}
+      {frame && frame.layoutMode !== "none" && frame.type !== "componentSet" && (
+        <PropRow icons={<span className="w-6" />}>
+          <Select
+            label="On narrow screens"
+            value={frame.narrow ?? ""}
+            options={[
+              { value: "", label: "Narrow screens: as it is" },
+              { value: "stack", label: "Stack under 768px (tablet)" },
+              { value: "stack-sm", label: "Stack under 640px (phone)" },
+              { value: "two", label: "Two columns under 640px" },
+            ]}
+            onChange={(narrow) => ops.patch(frame.id, { narrow: (narrow || undefined) as FrameNode["narrow"] } as Partial<SceneNode>)}
+          />
+        </PropRow>
+      )}
     </Section>
   );
 }
@@ -1013,16 +1046,22 @@ function LibrariesButton({ first, variables, byId, mode, ops, onPut }: { first?:
   );
 }
 
-function FillSection({ node, ops, variables, byId, mode, compositeId }: { node: SceneNode; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; compositeId?: string }) {
-  const fills = node.fills ?? [];
+/** Several layers selected whose list (fills, strokes, effects) differs: Figma's "Mixed" — "+" puts one new entry on all of them. */
+function MixedRow({ what }: { what: string }) {
+  return <p className="px-4 pb-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">Mixed {what} — click + to replace them on every selected layer.</p>;
+}
+
+function FillSection({ node, ops, variables, byId, mode, compositeId, mixed = false }: { node: SceneNode; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; compositeId?: string; mixed?: boolean }) {
+  const fills = mixed ? [] : node.fills ?? [];
   const setFills = (next: Paint[]) => (compositeId ? ops.override(compositeId, { fills: next }) : ops.patch(node.id, { fills: next } as Partial<SceneNode>));
   const first = fills[0];
   const putFirst = (paint: { color: VariableValue; opacity?: number }) => setFills(first ? [{ ...first, ...paint }, ...fills.slice(1)] : [paint]);
   return (
-    <Section title="Fill" muted={fills.length === 0} pb={fills.length ? 12 : 0} icons={<>
-      <LibrariesButton first={first} variables={variables} byId={byId} mode={mode} ops={ops} onPut={putFirst} />
-      <IconButton label="Add fill" icon={fi("plus.small")} onClick={() => setFills([{ color: own(node.type === "text" ? "#000000" : "#d9d9d9") }, ...fills])} />
+    <Section title="Fill" muted={fills.length === 0 && !mixed} pb={fills.length || mixed ? 12 : 0} icons={<>
+      {!mixed && <LibrariesButton first={first} variables={variables} byId={byId} mode={mode} ops={ops} onPut={putFirst} />}
+      <IconButton label="Add fill" icon={fi("plus.small")} onClick={() => setFills([{ color: { alias: node.type === "text" ? "text-title" : "bg-5" } }, ...fills])} />
     </>}>
+      {mixed && <MixedRow what="fills" />}
       {fills.map((paint, i) => (
         <PaintRow key={i} paint={paint} variables={variables} byId={byId} mode={mode} pageColors={ops.pageColors} ops={ops} onChange={(p) => setFills(fills.map((f, j) => (j === i ? p : f)))} onRemove={() => setFills(fills.filter((_, j) => j !== i))} />
       ))}
@@ -1030,17 +1069,18 @@ function FillSection({ node, ops, variables, byId, mode, compositeId }: { node: 
   );
 }
 
-function StrokeSection({ node, ops, variables, byId, mode, compositeId }: { node: FrameNode | (SceneNode & { type: "rectangle" | "ellipse" | "line" }); ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; compositeId?: string }) {
-  const strokes = node.strokes ?? [];
+function StrokeSection({ node, ops, variables, byId, mode, compositeId, mixed = false }: { node: FrameNode | (SceneNode & { type: "rectangle" | "ellipse" | "line" }); ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; compositeId?: string; mixed?: boolean }) {
+  const strokes = mixed ? [] : node.strokes ?? [];
   const setStrokes = (next: StrokeStyle[]) => (compositeId ? ops.override(compositeId, { strokes: next }) : ops.patch(node.id, { strokes: next } as Partial<SceneNode>));
   // The styles button, as the fill's: onto the first stroke — a new 1px inside one when there is none.
   const putFirst = (paint: { color: VariableValue; opacity?: number }) =>
     setStrokes(strokes[0] ? [{ ...strokes[0], ...paint }, ...strokes.slice(1)] : [{ weight: own(1), align: "inside", ...paint }]);
   return (
-    <Section title="Stroke" muted={strokes.length === 0} pb={strokes.length ? 12 : 0} icons={<>
-      <LibrariesButton first={strokes[0]} variables={variables} byId={byId} mode={mode} ops={ops} onPut={putFirst} />
-      <IconButton label="Add stroke" icon={fi("plus.small")} onClick={() => setStrokes([{ color: own("#000000"), weight: own(1), align: "inside" }, ...strokes])} />
+    <Section title="Stroke" muted={strokes.length === 0 && !mixed} pb={strokes.length || mixed ? 12 : 0} icons={<>
+      {!mixed && <LibrariesButton first={strokes[0]} variables={variables} byId={byId} mode={mode} ops={ops} onPut={putFirst} />}
+      <IconButton label="Add stroke" icon={fi("plus.small")} onClick={() => setStrokes([{ color: { alias: "border-hover" }, weight: own(1), align: "inside" }, ...strokes])} />
     </>}>
+      {mixed && <MixedRow what="strokes" />}
       {strokes.map((stroke, i) => (
         <div key={i} className="flex flex-col">
           <PaintRow paint={stroke} variables={variables} byId={byId} mode={mode} pageColors={ops.pageColors} ops={ops} onChange={(s) => setStrokes(strokes.map((x, j) => (j === i ? s : x)))} onRemove={() => setStrokes(strokes.filter((_, j) => j !== i))} />
@@ -1066,8 +1106,8 @@ function StrokeSection({ node, ops, variables, byId, mode, compositeId }: { node
   );
 }
 
-function EffectsSection({ node, ops, pageColors }: { node: FrameNode | (SceneNode & { type: "rectangle" | "ellipse" | "line" }); ops: EditorOps; pageColors: string[] }) {
-  const effects = node.effects ?? [];
+function EffectsSection({ node, ops, pageColors, mixed = false }: { node: FrameNode | (SceneNode & { type: "rectangle" | "ellipse" | "line" }); ops: EditorOps; pageColors: string[]; mixed?: boolean }) {
+  const effects = mixed ? [] : node.effects ?? [];
   const [editing, setEditing] = useState<{ index: number; anchor: { top: number; right: number } } | null>(null);
   const set = (next: Effect[]) => ops.patch(node.id, { effects: next } as Partial<SceneNode>);
   const add = (el: HTMLElement) =>
@@ -1082,7 +1122,8 @@ function EffectsSection({ node, ops, pageColors }: { node: FrameNode | (SceneNod
       ...(node.effectStyle ? [{ label: "Detach style", onSelect: () => ops.detachEffectStyle(node.id) }] : []),
     ]);
   return (
-    <Section title="Effects" muted={effects.length === 0 && !style} pb={effects.length || style ? 12 : 0} icons={<><IconButton label="Effect styles" icon={fi("styles")} active={Boolean(style)} onClick={(e) => stylesMenu(e.currentTarget)} /><IconButton label="Add effect" icon={fi("plus.small")} onClick={(e) => add(e.currentTarget)} /></>}>
+    <Section title="Effects" muted={effects.length === 0 && !style && !mixed} pb={effects.length || style || mixed ? 12 : 0} icons={<><IconButton label="Effect styles" icon={fi("styles")} active={Boolean(style)} onClick={(e) => stylesMenu(e.currentTarget)} /><IconButton label="Add effect" icon={fi("plus.small")} onClick={(e) => add(e.currentTarget)} /></>}>
+      {mixed && <MixedRow what="effects" />}
       {style && (
         <PropRow icons={<IconButton label="Detach style" icon={fi("detach.small")} onClick={() => ops.detachEffectStyle(node.id)} />}>
           <button type="button" onClick={(e) => stylesMenu(e.currentTarget)} className="flex flex-1 min-w-0 items-center gap-1 h-6 px-1 rounded-[5px] bg-[var(--f-bg-secondary)] text-left cursor-pointer">
@@ -1154,9 +1195,17 @@ function EffectPopover({ effect, anchor, pageColors, onChange, onClose }: { effe
   );
 }
 
-function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang, compositeId }: { node: TextNode; nodes: SceneNode[]; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; textStyles: TextStyle[]; lang: LangCode; compositeId?: string }) {
+function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang, compositeId, multi = false }: { node: TextNode; nodes: SceneNode[]; ops: EditorOps; variables: DesignVariable[]; byId: Map<string, DesignVariable>; mode: ThemeMode; textStyles: TextStyle[]; lang: LangCode; compositeId?: string; /** Several texts selected: their words stay each one's own */ multi?: boolean }) {
   const weights = [300, 400, 500, 600, 700];
   const text = wordsIn(node, lang) ?? "";
+  // In a text style its typography is the style's: shown as the style's, and — as Figma's — changing any of it detaches the text from the
+  // style, the style's values its own first (so only what was changed changes). Detach style keeps the style's look the same way.
+  const style = node.textStyle ? textStyles.find((st) => st.id === node.textStyle) : undefined;
+  const typo = style
+    ? { fontSize: style.fontSize, fontWeight: style.fontWeight, lineHeight: style.lineHeight, letterSpacing: style.letterSpacing }
+    : { fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing };
+  const setTypo = (p: Partial<TextNode>) => ops.patch(node.id, (style ? { textStyle: undefined, ...typo, ...p } : p) as Partial<SceneNode>);
+  const detachStyle = () => ops.patch(node.id, { textStyle: undefined, ...typo } as Partial<SceneNode>);
   // Inside a main component: its words can come from a text property (Figma's "Apply text property") — typing then sets the property's default.
   const holder = compositeId ? null : componentAround(nodes, node.id)?.holder ?? null;
   const texts = holder?.properties?.filter((p) => p.type === "text") ?? [];
@@ -1182,8 +1231,11 @@ function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang
           ...(bound ? [{ label: "Detach property", onSelect: () => ops.bindProperty(node.id, "text", undefined) }] : []),
         ])} />
       )}
-      <IconButton label="Text styles" icon={fi("styles")} active={Boolean(node.textStyle)} onClick={(e) => ops.menu(e.currentTarget, [...textStyles.map((st) => ({ label: st.name, checked: st.id === node.textStyle, onSelect: () => ops.patch(node.id, { textStyle: st.id } as Partial<SceneNode>) })), ...(textStyles.length ? ["-" as const] : []), { label: "Create text style", onSelect: () => ops.createTextStyle(node.id) }, ...(node.textStyle ? [{ label: "Detach style", onSelect: () => ops.patch(node.id, { textStyle: undefined } as Partial<SceneNode>) }] : [])])} />
-      <IconButton label="Type settings" icon={fi("24.adjust.small")} active={Boolean(node.textCase || node.textDecoration || (node.verticalAlign && node.verticalAlign !== "top"))} onClick={(e) => ops.menu(e.currentTarget, [
+      <IconButton label="Text styles" icon={fi("styles")} active={Boolean(node.textStyle)} onClick={(e) => ops.menu(e.currentTarget, [...textStyles.map((st) => ({ label: st.name, checked: st.id === node.textStyle, onSelect: () => ops.patch(node.id, { textStyle: st.id } as Partial<SceneNode>) })), ...(textStyles.length ? ["-" as const] : []), { label: "Create text style", onSelect: () => ops.createTextStyle(node.id) }, ...(node.textStyle ? [{ label: "Detach style", onSelect: detachStyle }] : [])])} />
+      <IconButton label="Type settings" icon={fi("24.adjust.small")} active={Boolean(node.textCase || node.textDecoration || node.tag || (node.verticalAlign && node.verticalAlign !== "top"))} onClick={(e) => ops.menu(e.currentTarget, [
+        // What it is on the site's page — for search engines and screen readers (its text style's when "Auto").
+        { label: "On the site", items: ([["", `Auto${style?.tag ? ` (${TAG_LABEL[style.tag]})` : ""}`], ["h1", TAG_LABEL.h1], ["h2", TAG_LABEL.h2], ["h3", TAG_LABEL.h3], ["h4", TAG_LABEL.h4], ["p", TAG_LABEL.p], ["div", TAG_LABEL.div]] as [string, string][]).map(([tag, label]) => ({ label, checked: (node.tag ?? "") === tag, onSelect: () => ops.patch(node.id, { tag: (tag || undefined) as TextNode["tag"] } as Partial<SceneNode>) })) },
+        "-",
         { label: "As typed", checked: !node.textCase, onSelect: () => ops.patch(node.id, { textCase: undefined } as Partial<SceneNode>) },
         { label: "Uppercase", checked: node.textCase === "upper", onSelect: () => ops.patch(node.id, { textCase: "upper" } as Partial<SceneNode>) },
         { label: "Lowercase", checked: node.textCase === "lower", onSelect: () => ops.patch(node.id, { textCase: "lower" } as Partial<SceneNode>) },
@@ -1204,21 +1256,21 @@ function TextSection({ node, nodes, ops, variables, byId, mode, textStyles, lang
           <IconButton label="Detach property" icon={fi("detach.small")} onClick={() => ops.bindProperty(node.id, "text", undefined)} />
         </div>
       )}
-      <div className="pl-4 pr-3 py-1">
+      {!multi && <div className="pl-4 pr-3 py-1">
         <textarea aria-label="Text" value={text} placeholder={lang !== BASE_LANGUAGE ? node.characters : "Text"} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.stopPropagation()} rows={2} className="w-full resize-none rounded-[5px] border border-transparent bg-[var(--f-bg-secondary)] px-2 py-1 text-[11px] leading-4 text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] [&:hover:not(:focus)]:border-[var(--f-border)] focus:outline-none focus:border-[var(--f-border-selected)]" />
-      </div>
+      </div>}
       {!compositeId && (
         <>
           <PropRow icons={<span className="w-6" />}>
             <Select label="Text style" value={node.textStyle ?? ""} options={[{ value: "", label: "Inter" }, ...textStyles.map((s) => ({ value: s.id, label: s.name }))]} onChange={(textStyle) => ops.patch(node.id, { textStyle: textStyle || undefined } as Partial<SceneNode>)} />
           </PropRow>
           <PropRow icons={<span className="w-6" />}>
-            <Select label="Font weight" value={String(numberOf(node.fontWeight, byId, 400))} options={weights.map((w) => ({ value: String(w), label: weightLabel(w) }))} onChange={(w) => ops.patch(node.id, { fontWeight: own(Number(w)) } as Partial<SceneNode>)} />
-            <BoundNumber label="Font size" prefix={<Prefix><span className="text-[10px]">Aa</span></Prefix>} value={node.fontSize} variables={variables} byId={byId} mode={mode} min={1} onChange={(fontSize) => ops.patch(node.id, { fontSize } as Partial<SceneNode>)} />
+            <Select label="Font weight" value={String(numberOf(typo.fontWeight, byId, 400))} options={weights.map((w) => ({ value: String(w), label: weightLabel(w) }))} onChange={(w) => setTypo({ fontWeight: own(Number(w)) })} />
+            <BoundNumber label="Font size" prefix={<Prefix><span className="text-[10px]">Aa</span></Prefix>} value={typo.fontSize} variables={variables} byId={byId} mode={mode} min={1} onChange={(fontSize) => setTypo({ fontSize })} />
           </PropRow>
           <PropRow icons={<span className="w-6" />}>
-            <NumericInput label="Line height" prefix={<Prefix>{fi("al.height-min")}</Prefix>} value={node.lineHeight ? numberOf(node.lineHeight, byId) : null} placeholder="Auto" fallback={Math.round(numberOf(node.fontSize, byId, 16) * 1.25)} min={0} onChange={(v) => ops.patch(node.id, { lineHeight: own(v) } as Partial<SceneNode>)} onClear={() => ops.patch(node.id, { lineHeight: undefined } as Partial<SceneNode>)} />
-            <NumericInput label="Letter spacing" prefix={<Prefix>{fi("al.width-min")}</Prefix>} value={node.letterSpacing ? numberOf(node.letterSpacing, byId) : null} placeholder="0" fallback={0} min={-20} onChange={(v) => ops.patch(node.id, { letterSpacing: own(v) } as Partial<SceneNode>)} onClear={() => ops.patch(node.id, { letterSpacing: undefined } as Partial<SceneNode>)} />
+            <NumericInput label="Line height" prefix={<Prefix>{fi("al.height-min")}</Prefix>} value={typo.lineHeight ? numberOf(typo.lineHeight, byId) : null} placeholder="Auto" fallback={Math.round(numberOf(typo.fontSize, byId, 16) * 1.25)} min={0} onChange={(v) => setTypo({ lineHeight: own(v) })} onClear={() => setTypo({ lineHeight: undefined })} />
+            <NumericInput label="Letter spacing" prefix={<Prefix>{fi("al.width-min")}</Prefix>} value={typo.letterSpacing ? numberOf(typo.letterSpacing, byId) : null} placeholder="0" fallback={0} min={-20} onChange={(v) => setTypo({ letterSpacing: own(v) })} onClear={() => setTypo({ letterSpacing: undefined })} />
           </PropRow>
           <PropRow icons={<span className="w-6" />}>
             <Segmented
@@ -1272,6 +1324,19 @@ function InlineInput({ label, value, placeholder, onDone, className }: { label: 
  * of it: a click on the value types it in place (renaming it in every variant
  * that has it), the chevron picks another of the set's values or "Add new…".
  */
+/** Figma's conflict warning: variants of a set with the same values for every property (which one an instance shows is then a guess). */
+function ConflictWarning({ set }: { set: FrameNode }) {
+  const seen = new Set<string>();
+  const clash = variantsOf(set).some((v) => {
+    const key = variantName(v);
+    if (seen.has(key)) return true;
+    seen.add(key);
+    return false;
+  });
+  if (!clash) return null;
+  return <p role="alert" className="mx-4 mb-2 px-2 py-1.5 rounded-[5px] bg-[#fff1e6] text-[11px] leading-4 text-[#b44d00]">Some variants have the same values for every property — give each a combination of its own.</p>;
+}
+
 function CurrentVariantSection({ node, set, ops }: { node: FrameNode; set: FrameNode; ops: EditorOps }) {
   const [editing, setEditing] = useState<{ prop: string; part: "name" | "value" | "new" } | null>(null);
   const done = () => setEditing(null);
@@ -1280,6 +1345,7 @@ function CurrentVariantSection({ node, set, ops }: { node: FrameNode; set: Frame
       <div className="flex items-center h-10 pl-4 pr-3">
         <span className="text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)] select-none">Current variant</span>
       </div>
+      <ConflictWarning set={set} />
       {variantProperties(set).map((p) => {
         const current = variantValue(node, p.name);
         const at = editing?.prop === p.name ? editing.part : null;
@@ -1477,6 +1543,7 @@ function PropertiesSection({ holder, nodes, ops }: { holder: FrameNode; nodes: S
           <IconButton label="Add property" icon={fi("plus.small")} onClick={(e) => ops.menu(e.currentTarget, addPropertyEntries(holder, nodes, ops, (id) => setEditing({ key: id, anchor: anchorOf(e.currentTarget) })))} />
         </span>
       </div>
+      {isSet && <ConflictWarning set={holder} />}
       {variantProps.map((p) => row(`v:${p.name}`, fi("16.instance"), p.name, p.values.join(", "), () => ops.removeProperty(holder.id, p.name), (to) => { const name = to.trim(); if (name && name !== p.name) ops.renameProperty(holder.id, p.name, name); }))}
       {props.map((p) => row(p.id, propertyIcon(p.type, 16), p.name, preview(p), () => ops.setComponentProperties(holder.id, props.filter((x) => x.id !== p.id)), (to) => rename(p.id, to)))}
       {editing && editedVariant && (
@@ -1545,6 +1612,7 @@ function InstanceSection({ node, nodes, ops, lang }: { node: FrameNode; nodes: S
         <IconButton label="Go to main component" icon={fi("16.instance")} disabled={!main} onClick={ops.goToMain} />
         <span className="f-icons ml-auto flex items-center gap-1">
           {overridden && <IconButton label="Reset all changes" icon={fi("reset.instance.small")} onClick={ops.resetOverrides} />}
+          <IconButton label="More actions" icon={fi("24.more")} onClick={(e) => ops.menu(e.currentTarget, ops.instanceActions(node.id))} />
           {holder && (
             <IconButton label="Apply instance swap property" icon={fi("24.instance.swap.small")} active={Boolean(boundSwap)} onClick={(e) => ops.menu(e.currentTarget, [
               ...swaps.map((p) => ({ label: p.name, icon: fi("24.instance.swap.small", 16), checked: p.id === node.mainProp, onSelect: () => ops.bindProperty(node.id, "instance", p.id) })),
@@ -1582,82 +1650,204 @@ function InstanceSection({ node, nodes, ops, lang }: { node: FrameNode; nodes: S
 
 // ── Prototype ─────────────────────────────────────────────────────────────────
 
-function PrototypeSection({ node, nodes, ops, flows }: { node: SceneNode | null; nodes: SceneNode[]; ops: EditorOps; flows: { id: string; name: string }[] }) {
-  const [openId, setOpenId] = useState<string | null>(null);
-  // Where the Interaction window opens: beside the row (or the "+") it came from.
+/** A field showing its value that opens Figma's menu of choices (its groups divided, the current one checked). */
+function MenuField({ label, value, entries, ops, prefix }: { label: string; value: string; entries: MenuEntry[]; ops: EditorOps; prefix?: ReactNode }) {
+  return (
+    <button type="button" aria-label={label} aria-haspopup="menu" data-picker-anchor="" onClick={(e) => ops.menu(e.currentTarget, entries)} className={cn(FIELD_OUTLINED, "relative flex flex-1 min-w-0 items-center gap-1.5 pl-2 pr-6 text-left cursor-pointer")}>
+      {prefix}
+      <span className="min-w-0 flex-1 truncate text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)]">{value}</span>
+      {fi("16.chevron.down", undefined, "pointer-events-none absolute right-1 text-[var(--f-icon-secondary)]")}
+    </button>
+  );
+}
+
+const ARROW: Record<InteractionDirection, string> = { left: "←", right: "→", down: "↓", up: "↑" };
+
+/**
+ * Figma's Prototype panel: a top-level frame's flow starting point; the
+ * layer's interactions — each a row (its trigger, what it goes to), opening
+ * the Interaction window: the trigger (a delay's time, a key), the action
+ * (Navigate to a frame, Change to a variant, Back, Scroll to a layer, Open
+ * link) and where it goes, the animation (a move's direction, matching
+ * layers), its easing (a custom curve, a custom spring) and duration. With
+ * nothing selected, the page's flows, each played from its start.
+ */
+function PrototypeSection({ node, nodes, pageNodes, ops }: { node: SceneNode | null; nodes: SceneNode[]; pageNodes: SceneNode[]; ops: EditorOps }) {
   const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
-  const variant = node?.type === "component" ? node : node?.type === "instance" && node.mainId ? findComponent(nodes, node.mainId) : null;
-  const set = variant ? setOf(nodes, variant.id) : null;
+  const list = useRef<HTMLDivElement>(null);
+  const openId = ops.reactionOpen;
+  const flows = pageNodes.filter((n): n is FrameNode => isFrameLike(n) && Boolean(n.flowStart));
+  // Opened from the canvas (a noodle clicked): the window by its row.
+  useLayoutEffect(() => {
+    if (!openId || anchor) return;
+    const row = list.current?.querySelector(`[data-reaction="${CSS.escape(openId)}"]`);
+    if (row) setAnchor(anchorOf(row));
+  }, [openId, anchor]);
   const flowsGroup = (
     <Section title="Flows" muted={flows.length === 0}>
+      {flows.length === 0 && <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">Connect a frame to another to start a flow — or add a flow starting point to a top-level frame.</p>}
       {flows.map((f) => (
         <div key={f.id} className="px-2 py-0.5">
           <button type="button" onClick={() => ops.preview(f.id)} className="flex items-center gap-2 w-full h-6 px-2 rounded-[5px] text-left hover:bg-[var(--f-bg-hover)] cursor-pointer">
             <span className="flex w-4 shrink-0 justify-center text-[var(--f-icon)]">{fi("24.play.small", 16)}</span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">{f.name}</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">{f.flowStart}</span>
+            <span className="truncate text-[11px] text-[var(--f-text-secondary)]">{f.name}</span>
           </button>
         </div>
       ))}
     </Section>
   );
-  if (!variant || !set) {
+  if (!node || node.id.includes("/")) {
     return (
       <>
-        <Section title="Interactions" muted>
-          <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">{node ? "Select a variant of a component set: interactions are set up there." : "Select a variant or an instance."}</p>
-        </Section>
+        {node && (
+          <Section title="Interactions" muted>
+            <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">A layer of an instance: its interactions are its main component&apos;s — set them up there.</p>
+          </Section>
+        )}
         {flowsGroup}
       </>
     );
   }
-  const reactions = variant.reactions ?? [];
-  const others = variantsOf(set).filter((v) => v.id !== variant.id);
-  const set_ = (next: Reaction[]) => ops.setReactions(variant.id, next);
-  const nameOf = (id: string) => { const v = getNode(nodes, id); return v && v.type === "component" ? variantName(v) : "—"; };
+  const found = findNode(pageNodes, node.id) ?? findNode(nodes, node.id);
+  const topId = found?.path[0];
+  const top = topId ? getNode(pageNodes, topId) ?? getNode(nodes, topId) : null;
+  const topLevel = found?.path.length === 1 && isFrameLike(node) && node.type !== "componentSet";
+  const set = node.type === "component" ? setOf(nodes, node.id) : null;
+  const reactions = node.reactions ?? [];
+  const setReactions = (next: Reaction[]) => ops.setReactions(node.id, next);
+  const patch = (id: string, p: Partial<Reaction>) => setReactions(reactions.map((x) => (x.id === id ? { ...x, ...p } : x)));
+  // Where each action can go: the page's frames (not its own), the variants of its set, the layers of its frame.
+  const frames = pageNodes.filter((n) => isFrameLike(n) && n.type !== "componentSet" && n.id !== topId);
+  const variants = set ? variantsOf(set).filter((v) => v.id !== node.id) : [];
+  const layers: SceneNode[] = [];
+  if (top && isFrameLike(top)) walk(top.children, (n) => { if (isFrameLike(n) && n.type !== "instance") layers.push(n); });
+  const nameOf = (r: Reaction) => {
+    const a = actionOf(r);
+    if (a === "back") return "Back";
+    if (a === "url") return r.url || "No link";
+    const t = r.target ? getNode(nodes, r.target) ?? getNode(pageNodes, r.target) : null;
+    if (!t) return "None";
+    return t.type === "component" && t.variant?.length ? variantLabel(t) : t.name;
+  };
+  const defaults = (action: InteractionAction): Partial<Reaction> => {
+    switch (action) {
+      case "change": return { action, target: variants[0]?.id ?? "", animation: "smart" };
+      case "navigate": return { action, target: frames[0]?.id ?? "", animation: "instant", direction: "left" };
+      case "scroll": return { action, target: layers[0]?.id ?? "", animation: "smart" };
+      default: return { action, target: "", animation: "instant" };
+    }
+  };
+  const add = (e: React.MouseEvent<HTMLElement>) => {
+    const r: Reaction = { id: nid("r"), trigger: "click", easing: "ease-out", duration: 300, ...(set ? defaults("change") : defaults("navigate")) } as Reaction;
+    setReactions([...reactions, r]);
+    ops.openReaction(r.id);
+    setAnchor(anchorOf(e.currentTarget));
+  };
   const editing = openId ? reactions.find((r) => r.id === openId) : undefined;
-  const patch = (id: string, p: Partial<Reaction>) => set_(reactions.map((x) => (x.id === id ? { ...x, ...p } : x)));
-  // Figma's Interaction window: the trigger, the action and what it changes to, the animation — in sections.
   const windowRow = (label: string, field: ReactNode) => (
     <div className="flex items-center gap-2 min-h-8 px-4 py-0.5">
       <span className="w-[88px] shrink-0 text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text-secondary)]">{label}</span>
       <div className="flex flex-1 min-w-0 items-center gap-2">{field}</div>
     </div>
   );
+  const divided = (children: ReactNode) => <div className="flex flex-col mt-1 pt-1 border-t border-[var(--f-border)]">{children}</div>;
+
+  const interactionWindow = editing && anchor && (() => {
+    const r = editing;
+    const action = actionOf(r);
+    const actions: InteractionAction[] = set ? ["navigate", "change", "back", "scroll", "url"] : ["navigate", "back", "scroll", "url"];
+    const animations: InteractionAnimation[] = action === "change" || action === "scroll" ? (action === "scroll" ? ["instant", "smart"] : CHANGE_ANIMATIONS) : (Object.keys(ANIMATIONS) as InteractionAnimation[]);
+    const destinations = action === "change" ? variants : action === "scroll" ? layers : frames;
+    const spring = EASINGS[r.easing]?.spring;
+    const triggerEntries: MenuEntry[] = TRIGGER_GROUPS.flatMap((group, i) => [...(i ? ["-" as const] : []), ...group.map((t) => ({ label: TRIGGERS[t], checked: r.trigger === t, onSelect: () => patch(r.id, { trigger: t, ...(t === "delay" && r.delay === undefined ? { delay: 800 } : {}) }) }))]);
+    const easingEntries: MenuEntry[] = (Object.keys(EASINGS) as InteractionEasing[]).flatMap((e, i, all) => [...(i && EASINGS[e].spring && !EASINGS[all[i - 1]].spring ? ["-" as const] : []), { label: EASINGS[e].label, checked: r.easing === e, onSelect: () => patch(r.id, { easing: e, ...(e === "custom-bezier" && !r.bezier ? { bezier: [0.42, 0, 0.58, 1] as [number, number, number, number] } : {}), ...(e === "custom-spring" && !r.spring ? { spring: { mass: 1, stiffness: 100, damping: 15 } } : {}) }) }]);
+    return (
+      <PropertyWindow title="Interaction" anchor={anchor} onClose={() => { ops.openReaction(null); setAnchor(null); }}>
+        {windowRow("Trigger", <MenuField label="Trigger" value={TRIGGERS[r.trigger]} entries={triggerEntries} ops={ops} />)}
+        {r.trigger === "delay" && windowRow("Delay", <NumericInput label="Delay" prefix={<Prefix>ms</Prefix>} value={r.delay ?? 800} min={0} onChange={(delay) => patch(r.id, { delay })} />)}
+        {r.trigger === "key" && windowRow("Key", (
+          <input
+            aria-label="Key"
+            readOnly
+            value={r.key ? (r.key === " " ? "Space" : r.key) : ""}
+            placeholder="Press a key"
+            onKeyDown={(e) => { e.preventDefault(); e.stopPropagation(); if (!["Shift", "Meta", "Control", "Alt"].includes(e.key)) patch(r.id, { key: e.key }); }}
+            className={cn(FIELD_OUTLINED, "flex-1 min-w-0 px-2 text-[11px] text-[var(--f-text)] outline-none focus:border-[var(--f-border-selected)]")}
+          />
+        ))}
+        {divided(
+          <>
+            {windowRow("Action", <MenuField label="Action" value={ACTIONS[action]} ops={ops} entries={actions.map((a) => ({ label: ACTIONS[a], checked: action === a, onSelect: () => a !== action && patch(r.id, defaults(a)) }))} />)}
+            {(action === "navigate" || action === "change" || action === "scroll") && windowRow(action === "change" ? "Change to" : "Destination", (
+              <Select outlined label="Destination" value={r.target} options={[...(destinations.some((d) => d.id === r.target) ? [] : [{ value: r.target, label: "None" }]), ...destinations.map((d) => ({ value: d.id, label: d.type === "component" && d.variant?.length ? variantLabel(d) : d.name }))]} onChange={(target) => patch(r.id, { target })} />
+            ))}
+            {action === "url" && windowRow("Link", <TextInput label="Link" value={r.url ?? ""} placeholder="https://…" onCommit={(url) => patch(r.id, { url: url.trim() || undefined })} />)}
+          </>
+        )}
+        {action !== "url" && action !== "back" && divided(
+          <>
+            {windowRow("Animation", <MenuField label="Animation" value={ANIMATIONS[r.animation]} ops={ops} entries={(Object.keys(ANIMATIONS) as InteractionAnimation[]).flatMap((a, i) => [...(i === 3 ? ["-" as const] : []), { label: ANIMATIONS[a], checked: r.animation === a, disabled: !animations.includes(a), onSelect: () => patch(r.id, { animation: a, ...(DIRECTED.has(a) && !r.direction ? { direction: "left" as InteractionDirection } : {}) }) }])} />)}
+            {DIRECTED.has(r.animation) && (
+              <div className="px-4 py-1"><Checkbox label="Animate matching layers" checked={Boolean(r.matchLayers)} onChange={(v) => patch(r.id, { matchLayers: v || undefined })} /></div>
+            )}
+            {DIRECTED.has(r.animation) && windowRow("Direction", <Segmented value={r.direction ?? "left"} options={DIRECTIONS.map((d) => ({ value: d, label: d, icon: <span className="text-[13px] leading-none">{ARROW[d]}</span> }))} onChange={(direction) => patch(r.id, { direction })} />)}
+            {r.animation !== "instant" && windowRow("Easing", <MenuField label="Easing" value={EASINGS[r.easing]?.label ?? r.easing} entries={easingEntries} ops={ops} />)}
+            {r.animation !== "instant" && r.easing === "custom-bezier" && windowRow("Curve", (
+              <>
+                {[0, 1, 2, 3].map((i) => (
+                  <NumericInput key={i} label={["x1", "y1", "x2", "y2"][i]} prefix={<Prefix>{["x1", "y1", "x2", "y2"][i]}</Prefix>} value={(r.bezier ?? [0.42, 0, 0.58, 1])[i]} min={i % 2 === 0 ? 0 : -2} max={i % 2 === 0 ? 1 : 3} onChange={(v) => { const b = [...(r.bezier ?? [0.42, 0, 0.58, 1])] as [number, number, number, number]; b[i] = v; patch(r.id, { bezier: b }); }} />
+                ))}
+              </>
+            ))}
+            {r.animation !== "instant" && r.easing === "custom-spring" && windowRow("Spring", (
+              <>
+                {(["mass", "stiffness", "damping"] as const).map((k) => (
+                  <NumericInput key={k} label={k[0].toUpperCase() + k.slice(1)} prefix={<Prefix>{k[0].toUpperCase()}</Prefix>} value={(r.spring ?? { mass: 1, stiffness: 100, damping: 15 })[k]} min={k === "mass" ? 0.1 : 0} onChange={(v) => patch(r.id, { spring: { ...(r.spring ?? { mass: 1, stiffness: 100, damping: 15 }), [k]: v } })} />
+                ))}
+              </>
+            ))}
+            {r.animation !== "instant" && (spring
+              ? windowRow("Duration", <span className="text-[11px] leading-4 text-[var(--f-text-secondary)]">{durationOf(r)}ms — the spring&apos;s own</span>)
+              : windowRow("Duration", <NumericInput label="Duration" prefix={<Prefix>ms</Prefix>} value={r.duration} min={0} onChange={(duration) => patch(r.id, { duration })} />))}
+          </>
+        )}
+      </PropertyWindow>
+    );
+  })();
+
   return (
     <>
-      <Section title="Interactions" muted={reactions.length === 0} icons={<IconButton label="Add interaction" icon={fi("plus.small")} onClick={(e) => { const r: Reaction = { id: nid("r"), trigger: "click", target: others[0]?.id ?? variant.id, animation: "smart", easing: "ease-out", duration: 300 }; set_([...reactions, r]); setOpenId(r.id); setAnchor(anchorOf(e.currentTarget)); }} />}>
-        <div data-instant="">
+      {topLevel && isFrameLike(node) && (
+        <Section title="Flow starting point" muted={!node.flowStart} icons={!node.flowStart ? <IconButton label="Add flow starting point" icon={fi("plus.small")} onClick={() => { let n = flows.length + 1; while (flows.some((f) => f.flowStart === `Flow ${n}`)) n++; ops.patch(node.id, { flowStart: `Flow ${n}` } as Partial<SceneNode>); }} /> : undefined}>
+          {node.flowStart && (
+            <PropRow icons={<><IconButton label="Present this flow" icon={fi("24.play.small")} onClick={() => ops.preview(node.id)} /><IconButton label="Remove flow starting point" icon={fi("minus.small")} onClick={() => ops.patch(node.id, { flowStart: undefined } as Partial<SceneNode>)} /></>}>
+              <TextInput label="Flow name" value={node.flowStart} onCommit={(name) => name.trim() && ops.patch(node.id, { flowStart: name.trim() } as Partial<SceneNode>)} />
+            </PropRow>
+          )}
+        </Section>
+      )}
+      <Section title="Interactions" muted={reactions.length === 0} icons={<IconButton label="Add interaction" icon={fi("plus.small")} onClick={add} />}>
+        <div ref={list} data-instant="">
+          {reactions.length === 0 && <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">Click + — or drag the + on the layer&apos;s edge onto a frame{set ? " or another variant" : ""}.</p>}
           {reactions.map((r) => {
             const open = openId === r.id;
+            const a = actionOf(r);
             return (
-              <div key={r.id} className="group/reaction flex items-center gap-1 h-8 pl-4 pr-3">
-                <div role="button" tabIndex={0} data-picker-anchor="" onClick={(e) => { setOpenId(open ? null : r.id); setAnchor(anchorOf(e.currentTarget)); }} className={cn("flex flex-1 min-w-0 items-center gap-2 h-6 px-2 rounded-[5px] cursor-pointer select-none", open ? "bg-[var(--f-bg-tertiary)]" : "bg-[var(--f-bg-secondary)] hover:bg-[var(--f-bg-tertiary)]")}>
-                  <span className="truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">{TRIGGERS[r.trigger]}</span>
-                  <span className="flex shrink-0 text-[var(--f-icon)]">{fi("24.instance.swap.small", 16)}</span>
-                  <span className="min-w-0 flex-1 truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">{nameOf(r.target)}</span>
+              <div key={r.id} data-reaction={r.id} className="group/reaction flex items-center gap-1 h-8 pl-4 pr-3">
+                <div role="button" tabIndex={0} data-picker-anchor="" onClick={(e) => { if (open) { ops.openReaction(null); setAnchor(null); } else { ops.openReaction(r.id); setAnchor(anchorOf(e.currentTarget)); } }} className={cn("flex flex-1 min-w-0 items-center gap-2 h-6 px-2 rounded-[5px] cursor-pointer select-none", open ? "bg-[var(--f-bg-tertiary)]" : "bg-[var(--f-bg-secondary)] hover:bg-[var(--f-bg-tertiary)]")}>
+                  <span className="shrink-0 truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">{TRIGGER_SHORT[r.trigger]}</span>
+                  <span className="flex shrink-0 text-[var(--f-icon)]">{a === "change" ? fi("24.instance.swap.small", 16) : <span className="w-4 text-center text-[11px]">→</span>}</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] leading-4 tracking-[0.055px] text-[var(--f-text)]">{nameOf(r)}</span>
                 </div>
                 <span className="f-icons hidden group-hover/reaction:flex group-focus-within/reaction:flex" onClick={(e) => e.stopPropagation()}>
-                  <IconButton label="Remove" icon={fi("minus.small")} onClick={() => { if (open) setOpenId(null); set_(reactions.filter((x) => x.id !== r.id)); }} />
+                  <IconButton label="Remove" icon={fi("minus.small")} onClick={() => { if (open) ops.openReaction(null); setReactions(reactions.filter((x) => x.id !== r.id)); }} />
                 </span>
               </div>
             );
           })}
         </div>
-        {editing && anchor && (
-          <PropertyWindow title="Interaction" anchor={anchor} onClose={() => setOpenId(null)}>
-            {windowRow("Trigger", <Select outlined label="Trigger" value={editing.trigger} options={(Object.keys(TRIGGERS) as InteractionTrigger[]).map((t) => ({ value: t, label: TRIGGERS[t] }))} onChange={(trigger) => patch(editing.id, { trigger: trigger as InteractionTrigger })} />)}
-            {editing.trigger === "delay" && windowRow("Delay", <NumericInput label="Delay" prefix={<Prefix>ms</Prefix>} value={editing.delay ?? 800} min={0} onChange={(delay) => patch(editing.id, { delay })} />)}
-            <div className="flex flex-col mt-1 pt-1 border-t border-[var(--f-border)]">
-              {windowRow("Action", <Select outlined label="Action" value="change" options={[{ value: "change", label: "Change to" }]} onChange={() => undefined} />)}
-              {windowRow("Variant", <Select outlined label="Change to" value={editing.target} options={variantsOf(set).map((v) => ({ value: v.id, label: variantName(v) }))} onChange={(target) => patch(editing.id, { target })} />)}
-            </div>
-            <div className="flex flex-col mt-1 pt-1 border-t border-[var(--f-border)]">
-              {windowRow("Animation", <Select outlined label="Animation" value={editing.animation} options={(Object.keys(ANIMATIONS) as InteractionAnimation[]).map((a) => ({ value: a, label: ANIMATIONS[a] }))} onChange={(animation) => patch(editing.id, { animation: animation as InteractionAnimation })} />)}
-              {editing.animation !== "instant" && windowRow("Easing", <Select outlined label="Easing" value={editing.easing} options={(Object.keys(EASINGS) as InteractionEasing[]).map((e) => ({ value: e, label: EASINGS[e].label }))} onChange={(easing) => patch(editing.id, { easing: easing as InteractionEasing })} />)}
-              {editing.animation !== "instant" && windowRow("Duration", <NumericInput label="Duration" prefix={<Prefix>ms</Prefix>} value={editing.duration} min={0} onChange={(duration) => patch(editing.id, { duration })} />)}
-            </div>
-          </PropertyWindow>
-        )}
+        {interactionWindow}
       </Section>
       {flowsGroup}
     </>
@@ -2005,6 +2195,9 @@ function PageColor({ background, ops, variables, byId, mode }: { background: str
   );
 }
 
+/** A text's element on the site, as the panel names it. */
+const TAG_LABEL: Record<NonNullable<TextNode["tag"]>, string> = { h1: "Heading 1 (the page's title)", h2: "Heading 2", h3: "Heading 3", h4: "Heading 4", p: "Paragraph", div: "Plain text" };
+
 const KIND: Record<SceneNode["type"], string> = { frame: "Frame", rectangle: "Rectangle", ellipse: "Ellipse", line: "Line", text: "Text", component: "Component", componentSet: "Component set", instance: "Instance" };
 
 export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseOps, variables, byId, mode, textStyles, lang, background, header }: {
@@ -2038,15 +2231,14 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
     node = found?.node ?? null;
     parent = found?.parent ?? null;
   }
-  const flows = pageNodes.filter((n) => isFrameLike(n) && n.type !== "componentSet").map((n) => ({ id: n.id, name: n.name }));
 
   if (!node) {
-    if (tab === "prototype") return <PrototypeSection node={null} nodes={nodes} ops={ops} flows={flows} />;
+    if (tab === "prototype") return <PrototypeSection node={null} nodes={nodes} pageNodes={pageNodes} ops={ops} />;
     const pageFrame = getNode(nodes, ops.pageId);
     return (
       <div className="flex flex-col">
         <Section title="Page" icons={<IconButton label="Open variables" icon={fi("variable.small")} onClick={ops.openVariables} />}>
-          <PropRow icons={<IconButton label="Show" icon={fi("eye.small")} />}>
+          <PropRow icons={<span className="w-6" />}>
             <PageColor background={background} ops={ops} variables={variables} byId={byId} mode={mode} />
           </PropRow>
           <LanguageRow languages={ops.languages} lang={lang} ops={ops} />
@@ -2071,6 +2263,23 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
 
   const multi = selection.length > 1;
   const inAuto = Boolean(parent && parent.layoutMode !== "none");
+  // An instance: its look and layout as drawn (its component's, its own changes over them) — and what is changed of them its
+  // override of its own frame (the key ""), as Figma's; its place, size and sizing stay the instance's own.
+  const resolvedInstance = !composite && !multi && node.type === "instance" ? resolveInstance(nodes, node) : null;
+  const shown: SceneNode = resolvedInstance ? { ...resolvedInstance, id: node.id } : node;
+  const lookOps: EditorOps = resolvedInstance
+    ? {
+        ...ops,
+        patch: (id, p) => {
+          if (id !== node.id) return ops.patch(id, p);
+          const look: Record<string, unknown> = {};
+          const rest: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(p)) ((OVERRIDABLE as readonly string[]).includes(k) ? look : rest)[k] = v;
+          if (Object.keys(look).length) ops.override(`${id}/`, look as NodeOverride);
+          if (Object.keys(rest).length) ops.patch(id, rest as Partial<SceneNode>);
+        },
+      }
+    : ops;
   // As Figma's: the header reads in the text's colour — a layer inside an instance in the component's purple.
   const purple = Boolean(composite);
   // As Figma's: a component, a set or an instance is headed by its (main) component's name; any other layer by its kind.
@@ -2085,6 +2294,11 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
         : KIND[node.type];
   // The selected layers themselves (several: their shared values, or "Mixed"), and whether they share a parent (the spacing between them).
   const selectedNodes = ownIds.map((id) => findNode(nodes, id)).filter((f): f is NonNullable<typeof f> => Boolean(f));
+  // Several layers whose lists differ: "Mixed" (what one of them has would otherwise be written over the others').
+  const differs = (pick: (n: SceneNode) => unknown) => selectedNodes.length > 1 && selectedNodes.some((f) => JSON.stringify(pick(f.node) ?? []) !== JSON.stringify(pick(selectedNodes[0].node) ?? []));
+  const mixedFills = differs((n) => n.fills);
+  const mixedStrokes = differs((n) => (n.type === "text" ? undefined : n.strokes));
+  const mixedEffects = differs((n) => (n.type === "text" ? undefined : n.effects));
   const sameParent = selectedNodes.length > 1 && selectedNodes.every((f) => (f.parent?.id ?? null) === (selectedNodes[0].parent?.id ?? null));
   const headerMenu = multi || composite ? [] : header(node);
   // A variant's set (a component in one).
@@ -2115,12 +2329,12 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
         </div>
       </div>
       {tab === "prototype" ? (
-        <PrototypeSection node={node} nodes={nodes} ops={ops} flows={flows} />
+        <PrototypeSection node={node} nodes={nodes} pageNodes={pageNodes} ops={ops} />
       ) : composite ? (
         <>
-          <Section title="Instance layer">
+          <Section title="Instance layer" icons={<IconButton label="More actions" icon={fi("24.more")} onClick={(e) => ops.menu(e.currentTarget, ops.instanceActions(composite))} />}>
             <p className="px-4 pt-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">Layer of the main component: changes apply to this instance only.</p>
-            <div className="pl-4 pr-3 py-2"><Checkbox label="Visible" checked={node.visible !== false} onChange={(v) => ops.override(composite, { visible: v ? undefined : false })} /></div>
+            <div className="pl-4 pr-3 py-2"><Checkbox label="Visible" checked={node.visible !== false} onChange={(v) => ops.override(composite, { visible: v })} /></div>
           </Section>
           {node.type === "text" && <TextSection node={node} nodes={nodes} ops={ops} variables={variables} byId={byId} mode={mode} textStyles={textStyles} lang={lang} compositeId={composite} />}
           <FillSection node={node} ops={ops} variables={variables} byId={byId} mode={mode} compositeId={composite} />
@@ -2137,13 +2351,13 @@ export function Inspector({ nodes, pageNodes = nodes, selection, tab, ops: baseO
           {multi && selectedNodes.length > 1 ? (
             <MultiLayoutSection selected={selectedNodes.map((f) => f.node)} sameParent={sameParent} ops={ops} />
           ) : (
-            <LayoutSection node={node} parent={parent} ops={ops} variables={variables} byId={byId} mode={mode} />
+            <LayoutSection node={shown} parent={parent} ops={lookOps} variables={variables} byId={byId} mode={mode} />
           )}
-          <AppearanceSection node={node} nodes={nodes} ops={ops} variables={variables} byId={byId} mode={mode} />
-          {node.type === "text" && <TextSection node={node} nodes={nodes} ops={ops} variables={variables} byId={byId} mode={mode} textStyles={textStyles} lang={lang} />}
-          {node.type !== "line" && <FillSection node={node} ops={ops} variables={variables} byId={byId} mode={mode} />}
-          {node.type !== "text" && <StrokeSection node={node} ops={ops} variables={variables} byId={byId} mode={mode} />}
-          {node.type !== "text" && <EffectsSection node={node} ops={ops} pageColors={ops.pageColors} />}
+          <AppearanceSection key={`a-${node.id}`} node={shown} nodes={nodes} ops={lookOps} variables={variables} byId={byId} mode={mode} />
+          {node.type === "text" && <TextSection node={node} nodes={nodes} ops={ops} variables={variables} byId={byId} mode={mode} textStyles={textStyles} lang={lang} multi={multi} />}
+          {shown.type !== "line" && <FillSection node={shown} ops={lookOps} variables={variables} byId={byId} mode={mode} mixed={mixedFills} />}
+          {shown.type !== "text" && <StrokeSection node={shown} ops={lookOps} variables={variables} byId={byId} mode={mode} mixed={mixedStrokes} />}
+          {shown.type !== "text" && <EffectsSection key={`e-${node.id}`} node={shown} ops={lookOps} pageColors={ops.pageColors} mixed={mixedEffects} />}
           <SelectionColors nodes={nodes} selection={selection} ops={ops} byId={byId} mode={mode} />
           {isFrameLike(node) && node.type !== "instance" && <LayoutGuideSection frame={node} ops={ops} />}
           {!multi && isFrameLike(node) && node.type !== "componentSet" && !node.embed && <LinkSection key={node.id} node={node} ops={ops} />}

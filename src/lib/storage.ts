@@ -1,5 +1,6 @@
-import { ref, uploadBytesResumable, getDownloadURL, listAll, deleteObject } from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
+import { checkUpload, mediaPath, webSized } from "@/lib/media";
 
 export type UploadProgress = {
   percent: number;
@@ -49,60 +50,20 @@ export async function uploadFile(
 }
 
 /**
- * Generate a deterministic storage path for a block's media file.
- * e.g. "projects/my-slug/blocks/abc123/image.png"
+ * An upload of the editor's (or the CV's): checked (a file the site can
+ * show, 25 MB at most), a picture made web-sized (see webSized), put at a
+ * path of its own under `folder` — its download URL back.
  */
-export function blockStoragePath(projectSlug: string, blockId: string, file: File): string {
-  const ext = file.name.split(".").pop() ?? "bin";
-  return `projects/${projectSlug}/blocks/${blockId}/${Date.now()}.${ext}`;
-}
-
-/**
- * Generate a storage path for the project's cover image.
- * e.g. "projects/my-slug/cover/1718000000000.jpg"
- */
-export function coverStoragePath(projectSlug: string, file: File): string {
-  const ext = file.name.split(".").pop() ?? "bin";
-  return `projects/${projectSlug}/cover/${Date.now()}.${ext}`;
-}
-
-/**
- * Generate a storage path for CV media files (profile picture, PDF).
- * e.g. "cv/profile/1718000000000.jpg" or "cv/pdf/1718000000000.pdf"
- */
-export function cvStoragePath(folder: string, file: File): string {
-  const ext = file.name.split(".").pop() ?? "bin";
-  return `projects/${folder}/cover/${Date.now()}.${ext}`;
-}
-
-/**
- * Delete all files under the project's storage folder (recursive).
- * Firebase Storage doesn't support folder deletion natively, so we
- * list all items recursively and delete each one.
- *
- * Folder structure: projects/{slug}/...
- */
-export async function deleteProjectFolder(projectSlug: string): Promise<void> {
-  async function deleteAll(folderRef: ReturnType<typeof ref>): Promise<void> {
-    const result = await listAll(folderRef);
-    await Promise.all([
-      ...result.items.map((item) => deleteObject(item).then(() => touchFiles(item.fullPath, "remove"))),
-      ...result.prefixes.map((prefix) => deleteAll(prefix)),
-    ]);
-  }
-
-  const folderRef = ref(storage, `projects/${projectSlug}`);
-  await deleteAll(folderRef);
+export async function uploadMedia(file: File, folder = "media", onProgress?: (percent: number) => void): Promise<string> {
+  checkUpload(file);
+  const ready = await webSized(file);
+  return uploadFile(ready, mediaPath(ready, folder), onProgress);
 }
 
 // ── Browsing the bucket ───────────────────────────────────────────────────────
 
 const BUCKET = storage.app.options.storageBucket ?? "";
 const API = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o`;
-
-/** The extension a file is stored under: its type's, for the web's image types — else its name's. */
-const MIME_EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp", "image/avif": "avif", "image/svg+xml": "svg", "image/bmp": "bmp" };
-export const fileExt = (file: File) => MIME_EXT[file.type] ?? (file.name.includes(".") ? file.name.split(".").pop()!.toLowerCase() : "bin");
 
 /** A picture a browser draws (not a HEIC, a TIFF…), by its path's extension. */
 export const WEB_IMAGE = /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/i;

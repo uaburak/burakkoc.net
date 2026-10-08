@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { fi } from "@/components/admin/figmaIcons";
-import { PATH_SEP, isFrameLike, resolveInstance, type SceneNode } from "./model";
+import { PATH_SEP, isFrameLike, resolveInstance, variantLabel, variantName, type FrameNode, type SceneNode } from "./model";
 
 /**
  * Figma's Layers list, as UI3 draws it: 32px rows — 12px in, the chevron
@@ -31,8 +31,9 @@ export function layerIcon(node: SceneNode): ReactNode {
     case "rectangle": return fi("16.rectangle");
     case "ellipse": return fi("16.ellipse");
     case "line": return fi("16.line");
-    case "component": return fi("16.component");
-    case "componentSet": return fi("16.component.set");
+    // As Figma's layers: a set and a component the same four diamonds, a variant inside a set a filled diamond.
+    case "component": return fi(node.variant?.length ? "16.variant" : "16.component");
+    case "componentSet": return fi("16.component");
     case "instance": return fi("16.instance");
     default: {
       if (node.layoutMode === "vertical") return fi(node.counterAlign === "center" ? "16.autolayout.vertical.center" : node.counterAlign === "max" ? "16.autolayout.vertical.right" : "16.autolayout.vertical.left");
@@ -44,6 +45,10 @@ export function layerIcon(node: SceneNode): ReactNode {
     }
   }
 }
+
+const isVariant = (node: SceneNode): node is FrameNode => node.type === "component" && Boolean(node.variant?.length);
+/** A layer's name in the tree: a variant's as Figma shows it — its values ("Default", "lg, iconOnly=False"; see variantLabel). */
+export const rowName = (node: SceneNode) => (isVariant(node) ? variantLabel(node) : node.name);
 
 const isPurple = (node: SceneNode) => node.type === "component" || node.type === "componentSet" || node.type === "instance";
 
@@ -143,12 +148,13 @@ function Row({ id, node, inInstance, depth, selected, insideSelected, open, hasK
         >
           {fi(open ? "16.chevron.down" : "16.chevron.right")}
         </button>
-        <span onDoubleClick={(e) => { e.stopPropagation(); onLocate(); }} title="Double-click to zoom to layer" className={cn("flex w-4 h-4 shrink-0 items-center justify-center cursor-pointer", purple ? "text-[var(--f-text-component)]" : "text-[var(--f-icon-secondary)]", hidden && "opacity-50")}>{layerIcon(node)}</span>
+        <span onDoubleClick={(e) => { e.stopPropagation(); onLocate(); }} title="Double-click to zoom to layer" className={cn("flex w-4 h-4 shrink-0 items-center justify-center cursor-pointer", purple ? "text-[var(--f-icon-component)]" : "text-[var(--f-icon-secondary)]", hidden && "opacity-50")}>{layerIcon(node)}</span>
         {renaming ? (
           <input
             autoFocus
             aria-label="Layer name"
-            defaultValue={node.name}
+            // A variant's whole name, as Figma's: "State=active, Size=lg" — typing it sets its properties.
+            defaultValue={isVariant(node) ? variantName(node) : node.name}
             onFocus={(e) => e.currentTarget.select()}
             onBlur={(e) => finish(e.currentTarget.value)}
             onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") finish(e.currentTarget.value); if (e.key === "Escape") finish(); }}
@@ -156,7 +162,7 @@ function Row({ id, node, inInstance, depth, selected, insideSelected, open, hasK
             className="min-w-0 flex-1 ml-2 h-6 px-1 rounded-[3px] bg-[var(--f-bg)] border border-[var(--f-border-selected)] text-[11px] leading-4 text-[var(--f-text)] outline-none select-text"
           />
         ) : (
-          <span className={cn("min-w-0 flex-1 ml-2 truncate text-[11px] font-[450] leading-4 tracking-[0.055px]", purple ? "text-[var(--f-text-component)]" : "text-[var(--f-text)]", hidden && "opacity-50")}>{node.name}</span>
+          <span className={cn("min-w-0 flex-1 ml-2 truncate text-[11px] font-[450] leading-4 tracking-[0.055px]", purple ? "text-[var(--f-text-component)]" : "text-[var(--f-text)]", hidden && "opacity-50")}>{rowName(node)}</span>
         )}
         <div className={cn("flex shrink-0 items-center", !pinned && "opacity-0 group-hover/row:opacity-100")}>
           {!inInstance && (

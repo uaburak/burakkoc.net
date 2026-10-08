@@ -1,40 +1,77 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import Link from "next/link";
 import gsap from "gsap";
 import { ArrowLeftIcon } from "@/components/icons";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
-import { loadProject, listProjects } from "@/lib/firestore";
-import { ProjectData, PageSection, PageItem } from "@/types/project";
-import TextScrollingEffect from "@/components/TextScrollingEffect";
-import { ZoomableImage } from "@/components/ZoomableImage";
+import type { ProjectSummary, PublishedPage } from "@/types/project";
 import PageEntrance from "@/components/PageEntrance";
-import { projectThemeAttrs } from "@/components/project/projectTheme";
-import { ProjectDivider } from "@/components/project/CoreBlocks";
-import { SectionContent, pageFrameProps, sectionWidthClass } from "@/components/project/LayoutGrid";
-import { sectionBlocks } from "@/lib/projectLayout";
-import { DesignSystemProvider, DesignSystemStyle, fromStored, type SiteDesign } from "@/components/project/designSystem";
-import { frameLookStyle } from "@/components/project/frameLook";
+import { DesignSystemProvider, DesignSystemStyle } from "@/components/project/designSystem";
+import { withStartingVariables } from "@/components/project/designVariables";
+import { withStartingTextStyles } from "@/components/project/textStyles";
 import { PageView } from "@/figma/PageView";
-import { pageFrameOf, showsCanvas } from "@/figma/fromLegacy";
-import { libraryOf } from "@/figma/model";
+import { pageFrameOf } from "@/figma/page";
+import { BASE_LANGUAGE, libraryOf, writtenLanguages, type LangCode } from "@/figma/model";
 import { headingsOf } from "@/figma/site";
-
-// ── Sections ──────────────────────────────────────────────────────────────────
-
-function DetailSection({ section }: { section: PageSection }) {
-  return (
-    <section id={section.id} className="w-full pt-10 scroll-mt-24">
-      <SectionContent section={section} animate />
-    </section>
-  );
-}
 
 // ── Beside the page: the way back, the contents ───────────────────────────────
 
 /** The way back to the projects, fixed at the column's left (wide screens). */
-function BackToProjects() {
+/** The page's own words (the way back, the contents, before / after), in the language shown. */
+const WORDS: Record<"tr" | "en", { back: string; overview: string; previous: string; next: string }> = {
+  tr: { back: "Projeler", overview: "Genel bakış", previous: "Önceki", next: "Sonraki" },
+  en: { back: "Projects", overview: "Overview", previous: "Previous", next: "Next" },
+};
+const wordsFor = (lang: LangCode) => WORDS[lang === BASE_LANGUAGE ? "tr" : "en"];
+
+// ── The language shown: ?lang=… (a link that says it), else the visitor's last choice, else the base ──
+
+const LANG_KEY = "site-lang";
+const LANG_EVENT = "site-lang";
+const subscribeLang = (cb: () => void) => {
+  window.addEventListener("storage", cb);
+  window.addEventListener(LANG_EVENT, cb);
+  window.addEventListener("popstate", cb);
+  return () => {
+    window.removeEventListener("storage", cb);
+    window.removeEventListener(LANG_EVENT, cb);
+    window.removeEventListener("popstate", cb);
+  };
+};
+const langSnapshot = () => {
+  try {
+    return new URLSearchParams(window.location.search).get("lang") ?? localStorage.getItem(LANG_KEY) ?? BASE_LANGUAGE;
+  } catch {
+    return BASE_LANGUAGE;
+  }
+};
+function chooseLang(code: LangCode) {
+  try {
+    localStorage.setItem(LANG_KEY, code);
+  } catch { /* the address keeps it */ }
+  const url = new URL(window.location.href);
+  if (code === BASE_LANGUAGE) url.searchParams.delete("lang");
+  else url.searchParams.set("lang", code);
+  window.history.replaceState(window.history.state, "", url);
+  window.dispatchEvent(new Event(LANG_EVENT));
+}
+
+/** The page's languages, to switch between (only when it has more than one). */
+function LanguageSwitch({ languages, lang, className }: { languages: { code: LangCode; name: string }[]; lang: LangCode; className?: string }) {
+  if (languages.length < 2) return null;
+  return (
+    <div role="group" aria-label="Language" className={`inline-flex items-center gap-0.5 p-0.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] ${className ?? ""}`}>
+      {languages.map((l) => (
+        <button key={l.code} type="button" lang={l.code} aria-pressed={l.code === lang} title={l.name} onClick={() => chooseLang(l.code)} className={`h-7 px-2.5 rounded-full text-xs font-medium uppercase transition-colors ${l.code === lang ? "bg-[var(--bg-4)] text-[var(--text-title)]" : "text-[var(--text-subtitle)] hover:text-[var(--text-title)]"}`}>
+          {l.code}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BackToProjects({ label, languages, lang }: { label: string; languages: { code: LangCode; name: string }[]; lang: LangCode }) {
   return (
     <div
       className="fixed top-[160px] w-[200px] flex-col items-start gap-3 z-20 hidden xl:flex"
@@ -47,8 +84,9 @@ function BackToProjects() {
         <span className="flex items-center justify-center w-5 h-5">
           <ArrowLeftIcon />
         </span>
-        <span className="px-1">Project</span>
+        <span className="px-1">{label}</span>
       </Link>
+      <LanguageSwitch languages={languages} lang={lang} className="ml-[10px]" />
     </div>
   );
 }
@@ -66,60 +104,15 @@ function PageContents({ items }: { items: TocItem[] }) {
   );
 }
 
-// ── Skeleton Loader Component ─────────────────────────────────────────────────
-
-function DetailSkeleton() {
-  return (
-    <div className="min-h-screen bg-[var(--bg-1)] animate-pulse relative">
-      <div className="fixed top-[160px] left-[calc(50%-468px)] w-[200px] flex-col items-start gap-3 hidden xl:flex">
-        <div className="h-8 w-24 rounded-full bg-[var(--bg-3)]" />
-        <div className="h-8 w-24 rounded-full bg-[var(--bg-3)]" />
-      </div>
-
-      <div className="fixed top-[160px] left-[calc(50%+380px)] w-[180px] hidden xl:block">
-        <div className="flex flex-col gap-2">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-4 w-28 rounded bg-[var(--bg-3)]" />
-          ))}
-        </div>
-      </div>
-
-      <main className="flex flex-col items-center w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
-        <div className="w-full pt-[10px] flex flex-col gap-2.5">
-          <div className="h-6 w-48 rounded bg-[var(--bg-3)]" />
-          <div className="h-4 w-32 rounded bg-[var(--bg-3)]" />
-        </div>
-        <div className="mt-10 w-full flex flex-col gap-4">
-          <div className="h-4 w-full rounded bg-[var(--bg-3)]" />
-          <div className="h-4 w-full rounded bg-[var(--bg-3)]" />
-          <div className="h-4 w-2/3 rounded bg-[var(--bg-3)]" />
-        </div>
-        <div className="mt-12 w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] aspect-[940/518]" />
-      </main>
-    </div>
-  );
-}
-
-function getProjectCoverImage(proj?: ProjectData | null): string | null {
-  if (!proj) return null;
-  if (proj.coverImage) return proj.coverImage;
-  for (const item of (proj.items || [])) {
-    if (item.kind === "section") {
-      const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
-      if (imgBlock?.src) return imgBlock.src;
-    }
-  }
-  return null;
-}
-
 interface ProjectDetailFooterNavProps {
-  prevProject: ProjectData | null;
-  nextProject: ProjectData | null;
+  prevProject: ProjectSummary | null;
+  nextProject: ProjectSummary | null;
+  words: { previous: string; next: string };
 }
 
-function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFooterNavProps) {
-  const prevImg = getProjectCoverImage(prevProject);
-  const nextImg = getProjectCoverImage(nextProject);
+function ProjectDetailFooterNav({ prevProject, nextProject, words }: ProjectDetailFooterNavProps) {
+  const prevImg = prevProject?.coverImage || null;
+  const nextImg = nextProject?.coverImage || null;
 
   const footerCardRef = useRef<HTMLDivElement>(null);
   const prevImgWrapperRef = useRef<HTMLDivElement>(null);
@@ -217,6 +210,7 @@ function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFoote
               className="absolute inset-0 transition-opacity duration-200"
               style={{ opacity: 0 }}
             >
+              {/* eslint-disable-next-line @next/next/no-img-element -- a hover preview of the bucket's file, as it is */}
               <img
                 src={prevImg}
                 alt={prevProject?.title || "Previous Project"}
@@ -232,6 +226,7 @@ function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFoote
               className="absolute inset-0 transition-opacity duration-200"
               style={{ opacity: 0 }}
             >
+              {/* eslint-disable-next-line @next/next/no-img-element -- a hover preview of the bucket's file, as it is */}
               <img
                 src={nextImg}
                 alt={nextProject?.title || "Next Project"}
@@ -251,7 +246,7 @@ function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFoote
             className="relative group flex flex-col gap-0.5 justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-colors duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
           >
             <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
-              Previous
+              {words.previous}
             </span>
             <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
               {prevProject.title || prevProject.slug}
@@ -269,7 +264,7 @@ function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFoote
             className="relative group flex flex-col gap-0.5 items-end justify-center flex-1 min-w-0 cursor-pointer p-3.5 sm:p-4 rounded-2xl transition-colors duration-200 hover:bg-[var(--bg-4)] active:scale-[0.98]"
           >
             <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] transition-colors duration-200 group-hover:text-[var(--text-p)]">
-              Next
+              {words.next}
             </span>
             <span className="text-sm font-medium leading-5 text-[var(--text-title)] truncate">
               {nextProject.title || nextProject.slug}
@@ -283,190 +278,45 @@ function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFoote
   );
 }
 
-// ── Main Client Component ─────────────────────────────────────────────────────
+// ── The page ──────────────────────────────────────────────────────────────────
 
-interface ProjectDetailClientProps {
-  slug: string;
-  initialProject?: ProjectData | null;
-  initialProjects?: ProjectData[];
-  /** The site's design system as stored: its variables, text styles and components */
-  design?: SiteDesign;
-}
-
-export function ProjectDetailClient({
-  slug,
-  initialProject,
-  initialProjects,
-  design = { variables: [], textStyles: [], components: [] },
-}: ProjectDetailClientProps) {
-  const [project, setProject] = useState<ProjectData | null>(initialProject || null);
-  const [projects, setProjects] = useState<ProjectData[]>(initialProjects || []);
-  const [loading, setLoading] = useState(!initialProject);
-
-  useEffect(() => {
-    if (initialProject) {
-      setProject(initialProject);
-      if (initialProjects && initialProjects.length > 0) {
-        setProjects(initialProjects);
-      } else {
-        listProjects()
-          .then(setProjects)
-          .catch((err) => console.error("Failed to list projects:", err));
-      }
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    loadProject(slug)
-      .then((data) => setProject(data))
-      .catch((err) => console.error("Failed to load project details:", err))
-      .finally(() => setLoading(false));
-
-    listProjects()
-      .then(setProjects)
-      .catch((err) => console.error("Failed to list projects:", err));
-  }, [slug, initialProject, initialProjects]);
-
-  if (loading) return <DetailSkeleton />;
-
-  if (!project) {
-    return (
-      <div className="min-h-screen bg-[var(--bg-1)] flex items-center justify-center px-6">
-        <div className="text-center flex flex-col items-center gap-4">
-          <h1 className="text-base font-medium text-[var(--text-title)]">Project Not Found</h1>
-          <p className="text-sm font-light text-[var(--text-subtitle)]">The requested project could not be found or has been removed.</p>
-          <Link href="/projects" className="px-4 py-2 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm text-[var(--text-p)] hover:bg-[var(--bg-4)] transition-all duration-200">
-            Back to Projects
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  const pageFrame = pageFrameProps(project.frame);
-  const site = fromStored(design);
-  // Hidden sections (their look's eye) are left out — no room, no contents entry.
-  const items = project.items.filter((item) => item.kind !== "section" || !item.look?.hidden);
-  const tocItems: TocItem[] = [{ id: "overview", label: "Overview" }];
-  items.forEach((item) => {
-    if (item.kind === "section") {
-      const headingBlock = sectionBlocks(item).find(
-        (b) => b.type === "heading" && b.content && b.content.trim() !== ""
-      );
-      if (headingBlock && headingBlock.content) {
-        tocItems.push({ id: item.id, label: headingBlock.content });
-      }
-    }
-  });
-
-  const currentIndex = projects.findIndex((p) => p.slug === slug);
-  const showNavigation = projects.length > 1 && currentIndex !== -1;
-  const prevProject = showNavigation ? projects[(currentIndex - 1 + projects.length) % projects.length] : null;
-  const nextProject = showNavigation ? projects[(currentIndex + 1) % projects.length] : null;
-
-  const prevImg = getProjectCoverImage(prevProject);
-  const nextImg = getProjectCoverImage(nextProject);
-
-  // Plain call, not a hook: this runs after the early returns above.
-  const themeAttrs = projectThemeAttrs(project.theme);
-
-  // Made in the Figma editor: its page frame is the page — the way back and its contents beside it, as any project's
-  // (the contents list its sections' headings; neither is a layer of the file).
-  if (project.canvas && showsCanvas(project)) {
-    const page = pageFrameOf(project.canvas);
-    const contents: TocItem[] = [{ id: "overview", label: "Overview" }, ...(page ? headingsOf(page, libraryOf(project.canvas)) : [])];
-    return (
-      <DesignSystemProvider {...site}>
-        <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative" data-design-scope="">
-          <DesignSystemStyle />
-          <BackToProjects />
-          <PageContents items={contents} />
-          <main className="w-full pb-[60px]">
-            <PageView doc={project.canvas} variables={site.variables} />
-            {showNavigation && (
-              <div className="w-full max-w-[720px] mx-auto px-5 xl:px-6">
-                <ProjectDetailFooterNav prevProject={prevProject} nextProject={nextProject} />
-              </div>
-            )}
-          </main>
-        </PageEntrance>
-      </DesignSystemProvider>
-    );
-  }
-
+/**
+ * A published project's page: its page frame as it was published (see
+ * PublishedPage) — the way back and its contents beside it (the contents
+ * list its sections' headings; neither is a layer of the file), the
+ * projects before and after it under it.
+ */
+export function ProjectDetailClient({ page, prev, next }: { page: PublishedPage; prev: ProjectSummary | null; next: ProjectSummary | null }) {
+  const variables = withStartingVariables(page.variables);
+  const textStyles = withStartingTextStyles(page.textStyles);
+  const frame = pageFrameOf(page.doc);
+  // The language shown: one of the page's that has words of its own in it (the base where the one asked for isn't).
+  const languages = writtenLanguages(page.doc);
+  const asked = useSyncExternalStore(subscribeLang, langSnapshot, () => BASE_LANGUAGE);
+  const lang = languages.some((l) => l.code === asked) ? asked : BASE_LANGUAGE;
+  const words = wordsFor(lang);
+  const contents: TocItem[] = [{ id: "overview", label: words.overview }, ...(frame ? headingsOf(frame, libraryOf(page.doc), lang) : [])];
   return (
-    <DesignSystemProvider {...site}>
-    <PageEntrance
-      className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative"
-      {...themeAttrs}
-      data-design-scope=""
-    >
-      <DesignSystemStyle />
-      <BackToProjects />
-      <PageContents items={tocItems} />
-
-      {/* ── Main content ── */}
-      <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
-        {/* The page's frame (PageFrame): its header, sections and dividers, sized and aligned as set in the editor. */}
-        <div className={pageFrame.className} style={{ ...pageFrame.style, ...frameLookStyle(project.frame?.look, site.variables) }}>
-          <section id="overview" className="flex flex-col items-start w-full scroll-mt-24">
-            <div className="flex flex-col items-start w-full pt-[10px]">
-              <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
-                {project.title || project.slug}
-              </h1>
-              <p className="w-full text-base font-normal leading-6 text-[var(--text-subtitle)]">
-                {[project.category, project.year].filter(Boolean).join(" · ")}
-              </p>
+    <DesignSystemProvider variables={variables} textStyles={textStyles}>
+      <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative" data-design-scope="">
+        <DesignSystemStyle />
+        <BackToProjects label={words.back} languages={languages} lang={lang} />
+        <PageContents items={contents} />
+        <main className="w-full pb-[60px]">
+          {/* (Narrower screens: the language switch at the page's top.) */}
+          {languages.length > 1 && (
+            <div className="xl:hidden flex justify-end w-full max-w-[720px] mx-auto px-5 pt-6">
+              <LanguageSwitch languages={languages} lang={lang} />
             </div>
-
-            {/* Description (Açıklama) */}
-            {project.description && (
-              <div className="w-full mt-6">
-                <TextScrollingEffect>
-                  <p className="text-base font-light leading-7 text-[var(--text-p)] whitespace-pre-wrap">
-                    {project.description}
-                  </p>
-                </TextScrollingEffect>
-              </div>
-            )}
-
-            {/* Cover Image (Resim) */}
-            {project.coverImage && (
-              <div
-                className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden mt-12 mb-6"
-                style={{ aspectRatio: "940/518" }}
-              >
-                <ZoomableImage
-                  src={project.coverImage}
-                  alt={project.title || project.slug}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
-          </section>
-
-          {items.map((item: PageItem) =>
-            item.kind === "divider" ? (
-              <div key={item.id} className="w-full">
-                <ProjectDivider />
-              </div>
-            ) : (
-              <div key={item.id} className={sectionWidthClass(item)}>
-                <DetailSection section={item} />
-              </div>
-            )
           )}
-        </div>
-
-        {showNavigation && (
-          <ProjectDetailFooterNav
-            prevProject={prevProject}
-            nextProject={nextProject}
-          />
-        )}
-      </main>
-    </PageEntrance>
+          <PageView doc={page.doc} variables={variables} lang={lang} />
+          {(prev || next) && (
+            <div className="w-full max-w-[720px] mx-auto px-5 xl:px-6">
+              <ProjectDetailFooterNav prevProject={prev} nextProject={next} words={words} />
+            </div>
+          )}
+        </main>
+      </PageEntrance>
     </DesignSystemProvider>
   );
 }

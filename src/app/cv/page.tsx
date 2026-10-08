@@ -1,15 +1,16 @@
 import { CVClient } from "./CVClient";
-import { getCVData } from "@/lib/firestore";
+import { getCVData, listPublished } from "@/lib/firestore";
 
 export const metadata = {
-  title: "CV — Burak Koç",
+  title: "CV",
   description: "Product designer & developer. Resume and professional background of Burak Koç.",
+  alternates: { canonical: "/cv" },
 };
 
-// Force dynamic rendering on server so updates saved in Admin panel show immediately
-export const dynamic = "force-dynamic";
+// Made again at most once a minute: a CV saved in the admin shows within it.
+export const revalidate = 60;
 
 export default async function CVPage() {
-  const cvData = await getCVData();
-  return <CVClient initialCvData={cvData} />;
+  const [cvData, projects] = await Promise.all([getCVData(), listPublished().catch(() => [])]);
+  return <CVClient initialCvData={cvData} projects={projects} />;
 }

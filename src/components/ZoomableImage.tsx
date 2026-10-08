@@ -1,9 +1,11 @@
 "use client";
 
+import "@/lib/lenis";
+
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Segmented } from "@/components/Segmented";
-import { BadgeItem } from "@/types/project";
+import type { BadgeItem } from "@/figma/embeds/types";
 import { CodeHighlight } from "@/components/CodeHighlight";
 import { cn } from "@/lib/utils";
 
@@ -127,7 +129,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     };
   }, []);
 
-  const handleZoom = (e: React.MouseEvent<HTMLImageElement>) => {
+  const handleZoom = (e: React.MouseEvent<HTMLImageElement> | React.KeyboardEvent<HTMLImageElement>) => {
     if (isZoomed) return;
 
     if (closeTimeoutRef.current) {
@@ -177,6 +179,8 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       setTargetRect(null);
       onTabChange?.(localActiveTab);
       closeTimeoutRef.current = null;
+      // The focus back where it was: on the picture opened.
+      originalImgRef.current?.focus({ preventScroll: true });
     }, 400);
   }, [isZoomed, localActiveTab, onTabChange]);
 
@@ -185,7 +189,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     if (!isZoomed) return;
 
     // Pause Lenis smooth scroll so background page cannot scroll at all
-    const lenis = (window as any).__lenis;
+    const lenis = window.__lenis;
     if (lenis && typeof lenis.stop === "function") {
       lenis.stop();
     }
@@ -273,13 +277,22 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
           visibility: isZoomed ? "hidden" : "visible",
         }}
         onClick={handleZoom}
+        // Opened from the keyboard too (Enter, Space), as a button is.
+        tabIndex={0}
+        role="button"
+        aria-label={alt ? `${alt} — büyüt` : "Görseli büyüt"}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          handleZoom(e);
+        }}
         {...props}
       />
 
       {/* Zoom Portal */}
       {isZoomed && portalContainer && originalRect && targetRect &&
         createPortal(
-          <>
+          <div role="dialog" aria-modal="true" aria-label={alt || "Görsel"}>
             {/* Backdrop with smooth fade in/out (white in light mode, black in dark mode) */}
             <div
               className="fixed inset-0 z-[9998] cursor-zoom-out"
@@ -339,7 +352,10 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                 />
               )}
             </div>
-          </>,
+            <button type="button" autoFocus onClick={handleClose} className="sr-only focus:not-sr-only fixed top-4 right-4 z-[10000] h-9 px-3 rounded-full bg-[var(--bg-1)] text-sm text-[var(--text-title)] border border-[var(--border)]">
+              Kapat (Esc)
+            </button>
+          </div>,
           portalContainer
         )
       }

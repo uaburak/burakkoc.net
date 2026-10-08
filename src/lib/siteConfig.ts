@@ -10,3 +10,6 @@ const siteConfig = {
 } as const;
 
 export default siteConfig;
+
+/** The site's address: what relative links in its metadata (canonical, Open Graph images, the sitemap) are resolved against. */
+export const SITE_URL = "https://burakkoc.net";

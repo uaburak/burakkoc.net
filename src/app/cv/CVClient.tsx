@@ -2,31 +2,19 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import gsap from "gsap";
-import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
+import { ArrowLeftIcon } from "@/components/icons";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 import PageEntrance from "@/components/PageEntrance";
-import { TopBar } from "@/components/TopBar";
-import { listProjects, getCVData, DEFAULT_CV_DATA } from "@/lib/firestore";
-import { ProjectData } from "@/types/project";
+import { DEFAULT_CV_DATA } from "@/lib/cvDefaults";
+import type { ProjectSummary } from "@/types/project";
 import { CVData } from "@/types/cv";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { Footer } from "@/components/Footer";
-import { sectionBlocks } from "@/lib/projectLayout";
 
-function getProjectCoverImage(proj?: ProjectData | null): string | null {
-  if (!proj) return null;
-  if (proj.coverImage) return proj.coverImage;
-  for (const item of proj.items) {
-    if (item.kind === "section") {
-      const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
-      if (imgBlock?.src) return imgBlock.src;
-    }
-  }
-  return null;
-}
+/** A project's picture: its cover, else the first one its page shows. */
+const getProjectCoverImage = (proj?: ProjectSummary | null): string | null => proj?.coverImage || proj?.images[0] || null;
 
 function SkillIcon({ type }: { type: string }) {
   switch (type) {
@@ -182,31 +170,22 @@ function TimelineRow({
   );
 }
 
-// ── Skill tag ─────────────────────────────────────────────────────────────────
-
-function SkillTag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-light text-[var(--text-p)] transition-colors duration-200 hover:border-[var(--border-hover)]">
-      {children}
-    </span>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function CVClient({
   initialCvData,
   previewData,
   isPreview = false,
+  projects = [],
 }: {
   initialCvData?: CVData | null;
   previewData?: CVData | null;
   isPreview?: boolean;
+  /** The published projects (the server's): the experiences' pictures, the footer's */
+  projects?: ProjectSummary[];
 } = {}) {
-  const [projects, setProjects] = useState<ProjectData[]>([]);
   const cvData = previewData || initialCvData || DEFAULT_CV_DATA;
-
-  const [featuredProject, setFeaturedProject] = useState<ProjectData | null>(null);
+  const featuredProject = projects[0] ?? null;
   const footerCardRef = useRef<HTMLDivElement>(null);
   const footerImageRef = useRef<HTMLImageElement>(null);
   const [footerActiveImage, setFooterActiveImage] = useState<string | null>(null);
@@ -233,15 +212,6 @@ export function CVClient({
   const expRotateTo = useRef<gsap.QuickToFunc | null>(null);
   const expPrevMousePos = useRef({ x: 0, y: 0 });
   const expIdleTimer = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    listProjects()
-      .then((projs) => {
-        setProjects(projs);
-        if (projs.length > 0) setFeaturedProject(projs[0]);
-      })
-      .catch((err) => console.error("Failed to fetch projects for CV:", err));
-  }, []);
 
   useEffect(() => {
     if (!profilePreviewRef.current) return;
@@ -451,57 +421,8 @@ export function CVClient({
     }
   };
 
-  useEffect(() => {
-    listProjects()
-      .then((projs) => {
-        if (projs.length > 0) {
-          setFeaturedProject(projs[0]);
-        }
-      })
-      .catch((err) => console.error("Failed to fetch projects for CV footer:", err));
-  }, []);
-
-  const handleMouseEnterHome = () => {
-    if (footerCardRef.current) {
-      gsap.to(footerCardRef.current, {
-        left: "0%",
-        opacity: 0,
-        scale: 0.95,
-        duration: 0.35,
-        ease: "power2.out",
-        overwrite: "auto",
-      });
-    }
-  };
-
-  const handleMouseMoveHome = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!footerCardRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relX = (e.clientX - rect.left) / rect.width - 0.5;
-
-    gsap.to(footerCardRef.current, {
-      left: "0%",
-      x: relX * 20,
-      rotation: relX * 6,
-      duration: 0.3,
-      ease: "power2.out",
-      overwrite: "auto",
-    });
-  };
-
   const handleMouseEnterProjects = () => {
-    let img = featuredProject?.coverImage || null;
-    if (!img && featuredProject) {
-      for (const item of (featuredProject.items || [])) {
-        if (item.kind === "section") {
-          const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
-          if (imgBlock?.src) {
-            img = imgBlock.src;
-            break;
-          }
-        }
-      }
-    }
+    const img = getProjectCoverImage(featuredProject);
     if (img) setFooterActiveImage(img);
 
     if (footerCardRef.current) {
@@ -570,6 +491,7 @@ export function CVClient({
         className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-44 sm:w-48 aspect-square rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)] opacity-0"
       >
         {cvData?.profileImage && (
+          /* eslint-disable-next-line @next/next/no-img-element -- a cursor-following preview of the bucket's file, as it is */
           <img
             ref={profilePreviewImgRef}
             src={cvData.profileImage}
@@ -585,6 +507,7 @@ export function CVClient({
         className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-[260px] sm:w-[300px] aspect-[16/10] rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
       >
         {expActiveImage && (
+          /* eslint-disable-next-line @next/next/no-img-element -- a cursor-following preview of the bucket's file, as it is */
           <img
             ref={expPreviewImgRef}
             src={expActiveImage}
@@ -685,6 +608,7 @@ export function CVClient({
                   className="absolute pointer-events-none hidden md:block w-48 sm:w-56 aspect-[3/4] origin-top rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_16px_40px_rgba(0,0,0,0.18)] opacity-0 scale-95 will-change-transform z-30"
                   style={{ top: "calc(100% + 12px)", right: "0%" }}
                 >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- a hover card of the bucket's file, as it is */}
                   <img
                     ref={cvImageRef}
                     src={cvData?.cvPreviewImage || "/cv-preview.png"}
@@ -870,6 +794,7 @@ export function CVClient({
                 style={{ bottom: "calc(100% + 12px)", right: "0%" }}
               >
                 {footerActiveImage && (
+                  /* eslint-disable-next-line @next/next/no-img-element -- a hover card of the bucket's file, as it is */
                   <img
                     ref={footerImageRef}
                     src={footerActiveImage}

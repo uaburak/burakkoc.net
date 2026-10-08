@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef } from "react";
  * step starts after `pause` ms without an edit. `state` is compared piece by
  * piece, by reference — memoize it on its pieces.
  */
-export function useUndo<S extends Record<string, unknown>>(
+export function useUndo<S extends object>(
   state: S,
   restore: (state: S) => void,
   { ready, limit = 20, pause = 600 }: { ready: boolean; limit?: number; pause?: number }
@@ -30,7 +30,8 @@ export function useUndo<S extends Record<string, unknown>>(
       return;
     }
     const current = h.current;
-    if (Object.keys(state).every((key) => state[key] === current[key])) return;
+    const keys = Object.keys(state) as (keyof S)[];
+    if (keys.length === Object.keys(current).length && keys.every((key) => state[key] === current[key])) return;
     const now = Date.now();
     if (now - h.last > pause) {
       h.past = [...h.past, current].slice(-limit);

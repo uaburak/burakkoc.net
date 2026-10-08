@@ -72,7 +72,7 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
     };
   }, []);
 
-  const handleZoom = (e: React.MouseEvent) => {
+  const handleZoom = () => {
     const activeUrl = src || figmaWorkspace;
     if (isZoomed || !activeUrl) return;
 
@@ -203,7 +203,16 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
           <div
             ref={placeholderRef}
             onClick={handleZoom}
-            className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden aspect-video flex items-center justify-center cursor-pointer group transition-all duration-300"
+            // A button: reached with Tab, opened with Enter or Space, named for screen readers.
+            role="button"
+            tabIndex={0}
+            aria-label={playLabel}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              handleZoom();
+            }}
+            className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden aspect-video flex items-center justify-center cursor-pointer group transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-title)]"
             style={{
               visibility: isZoomed ? "hidden" : "visible",
             }}
@@ -253,7 +262,7 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
             </IconButton>
           </div>
 
-          {caption && (!placeholderRef.current || placeholderRef.current.style.visibility !== "hidden") && (
+          {caption && !isZoomed && (
             <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">
               {caption}
             </p>
@@ -321,6 +330,7 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
               {isExpanded ? (
                 <iframe
                   src={embedUrl}
+                  loading="lazy"
                   className="w-full h-full border-none"
                   allowFullScreen
                   title={caption ?? "Figma"}

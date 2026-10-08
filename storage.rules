@@ -1,0 +1,23 @@
+rules_version = '2';
+
+// burakkoc.net — the bucket (deploy: firebase deploy --only storage).
+// Files are read by the site's pages (anyone, one at a time); listing, uploading and deleting are the admin's.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['design.burakkoc@gmail.com'];
+    }
+
+    match /{allPaths=**} {
+      allow get: if true;
+      allow list: if isAdmin();
+      // Pictures, videos and PDFs (the CV), up to 25 MB each.
+      allow create, update: if isAdmin()
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|video/.*|application/pdf');
+      allow delete: if isAdmin();
+    }
+  }
+}

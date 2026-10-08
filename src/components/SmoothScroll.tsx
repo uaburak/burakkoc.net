@@ -1,4 +1,6 @@
 "use client";
+
+import "@/lib/lenis";
 import { useEffect, useRef } from "react";
 import type Lenis from "lenis";
 import gsap from "gsap";
@@ -33,7 +35,7 @@ export default function SmoothScroll({ children }: { children: React.ReactNode }
       });
 
       lenisRef.current = lenis;
-      (window as any).__lenis = lenis;
+      window.__lenis = lenis;
 
       // 2. Lenis scroll olayını GSAP ScrollTrigger ile senkronize et
       lenis.on("scroll", ScrollTrigger.update);

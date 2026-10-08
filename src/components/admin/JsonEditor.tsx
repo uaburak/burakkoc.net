@@ -6,29 +6,17 @@ interface JsonEditorProps<T> {
   value: T;
   onChange: (newValue: T) => void;
   title?: string;
+  /** What is wrong with a parsed value (null: it may be taken) — nothing is taken that this refuses */
+  validate?: (value: unknown) => string | null;
 }
 
-function validateParsedJson(parsed: unknown): boolean {
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return false;
-  }
-  const obj = parsed as Record<string, unknown>;
-  if ("items" in obj && !Array.isArray(obj.items)) {
-    return false;
-  }
-  if (Array.isArray(obj.items)) {
-    for (const item of obj.items) {
-      if (typeof item !== "object" || item === null) return false;
-      if (!("kind" in item) || (item.kind !== "section" && item.kind !== "divider")) return false;
-    }
-  }
-  return true;
-}
+const isObject = (value: unknown) => (value && typeof value === "object" && !Array.isArray(value) ? null : "Bir nesne olmalı: { … }");
 
 export function JsonEditor<T extends object>({
   value,
   onChange,
   title = "JSON Çıktısı",
+  validate = isObject,
 }: JsonEditorProps<T>) {
   const [jsonText, setJsonText] = useState(() => JSON.stringify(value, null, 2));
   const [error, setError] = useState<string | null>(null);
@@ -50,11 +38,12 @@ export function JsonEditor<T extends object>({
 
     try {
       const parsed = JSON.parse(text);
-      if (validateParsedJson(parsed)) {
+      const problem = validate(parsed);
+      if (!problem) {
         setError(null);
         onChange(parsed as T);
       } else {
-        setError("JSON nesne biçimi veya sayfa öğeleri (items/kind) geçersiz.");
+        setError(problem);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Geçersiz JSON biçimi";
@@ -76,10 +65,10 @@ export function JsonEditor<T extends object>({
   const handleFormat = () => {
     try {
       const parsed = JSON.parse(jsonText);
-      const formatted = JSON.stringify(parsed, null, 2);
-      setJsonText(formatted);
-      setError(null);
-      onChange(parsed as T);
+      const problem = validate(parsed);
+      setJsonText(JSON.stringify(parsed, null, 2));
+      setError(problem);
+      if (!problem) onChange(parsed as T);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Geçersiz JSON biçimi";
       setError(msg);

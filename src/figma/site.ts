@@ -1,4 +1,4 @@
-import { HEADING_COMPONENT, isOverviewNode } from "./fromLegacy";
+import { HEADING_COMPONENT, isOverviewNode } from "./page";
 import { BASE_LANGUAGE, PATH_SEP, findComponent, isFrameLike, propertiesOf, propsIn, resolveInstance, type FrameNode, type LangCode, type SceneNode, type ShapeNode } from "./model";
 
 /**

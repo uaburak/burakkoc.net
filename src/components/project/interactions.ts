@@ -1,44 +1,162 @@
-"use client";
-
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import type { DesignComponent, Interaction, InteractionAnimation, InteractionEasing, InteractionTrigger } from "@/types/design";
+import type { InteractionAction, InteractionAnimation, InteractionDirection, InteractionEasing, InteractionTrigger } from "@/types/design";
 
 /**
- * Playing a component's prototype (see Interaction): each instance — or each
- * item of one, by its key — shows the variant it turned into; a click, the
- * pointer, a press or a delay turn it into another, animated.
+ * A prototype's choices (see Reaction in the Figma model), as Figma's: its
+ * triggers, actions, animations and easings — what an instance turning into
+ * another variant plays (NodeView), and what the prototype's player plays
+ * going from frame to frame (Player).
  *
- * The animation is CSS: while it plays, the instance's frame carries
+ * An instance's change is CSS: while it plays, the instance's frame carries
  * `data-variant-motion` (and its duration and easing as custom properties) —
  * Smart animate transitions every property of it and its layers (the same
  * elements: variants' layers share their ids), dissolve fades the new one in
  * (see MOTION_CSS).
  */
 
-/** Figma's easings as CSS curves — the springs as curves that overshoot. */
-export const EASINGS: Record<InteractionEasing, { label: string; css: string }> = {
+/** The springs, as Figma's presets — their curves worked out from the physics (see springCurve). */
+export const SPRINGS: Record<"gentle" | "quick" | "bouncy" | "slow", { mass: number; stiffness: number; damping: number }> = {
+  gentle: { mass: 1, stiffness: 100, damping: 15 },
+  quick: { mass: 1, stiffness: 300, damping: 20 },
+  bouncy: { mass: 1, stiffness: 600, damping: 15 },
+  slow: { mass: 1, stiffness: 80, damping: 20 },
+};
+
+/** Figma's easings, in its menu's order: the curves, then the springs. */
+export const EASINGS: Record<InteractionEasing, { label: string; css: string; spring?: boolean }> = {
   linear: { label: "Linear", css: "linear" },
   "ease-in": { label: "Ease in", css: "cubic-bezier(0.42, 0, 1, 1)" },
   "ease-out": { label: "Ease out", css: "cubic-bezier(0, 0, 0.58, 1)" },
   "ease-in-out": { label: "Ease in and out", css: "cubic-bezier(0.42, 0, 0.58, 1)" },
   "ease-in-back": { label: "Ease in back", css: "cubic-bezier(0.3, -0.05, 0.7, -0.5)" },
   "ease-out-back": { label: "Ease out back", css: "cubic-bezier(0.45, 1.45, 0.8, 1)" },
-  gentle: { label: "Gentle", css: "cubic-bezier(0.35, 1.25, 0.55, 1)" },
-  bouncy: { label: "Bouncy", css: "cubic-bezier(0.3, 1.8, 0.6, 0.9)" },
+  "ease-in-out-back": { label: "Ease in and out back", css: "cubic-bezier(0.7, -0.4, 0.4, 1.4)" },
+  "custom-bezier": { label: "Custom bezier", css: "cubic-bezier(0.42, 0, 0.58, 1)" },
+  gentle: { label: "Gentle", css: "", spring: true },
+  quick: { label: "Quick", css: "", spring: true },
+  bouncy: { label: "Bouncy", css: "", spring: true },
+  slow: { label: "Slow", css: "", spring: true },
+  "custom-spring": { label: "Custom spring", css: "", spring: true },
 };
+
+/** Figma's trigger menu, its groups in its order. */
+export const TRIGGER_GROUPS: InteractionTrigger[][] = [["click", "drag", "hover", "press", "key"], ["mouseenter", "mouseleave", "mousedown", "mouseup"], ["delay"]];
 
 export const TRIGGERS: Record<InteractionTrigger, string> = {
   click: "On click",
+  drag: "On drag",
   hover: "While hovering",
   press: "While pressing",
+  key: "Key/Gamepad",
+  mouseenter: "Mouse enter",
+  mouseleave: "Mouse leave",
+  mousedown: "Mouse down",
+  mouseup: "Mouse up",
   delay: "After delay",
+};
+
+/** A trigger as the noodles' label and the interaction's row say it ("Press", "Hover"…). */
+export const TRIGGER_SHORT: Record<InteractionTrigger, string> = {
+  click: "Click",
+  drag: "Drag",
+  hover: "Hover",
+  press: "Press",
+  key: "Key",
+  mouseenter: "Mouse enter",
+  mouseleave: "Mouse leave",
+  mousedown: "Mouse down",
+  mouseup: "Mouse up",
+  delay: "After delay",
+};
+
+export const ACTIONS: Record<InteractionAction, string> = {
+  navigate: "Navigate to",
+  change: "Change to",
+  back: "Back",
+  scroll: "Scroll to",
+  url: "Open link",
 };
 
 export const ANIMATIONS: Record<InteractionAnimation, string> = {
   instant: "Instant",
   dissolve: "Dissolve",
   smart: "Smart animate",
+  "move-in": "Move in",
+  "move-out": "Move out",
+  push: "Push",
+  "slide-in": "Slide in",
+  "slide-out": "Slide out",
 };
+
+/** The animations an instance's change can play (it stays where it is): the rest move frames. */
+export const CHANGE_ANIMATIONS: InteractionAnimation[] = ["instant", "dissolve", "smart"];
+/** The animations that go a way (their direction). */
+export const DIRECTED = new Set<InteractionAnimation>(["move-in", "move-out", "push", "slide-in", "slide-out"]);
+export const DIRECTIONS: InteractionDirection[] = ["left", "right", "down", "up"];
+
+/** What an animation needs of a reaction: its easing (a custom one's numbers) and its duration. */
+export interface Timing {
+  easing: InteractionEasing;
+  duration: number;
+  bezier?: [number, number, number, number];
+  spring?: { mass: number; stiffness: number; damping: number };
+}
+
+/** A spring's motion from 0 to 1 (a damped oscillator, simulated) — its samples and how long it takes to settle. */
+function springMotion({ mass, stiffness, damping }: { mass: number; stiffness: number; damping: number }) {
+  const m = Math.max(0.1, mass);
+  const k = Math.max(1, stiffness);
+  const c = Math.max(0, damping);
+  const dt = 1 / 1000;
+  let x = 0;
+  let v = 0;
+  let t = 0;
+  const points: { t: number; x: number }[] = [{ t: 0, x: 0 }];
+  // Settled: near 1 and slow for a while — at most 5 seconds.
+  let still = 0;
+  while (t < 5) {
+    const a = (-k * (x - 1) - c * v) / m;
+    v += a * dt;
+    x += v * dt;
+    t += dt;
+    if (Math.round(t * 1000) % 10 === 0) points.push({ t, x });
+    still = Math.abs(x - 1) < 0.001 && Math.abs(v) < 0.01 ? still + dt : 0;
+    if (still > 0.05) break;
+  }
+  return { points, duration: Math.round(t * 1000) };
+}
+
+const springCache = new Map<string, { css: string; duration: number }>();
+/** A spring as a CSS easing (linear() through its samples) and the time it settles in. */
+export function springCurve(spring: { mass: number; stiffness: number; damping: number }): { css: string; duration: number } {
+  const key = `${spring.mass}|${spring.stiffness}|${spring.damping}`;
+  const known = springCache.get(key);
+  if (known) return known;
+  const { points, duration } = springMotion(spring);
+  const total = points[points.length - 1].t || 1;
+  // About 60 stops along it (enough for a bounce), the last one exactly 1.
+  const step = Math.max(1, Math.floor(points.length / 60));
+  const stops = points.filter((_, i) => i % step === 0).map((p) => `${(Math.round(p.x * 1000) / 1000).toString()} ${Math.round((p.t / total) * 1000) / 10}%`);
+  const out = { css: `linear(${[...stops, "1 100%"].join(", ")})`, duration };
+  springCache.set(key, out);
+  return out;
+}
+
+/** A reaction's spring, when its easing is one (a preset's, or its own). */
+const springOf = (t: Timing) => (t.easing === "custom-spring" ? t.spring ?? SPRINGS.gentle : t.easing in SPRINGS ? SPRINGS[t.easing as keyof typeof SPRINGS] : null);
+
+/** A reaction's easing as CSS: a curve, its own bezier, or a spring's curve. */
+export function easingCss(t: Timing): string {
+  const spring = springOf(t);
+  if (spring) return springCurve(spring).css;
+  if (t.easing === "custom-bezier" && t.bezier) return `cubic-bezier(${t.bezier.join(", ")})`;
+  return EASINGS[t.easing]?.css || "ease-out";
+}
+
+/** How long it plays (ms): a spring's own time (as Figma's, its duration isn't set), else its duration. */
+export function durationOf(t: Timing): number {
+  const spring = springOf(t);
+  return spring ? springCurve(spring).duration : t.duration;
+}
 
 /** The animations' CSS — put on the page with the design system (see DesignSystemStyle). */
 export const MOTION_CSS = `
@@ -46,100 +164,3 @@ export const MOTION_CSS = `
 [data-variant-motion="dissolve"] { animation: variant-dissolve var(--motion-duration) var(--motion-easing) both; }
 @keyframes variant-dissolve { from { opacity: 0; } to { opacity: 1; } }
 `;
-
-type Motion = { animation: InteractionAnimation; easing: InteractionEasing; duration: number; key: number };
-/** One instance's play: the variant it shows, the one the pointer leaving (or letting go) takes it back to, its animation. */
-type Played = { shown?: string; back?: string; via?: "hover" | "press"; motion?: Motion };
-
-/** What a played instance's frame gets: its handlers, its animation's attribute and properties. */
-export interface PlayProps {
-  onClick?: (e: React.MouseEvent) => void;
-  onPointerEnter?: () => void;
-  onPointerLeave?: () => void;
-  onPointerDown?: () => void;
-  onPointerUp?: () => void;
-  "data-variant-motion"?: InteractionAnimation;
-  style?: CSSProperties;
-}
-
-/**
- * The prototypes of the instances drawn here, keyed (an instance, its items):
- * `components` are the variants they can be (their interactions), `enabled`
- * off where nothing plays (the editor's canvas).
- */
-export function useVariantPlay(components: readonly DesignComponent[], enabled: boolean) {
-  const [played, setPlayed] = useState<Record<string, Played>>({});
-
-  const interactionsOf = useCallback((id?: string) => (enabled && id ? components.find((c) => c.id === id)?.interactions ?? [] : []), [components, enabled]);
-
-  /** The variant `key` shows — `initial` until an interaction changed it. */
-  const shownOf = (key: string, initial?: string) => played[key]?.shown ?? initial;
-
-  /** Turns `key` into the interaction's target — going back to `back` later (the pointer leaving, letting go). */
-  const change = useCallback((key: string, interaction: Interaction, back?: { id: string; via: "hover" | "press" }) => {
-    if (!components.some((c) => c.id === interaction.target)) return;
-    const motion = interaction.animation === "instant" ? undefined : { animation: interaction.animation, easing: interaction.easing, duration: interaction.duration, key: Date.now() };
-    setPlayed((all) => ({ ...all, [key]: { shown: interaction.target, back: back?.id, via: back?.via, motion } }));
-  }, [components]);
-
-  /** Back to the variant it was before the pointer came (or pressed) — as it came, animated the same. */
-  const goBack = useCallback((key: string, via?: "hover" | "press") => {
-    setPlayed((all) => {
-      const entry = all[key];
-      if (!entry?.back || (via && entry.via !== via)) return all;
-      return { ...all, [key]: { shown: entry.back, motion: entry.motion && { ...entry.motion, key: Date.now() } } };
-    });
-  }, []);
-
-  // An animation over, its attribute goes (so nothing else animates, and the next one starts afresh).
-  useEffect(() => {
-    const timers = Object.entries(played).flatMap(([key, entry]) => {
-      const motion = entry.motion;
-      if (!motion) return [];
-      return [
-        window.setTimeout(() => setPlayed((all) => (all[key]?.motion?.key === motion.key ? { ...all, [key]: { ...all[key], motion: undefined } } : all)), motion.duration + 60),
-      ];
-    });
-    return () => timers.forEach((t) => window.clearTimeout(t));
-  }, [played]);
-
-  /** Its "after delay" interaction, when the variant it shows has one. */
-  const delayOf = (id?: string) => interactionsOf(id).find((i) => i.trigger === "delay");
-
-  /** The handlers, attribute and properties for `key`'s frame. */
-  const propsOf = (key: string, initial?: string): PlayProps => {
-    if (!enabled) return {};
-    const current = shownOf(key, initial);
-    const on = (trigger: InteractionTrigger) => interactionsOf(current).find((i) => i.trigger === trigger);
-    const motion = played[key]?.motion;
-    const click = on("click");
-    return {
-      onClick: click
-        ? (e) => {
-            e.stopPropagation();
-            change(key, click);
-          }
-        : undefined,
-      onPointerEnter: () => {
-        const hover = on("hover");
-        if (hover && current) change(key, hover, { id: current, via: "hover" });
-      },
-      onPointerLeave: () => goBack(key),
-      onPointerDown: () => {
-        const press = on("press");
-        if (press && current) change(key, press, { id: current, via: "press" });
-      },
-      onPointerUp: () => goBack(key, "press"),
-      "data-variant-motion": motion?.animation,
-      style: {
-        ...(motion ? ({ "--motion-duration": `${motion.duration}ms`, "--motion-easing": EASINGS[motion.easing].css } as CSSProperties) : {}),
-        ...(click ? { cursor: "pointer" } : {}),
-      },
-    };
-  };
-
-  return { shownOf, propsOf, delayOf, change };
-}
-
-/** A new interaction of `from`: a click turning it into `target`, Smart animate, easing out, 300ms — Figma's usual start. */
-export const newInteraction = (id: string, target: string): Interaction => ({ id, trigger: "click", target, animation: "smart", easing: "ease-out", duration: 300 });

@@ -1,16 +1,16 @@
 import HomeClient from "@/components/HomeClient";
-import { listProjects } from "@/lib/firestore";
+import { listPublished } from "@/lib/firestore";
 
 export const metadata = {
-  title: "Burak Koç",
+  title: { absolute: "Burak Koç" },
   description: "UX/UI Designer crafting digital products with clarity and craft.",
+  alternates: { canonical: "/" },
 };
 
-// Enable Incremental Static Regeneration (ISR) - Page will be built statically
-// and revalidated in the background at most once every 60 seconds.
+// Built statically and made again at most once a minute.
 export const revalidate = 60;
 
 export default async function Home() {
-  const projects = await listProjects();
+  const projects = await listPublished();
   return <HomeClient initialProjects={projects} />;
 }

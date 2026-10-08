@@ -1,15 +1,16 @@
-import { listProjects } from "@/lib/firestore";
+import { listPublished } from "@/lib/firestore";
 import ProjectsClient from "./ProjectsClient";
 
 export const metadata = {
-  title: "Projeler — Burak Koç",
+  title: "Projeler",
   description: "Burak Koç'un projeleri ve çalışmaları.",
+  alternates: { canonical: "/projects" },
 };
 
-// Enable Incremental Static Regeneration (ISR) - Revalidated at most once every 60 seconds.
+// Built statically and made again at most once a minute.
 export const revalidate = 60;
 
 export default async function ProjectsPage() {
-  const projects = await listProjects();
+  const projects = await listPublished();
   return <ProjectsClient initialProjects={projects} />;
 }

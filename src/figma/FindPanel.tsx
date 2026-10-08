@@ -6,7 +6,7 @@ import { fi } from "@/components/admin/figmaIcons";
 import type { MenuEntry } from "@/components/admin/ContextMenu";
 import { ScrollArea } from "@/components/ScrollArea";
 import { hoverNode, layerIcon } from "./Layers";
-import { isFrameLike, walk, wordsIn, wordsPatch, type FigmaDocument, type LangCode, type SceneNode, type TextNode } from "./model";
+import { isFrameLike, layerName, walk, wordsIn, wordsPatch, type FigmaDocument, type LangCode, type SceneNode, type TextNode } from "./model";
 import { IconButton } from "./ui";
 
 /**
@@ -151,22 +151,22 @@ export function FindPanel({ query, onQuery, current, pages, lang, onClose, onPic
     const ids = new Set(texts.map((h) => h.node.id));
     const inScope = new Set(scope.map((pg) => pg.id));
     const all = pattern.all;
-    const fix = (list: SceneNode[]): SceneNode[] =>
+    const fix = (list: SceneNode[], inComponent: boolean): SceneNode[] =>
       list.map((n) => {
         let next = n;
         if (n.type === "text" && ids.has(n.id)) {
           const before = wordsOf(n, lang);
           const after = before.replace(all, () => replacement);
-          // A text named after its words (as one typed is) keeps being so.
-          const renamed = !n.fixed && n.name === before.trim().slice(0, 40) ? { name: after.trim().slice(0, 40) || "Text" } : {};
+          // A text named after its words (as one typed is) keeps being so — but in a component: its instances' changes are kept under its layers' names.
+          const renamed = !n.fixed && !inComponent && n.name === layerName(before.trim().slice(0, 40)) ? { name: layerName(after.trim().slice(0, 40)) || "Text" } : {};
           next = { ...n, ...wordsPatch(n, lang, after), ...renamed } as TextNode;
         }
-        return isFrameLike(next) ? { ...next, children: fix(next.children) } : next;
+        return isFrameLike(next) ? { ...next, children: fix(next.children, inComponent || next.type === "component" || next.type === "componentSet") } : next;
       });
     onReplace((d) => ({
       ...d,
-      nodes: inScope.has("") ? fix(d.nodes) : d.nodes,
-      pages: d.pages?.map((pg) => (inScope.has(pg.id) ? { ...pg, nodes: fix(pg.nodes) } : pg)),
+      nodes: inScope.has("") ? fix(d.nodes, false) : d.nodes,
+      pages: d.pages?.map((pg) => (inScope.has(pg.id) ? { ...pg, nodes: fix(pg.nodes, false) } : pg)),
     }));
   };
 

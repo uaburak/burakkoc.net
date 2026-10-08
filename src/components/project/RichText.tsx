@@ -14,8 +14,9 @@ const TOKEN = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
 
 const LINK_CLASS = "font-normal text-[var(--text-title)] underline decoration-[var(--project-accent,var(--border-hover))] underline-offset-4 transition-colors duration-200 hover:decoration-[var(--project-accent,var(--text-title))]";
 
+/** A link to follow: the web's (http, https), an email — or a path of the site's own ("/cv"; not "//elsewhere" nor "/\\elsewhere", which leave it). */
 export function isSafeHref(href: string) {
-  return /^(https?:\/\/|mailto:|\/)/i.test(href);
+  return /^(https?:\/\/|mailto:|\/(?![\/\\]))/i.test(href.trim());
 }
 
 /** Links drawn as links (`links`, the default) — or only as their look (a link inside another, the editor's canvas): no anchor to follow. */
@@ -63,6 +64,3 @@ export function renderRichText(text: string, { links = true }: { links?: boolean
   return nodes;
 }
 
-export function RichText({ text }: { text: string }) {
-  return <>{renderRichText(text)}</>;
-}

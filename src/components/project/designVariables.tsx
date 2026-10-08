@@ -36,7 +36,7 @@ export const STARTING_VARIABLES: DesignVariable[] = [
   color("bg-code", "Arka plan/Kod", "--bg-code", "#fcfcfc", "#0f0f0f"),
   color("text-title", "Metin/Başlık", "--text-title", "#1a1a1a", "#f2f2f2"),
   color("text-p", "Metin/Paragraf", "--text-p", "#2a2a2a", "#e5e5e5"),
-  color("text-subtitle", "Metin/Alt başlık", "--text-subtitle", "#757575", "#a0a0a0"),
+  color("text-subtitle", "Metin/Alt başlık", "--text-subtitle", "#6e6e6e", "#a0a0a0"),
   color("border", "Kenar/Varsayılan", "--border", "#f2f2f2", "#1e1e1e"),
   color("border-hover", "Kenar/Aktif", "--border-hover", "#e4e4e4", "#343434"),
   scale("font-size-s", "Yazı boyutu/Küçük", 14),
@@ -88,21 +88,6 @@ export function boundValue(value: VariableValue, mode: ThemeMode, byId: Map<stri
   if (!("alias" in value)) return value.value;
   const target = byId.get(value.alias);
   return target ? resolvedValue(target, mode, byId) : null;
-}
-
-/** Can `variable` point at `target`: the same kind, and no alias of `target` leading back to `variable`? */
-export function canAlias(variable: DesignVariable, target: DesignVariable, byId: Map<string, DesignVariable>): boolean {
-  if (target.kind !== variable.kind || target.id === variable.id) return false;
-  const reaches = (v: DesignVariable, seen: Set<string>): boolean => {
-    if (v.id === variable.id) return true;
-    if (seen.has(v.id)) return false;
-    seen.add(v.id);
-    return [v.light, v.dark].some((value) => {
-      const next = value && "alias" in value ? byId.get(value.alias) : undefined;
-      return next ? reaches(next, seen) : false;
-    });
-  };
-  return !reaches(target, new Set());
 }
 
 /** A variable's CSS custom property: its token, or one of its own. */

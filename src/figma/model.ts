@@ -1,5 +1,5 @@
-import type { BlendMode, DesignVariable, InteractionAnimation, InteractionEasing, InteractionTrigger, VariableValue } from "@/types/design";
-import type { Block } from "@/types/project";
+import type { BlendMode, DesignVariable, InteractionAction, InteractionAnimation, InteractionDirection, InteractionEasing, InteractionTrigger, TextTag, VariableValue } from "@/types/design";
+import type { AspectRatio, BadgeItem, DeviceVariant, EmbedEntry } from "./embeds/types";
 
 /**
  * The Figma editor's file, as Figma's own: a canvas holding frames, shapes
@@ -31,7 +31,8 @@ export interface Paint {
   opacity?: number;
   visible?: boolean;
   gradient?: { angle: number; stops: GradientStop[] };
-  image?: { url: string; fit: "fill" | "fit" | "tile" };
+  /** A picture: its address, how it fills, and what it shows in words (its alt text — and in English) for those who can't see it */
+  image?: { url: string; fit: "fill" | "fit" | "tile"; alt?: string; altEn?: string };
 }
 
 export const PAINT_LABEL: Record<NonNullable<Paint["type"]>, string> = { solid: "Solid", gradient: "Gradient", image: "Image" };
@@ -130,12 +131,29 @@ export interface Reaction {
   trigger: InteractionTrigger;
   /** After a delay: how long (ms) */
   delay?: number;
-  /** The variant it changes to (a node id in the same set) */
+  /** Key/Gamepad: the key (as KeyboardEvent.key names it) */
+  key?: string;
+  /** What it does — none: Change to (what a variant's reactions did before the other actions) */
+  action?: InteractionAction;
+  /** Navigate to / Scroll to: a frame (or a layer) on the page; Change to: a variant of the set; Back, Open link: "" */
   target: string;
+  /** Open link: the address */
+  url?: string;
   animation: InteractionAnimation;
+  /** Move in / out, Push, Slide in / out: the way it goes */
+  direction?: InteractionDirection;
+  /** Move, Push, Slide: the layers both frames have Smart animated, too */
+  matchLayers?: boolean;
   easing: InteractionEasing;
+  /** Custom bezier: x1, y1, x2, y2 */
+  bezier?: [number, number, number, number];
+  /** Custom spring */
+  spring?: { mass: number; stiffness: number; damping: number };
   duration: number;
 }
+
+/** What a reaction does (see Reaction.action). */
+export const actionOf = (r: Reaction): InteractionAction => r.action ?? "change";
 
 export type Corners = [VariableValue, VariableValue, VariableValue, VariableValue];
 
@@ -159,8 +177,6 @@ export interface ComponentProperty {
   preferred?: string[];
 }
 
-export const PROPERTY_LABEL: Record<PropertyType, string> = { boolean: "Boolean", text: "Text", instanceSwap: "Instance swap" };
-
 export type PropertyValues = Record<string, string | boolean>;
 
 /**
@@ -173,17 +189,36 @@ export type PropertyValues = Record<string, string | boolean>;
  */
 export type EmbedKind = "image" | "video" | "code" | "figma" | "iframe" | "compare" | "devices";
 
-export interface Embed extends Pick<Block,
-  | "src" | "alt" | "caption" | "captionEn" | "aspectRatio" | "badges"
-  | "videoLoop"
-  | "content" | "language" | "codePreview" | "previewComponent"
-  | "figmaWorkspace" | "figmaCover" | "figmaWorkspaceCover"
-  | "iframeViews" | "iframeTabletUrl" | "iframeMobileUrl" | "iframeCover"
-  | "entries" | "variant"
-> {
+export interface Embed {
   kind: EmbedKind;
+  /** The image, the video (YouTube, Vimeo, .mp4), the Figma prototype or the page */
+  src?: string;
+  alt?: string;
+  altEn?: string;
+  caption?: string;
+  captionEn?: string;
   /** Its caption in the languages beyond Turkish and English (by language code) */
   captionI18n?: Record<string, string>;
+  aspectRatio?: AspectRatio;
+  badges?: BadgeItem[];
+  /** A video file: autoplay muted loop without controls */
+  videoLoop?: boolean;
+  /** A code sample: its code, language, and what it shows (HTML drawn in a sandbox, or one of the site's demos) */
+  content?: string;
+  language?: string;
+  codePreview?: string;
+  previewComponent?: string;
+  figmaWorkspace?: string;
+  figmaCover?: string;
+  figmaWorkspaceCover?: string;
+  iframeViews?: ("desktop" | "tablet" | "mobile")[];
+  iframeTabletUrl?: string;
+  iframeMobileUrl?: string;
+  iframeCover?: string;
+  /** Before / after: its two sides; a device frame: its screens */
+  entries?: EmbedEntry[];
+  /** A device frame's device */
+  variant?: DeviceVariant;
 }
 
 export const EMBED_LABEL: Record<EmbedKind, string> = { image: "Image", video: "Video", code: "Code", figma: "Figma", iframe: "iFrame", compare: "Before / After", devices: "Device frame" };
@@ -237,6 +272,8 @@ interface BaseNode {
   href?: string;
   /** One of the project's own layers — its page's Overview or a part of it (see overview.ts): it stays, whole and in its place */
   fixed?: FixedPart;
+  /** Its prototype: what clicking it, hovering it… does (a variant's: what its instances do) */
+  reactions?: Reaction[];
 }
 
 /** The Overview's layers: the project's title, its category and year, its description and cover (see overview.ts). */
@@ -282,6 +319,8 @@ export interface TextNode extends BaseNode {
   textDecoration?: "underline" | "strikethrough";
   /** Where the text sits in a fixed-height box */
   verticalAlign?: "top" | "middle" | "bottom";
+  /** What it is on the site's page (a heading's level, a paragraph) — its text style's when unset */
+  tag?: TextTag;
   /** px between paragraphs (blank lines) */
   paragraphSpacing?: number;
 }
@@ -326,8 +365,8 @@ export interface FrameNode extends BaseNode, Geometry {
   effectStyle?: string;
   /** A component in a set: its values of the set's properties */
   variant?: VariantValue[];
-  /** A variant's prototype: what its instances do */
-  reactions?: Reaction[];
+  /** A top-level frame where a flow of the prototype starts (Figma's flow starting point): its name */
+  flowStart?: string;
   /** A main component's (or a set's, for its variants) properties */
   properties?: ComponentProperty[];
   /** An instance: its main component's id (a variant's, in a set) */
@@ -349,7 +388,7 @@ export interface FrameNode extends BaseNode, Geometry {
   embed?: Embed;
 }
 
-/** What an instance may change of a layer of its main component. */
+/** What an instance may change of a layer of its main component (of its own frame: the key ""). */
 export interface NodeOverride {
   characters?: string;
   charactersEn?: string;
@@ -359,9 +398,25 @@ export interface NodeOverride {
   visible?: boolean;
   opacity?: number;
   cornerRadius?: VariableValue;
+  corners?: Corners;
+  effects?: Effect[];
+  /** A frame's: its clip and auto layout's spacing and alignment */
+  clipsContent?: boolean;
+  itemSpacing?: VariableValue;
+  counterSpacing?: VariableValue;
+  paddingTop?: VariableValue;
+  paddingRight?: VariableValue;
+  paddingBottom?: VariableValue;
+  paddingLeft?: VariableValue;
+  primaryAlign?: PrimaryAlign;
+  counterAlign?: CounterAlign;
+  layoutWrap?: boolean;
   /** A nested instance's own overrides (a Card's texts inside a Project info instance) */
   overrides?: Record<string, NodeOverride>;
 }
+
+/** The fields of a layer an override may carry (see NodeOverride) — the look and layout an instance changes of its component's. */
+export const OVERRIDABLE = ["fills", "strokes", "cornerRadius", "corners", "effects", "clipsContent", "itemSpacing", "counterSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "primaryAlign", "counterAlign", "layoutWrap"] as const;
 
 export type SceneNode = FrameNode | ShapeNode | TextNode;
 
@@ -396,6 +451,38 @@ export const DEFAULT_LANGUAGES: Language[] = [{ code: "tr", name: "Türkçe" }, 
 
 /** The file's languages, the base first. */
 export const languagesOf = (doc: Pick<FigmaDocument, "languages">): Language[] => (doc.languages?.length ? doc.languages : DEFAULT_LANGUAGES);
+
+/**
+ * The file's languages that have words of their own on its page (the base always)
+ * — a language added but never written in shows nothing but the base's, so
+ * the site offers no switch to it.
+ */
+export function writtenLanguages(doc: FigmaDocument): Language[] {
+  const written = new Set<LangCode>([BASE_LANGUAGE]);
+  const said = (s: unknown) => typeof s === "string" && s.trim() !== "";
+  const visitOverrides = (overrides: Record<string, NodeOverride> | undefined) => {
+    for (const o of Object.values(overrides ?? {})) {
+      if (said(o.charactersEn)) written.add("en");
+      for (const [code, words] of Object.entries(o.translations ?? {})) if (said(words)) written.add(code);
+      visitOverrides(o.overrides);
+    }
+  };
+  // The page's own words (its texts, its instances' values and overrides) — not the components' defaults, the same in every project.
+  walk(doc.nodes, (n) => {
+    if (n.type === "text") {
+      if (said(n.charactersEn)) written.add("en");
+      for (const [code, words] of Object.entries(n.translations ?? {})) if (said(words)) written.add(code);
+      return;
+    }
+    if (!isFrameLike(n)) return;
+    if (Object.values(n.propsEn ?? {}).some(said)) written.add("en");
+    for (const [code, words] of Object.entries(n.propsI18n ?? {})) if (Object.values(words).some(said)) written.add(code);
+    if (said(n.embed?.captionEn)) written.add("en");
+    for (const [code, words] of Object.entries(n.embed?.captionI18n ?? {})) if (said(words)) written.add(code);
+    visitOverrides(n.overrides);
+  });
+  return languagesOf(doc).filter((l) => written.has(l.code));
+}
 
 /** A text layer's — or an override's — words in a language; undefined where it has none of its own. */
 export function wordsIn(node: Pick<TextNode, "characters" | "charactersEn" | "translations"> | Pick<NodeOverride, "characters" | "charactersEn" | "translations">, lang: LangCode): string | undefined {
@@ -434,8 +521,8 @@ export function captionPatch(embed: Pick<Embed, "captionI18n">, lang: LangCode, 
   return { captionI18n: { ...embed.captionI18n, [lang]: value } };
 }
 
-/** The file without a language: its words in it go too (the base language stays). */
-export function withoutLanguage(doc: FigmaDocument, code: LangCode): FigmaDocument {
+/** The file without a language: its words in it go too (the base language stays) — but on `keepPage` (the site's library: every project's words, not this one's). */
+export function withoutLanguage(doc: FigmaDocument, code: LangCode, keepPage?: string): FigmaDocument {
   if (code === BASE_LANGUAGE) return doc;
   const strip = (node: SceneNode): SceneNode => {
     let next: SceneNode = node;
@@ -475,7 +562,7 @@ export function withoutLanguage(doc: FigmaDocument, code: LangCode): FigmaDocume
     ...doc,
     languages: languagesOf(doc).filter((l) => l.code !== code),
     nodes: doc.nodes.map(strip),
-    pages: doc.pages?.map((pg) => ({ ...pg, nodes: pg.nodes.map(strip) })),
+    pages: doc.pages?.map((pg) => (pg.id === keepPage ? pg : { ...pg, nodes: pg.nodes.map(strip) })),
   };
 }
 
@@ -541,8 +628,6 @@ export function updateAnywhere(doc: FigmaDocument, id: string, update: (node: Sc
 
 export const isFrameLike = (node: SceneNode): node is FrameNode =>
   node.type === "frame" || node.type === "component" || node.type === "componentSet" || node.type === "instance";
-export const isGeometry = (node: SceneNode): node is FrameNode | ShapeNode => node.type !== "text";
-export const isShown = (node: SceneNode) => node.visible !== false;
 
 // ── Ids and factories ─────────────────────────────────────────────────────────
 
@@ -563,7 +648,8 @@ const baseFrame = (name: string, x: number, y: number, width: number, height: nu
   width: Math.round(width),
   height: Math.round(height),
   children: [],
-  fills: [{ color: own("#ffffff") }],
+  // Bound to the site's colours, so the dark theme draws them too (a colour of its own stays the same in both).
+  fills: [{ color: { alias: "bg-1" } }],
   strokes: [],
   clipsContent: true,
   layoutMode: "none",
@@ -586,8 +672,8 @@ export const makeShape = (type: ShapeNode["type"], name: string, x: number, y: n
   y: Math.round(y),
   width: Math.round(width),
   height: type === "line" ? 0 : Math.round(height),
-  fills: type === "line" ? [] : [{ color: own("#d9d9d9") }],
-  strokes: type === "line" ? [{ color: own("#000000"), weight: own(1), align: "center" }] : [],
+  fills: type === "line" ? [] : [{ color: { alias: "bg-5" } }],
+  strokes: type === "line" ? [{ color: { alias: "text-title" }, weight: own(1), align: "center" }] : [],
 });
 
 export const makeText = (x: number, y: number, characters = ""): TextNode => ({
@@ -603,7 +689,7 @@ export const makeText = (x: number, y: number, characters = ""): TextNode => ({
   fontWeight: own(400),
   textAlign: "left",
   textAutoResize: "widthHeight",
-  fills: [{ color: own("#000000") }],
+  fills: [{ color: { alias: "text-title" } }],
 });
 
 /** A new file: the project's page — a 1440 × 1024 frame, white, stacking what is put in it (set its height to Sar to grow with it). */
@@ -633,23 +719,43 @@ export function walk(nodes: readonly SceneNode[], visit: (node: SceneNode, paren
   }
 }
 
-export function findNode(nodes: readonly SceneNode[], id: string): Found | null {
-  const search = (list: readonly SceneNode[], parent: FrameNode | null, path: string[]): Found | null => {
+/** Where each node of a tree is: itself, its parent and its place in it. */
+type IndexEntry = { node: SceneNode; parent: FrameNode | null; index: number };
+
+/**
+ * The trees indexed by id, each built once and kept while the tree is the
+ * same array (the editor never changes a tree in place: a change makes new
+ * arrays where it goes) — a lookup is then a map's, not a walk of the file.
+ */
+const indexes = new WeakMap<readonly SceneNode[], { length: number; first: SceneNode | undefined; map: Map<string, IndexEntry> }>();
+
+function nodeIndex(nodes: readonly SceneNode[]): Map<string, IndexEntry> {
+  const cached = indexes.get(nodes);
+  if (cached && cached.length === nodes.length && cached.first === nodes[0]) return cached.map;
+  const map = new Map<string, IndexEntry>();
+  const visit = (list: readonly SceneNode[], parent: FrameNode | null) => {
     for (let index = 0; index < list.length; index++) {
       const node = list[index];
-      const here = [...path, node.id];
-      if (node.id === id) return { node, parent, index, path: here };
-      if (isFrameLike(node)) {
-        const found = search(node.children, node, here);
-        if (found) return found;
-      }
+      // The first one of an id, depth first (as a walk would find it).
+      if (!map.has(node.id)) map.set(node.id, { node, parent, index });
+      if (isFrameLike(node)) visit(node.children, node);
     }
-    return null;
   };
-  return search(nodes, null, []);
+  visit(nodes, null);
+  indexes.set(nodes, { length: nodes.length, first: nodes[0], map });
+  return map;
 }
 
-export const getNode = (nodes: readonly SceneNode[], id: string) => findNode(nodes, id)?.node ?? null;
+export function findNode(nodes: readonly SceneNode[], id: string): Found | null {
+  const index = nodeIndex(nodes);
+  const entry = index.get(id);
+  if (!entry) return null;
+  const path = [id];
+  for (let p = entry.parent; p; p = index.get(p.id)?.parent ?? null) path.unshift(p.id);
+  return { node: entry.node, parent: entry.parent, index: entry.index, path };
+}
+
+export const getNode = (nodes: readonly SceneNode[], id: string) => nodeIndex(nodes).get(id)?.node ?? null;
 
 /** The tree with node `id` replaced by `update(node)` — the same arrays where nothing changed. */
 export function updateNode(nodes: SceneNode[], id: string, update: (node: SceneNode) => SceneNode): SceneNode[] {
@@ -683,11 +789,17 @@ export function removeNodes(nodes: SceneNode[], ids: ReadonlySet<string>): Scene
     .map((node) => (isFrameLike(node) ? { ...node, children: removeNodes(node.children, ids) } : node));
 }
 
-/** `node` put into `parentId`'s children (null: the canvas) at `index` (the end when unset). */
+/**
+ * `node` put into `parentId`'s children (null: the canvas) at `index` (the
+ * end when unset) — named apart from them ("Card 2" beside a "Card"): an
+ * instance's overrides and its layers' ids inside it go by name path, so no
+ * two layers of a frame may share one.
+ */
 export function insertNode(nodes: SceneNode[], parentId: string | null, node: SceneNode, index?: number): SceneNode[] {
   const put = (list: SceneNode[]) => {
     const next = [...list];
-    next.splice(index === undefined || index < 0 || index > list.length ? list.length : index, 0, node);
+    const name = freeName(node.name, list);
+    next.splice(index === undefined || index < 0 || index > list.length ? list.length : index, 0, name === node.name ? node : { ...node, name });
     return next;
   };
   if (!parentId) return put(nodes);
@@ -701,12 +813,19 @@ export function insertNode(nodes: SceneNode[], parentId: string | null, node: Sc
  */
 export function cloneNode<T extends SceneNode>(node: T, keepParts = false): T {
   const copy = structuredClone(node) as T;
+  const ids = new Map<string, string>();
   const rename = (n: SceneNode) => {
-    n.id = nid();
+    const id = nid();
+    ids.set(n.id, id);
+    n.id = id;
     if (!keepParts) delete n.fixed;
     if (isFrameLike(n)) n.children.forEach(rename);
   };
   rename(copy);
+  // A copied set's prototype: its variants' reactions go to the copies' variants (a reaction to one outside it stays as it is).
+  walk([copy], (n) => {
+    if (n.reactions?.length) n.reactions = n.reactions.map((r) => ({ ...r, id: nid("r"), target: ids.get(r.target) ?? r.target }));
+  });
   return copy;
 }
 
@@ -719,9 +838,6 @@ export function topmost(nodes: readonly SceneNode[], ids: readonly string[]): Fo
     .filter((f) => !f.path.slice(0, -1).some((ancestor) => set.has(ancestor)));
 }
 
-/** All of a node's ancestors' ids, the top-level one first. */
-export const ancestorsOf = (nodes: readonly SceneNode[], id: string) => findNode(nodes, id)?.path.slice(0, -1) ?? [];
-
 /** Is `node` (or a frame it sits in) locked? */
 export function isLocked(nodes: readonly SceneNode[], id: string) {
   const found = findNode(nodes, id);
@@ -729,8 +845,11 @@ export function isLocked(nodes: readonly SceneNode[], id: string) {
   return found.path.some((pid) => getNode(nodes, pid)?.locked);
 }
 
-/** `base`, or `base 2`, `base 3`… — a name no sibling has. */
-export function freeName(base: string, siblings: readonly SceneNode[]) {
+/** A layer's name as it may be kept: "/" and "›" separate the composite ids and name paths layers inside instances are known by — they become "∕" and ">". */
+export const layerName = (name: string) => name.replace(/\//g, "∕").replace(/›/g, ">");
+
+/** `base`, or `base 2`, `base 3`… — a name no sibling (no other variable, text style…) has. */
+export function freeName(base: string, siblings: readonly { name: string }[]) {
   const names = new Set(siblings.map((s) => s.name));
   if (!names.has(base)) return base;
   for (let n = 2; ; n++) if (!names.has(`${base} ${n}`)) return `${base} ${n}`;
@@ -765,8 +884,8 @@ export const findComponent = (nodes: readonly SceneNode[], id: string): FrameNod
 
 /** The set a variant is in, or null. */
 export function setOf(nodes: readonly SceneNode[], componentId: string): FrameNode | null {
-  const found = findNode(nodes, componentId);
-  return found?.parent?.type === "componentSet" ? found.parent : null;
+  const parent = nodeIndex(nodes).get(componentId)?.parent;
+  return parent?.type === "componentSet" ? parent : null;
 }
 
 /** A set's variants, in their order. */
@@ -899,8 +1018,12 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
     if (node.visibleProp && node.visibleProp in values) next = { ...next, visible: Boolean(values[node.visibleProp]) };
     if (next.type === "text" && next.charactersProp && typeof values[next.charactersProp] === "string") {
       const prop = next.charactersProp;
-      const translations = valuesI18n ? Object.fromEntries(Object.entries(valuesI18n).flatMap(([code, words]) => (words[prop] !== undefined ? [[code, words[prop]]] : []))) : undefined;
-      next = { ...next, characters: values[prop] as string, charactersEn: valuesEn[prop], translations: translations && Object.keys(translations).length ? translations : undefined } as T;
+      // Its words the instance's — in a language it has none of its own in, the component's own (its default's) while the instance
+      // keeps the default's words too; words of its own untranslated show as they are (see textOf).
+      const ownBase = instance.props?.[prop] !== undefined;
+      const text = next as TextNode;
+      const translations = { ...(ownBase ? {} : text.translations ?? {}), ...Object.fromEntries(Object.entries(valuesI18n ?? {}).flatMap(([code, words]) => (words[prop] !== undefined ? [[code, words[prop]]] : []))) };
+      next = { ...next, characters: values[prop] as string, charactersEn: valuesEn[prop] ?? (ownBase ? undefined : text.charactersEn), translations: Object.keys(translations).length ? translations : undefined } as T;
     }
     if (next.type === "instance" && (next as FrameNode).mainProp) {
       const id = values[(next as FrameNode).mainProp!];
@@ -920,9 +1043,13 @@ export function resolveInstance(nodes: readonly SceneNode[], instance: FrameNode
       if (o.translations) (next as TextNode).translations = { ...(next as TextNode).translations, ...o.translations };
       if (o.fills) (next as TextNode).fills = o.fills;
     } else {
-      if (o.fills) (next as FrameNode | ShapeNode).fills = o.fills;
-      if (o.strokes) (next as FrameNode | ShapeNode).strokes = o.strokes;
-      if (o.cornerRadius) (next as FrameNode | ShapeNode).cornerRadius = o.cornerRadius;
+      const own = next as unknown as Record<string, unknown>;
+      // Its look (a shape's, a frame's), and a frame's layout.
+      for (const key of OVERRIDABLE) {
+        if (o[key] === undefined) continue;
+        if (!isFrameLike(next) && !(key === "fills" || key === "strokes" || key === "cornerRadius" || key === "corners" || key === "effects")) continue;
+        own[key] = o[key];
+      }
       // A nested instance: the outer instance's overrides of it over its own.
       if (o.overrides && next.type === "instance") (next as FrameNode).overrides = mergeOverrides((next as FrameNode).overrides, o.overrides);
     }
@@ -1037,6 +1164,74 @@ export function layerAt(nodes: readonly SceneNode[], compositeId: string): { ins
   return node ? { instance, node, keys } : null;
 }
 
+/**
+ * The file with layer `id` renamed (apart from its siblings, without the
+ * separators — see layerName) — and, when it sits in a main component, every
+ * instance's overrides of it (and of what is inside it), anywhere in the
+ * file, nested ones too, kept under its new name path.
+ */
+export function withRenamedLayer(doc: FigmaDocument, id: string, wanted: string): FigmaDocument {
+  const all = libraryOf(doc);
+  const found = findNode(all, id);
+  if (!found) return doc;
+  const siblings = (found.parent ? found.parent.children : []).filter((n) => n.id !== id);
+  const top = found.path.length === 1;
+  const name = freeName(top && (found.node.type === "component" || found.node.type === "componentSet") ? wanted.trim() : layerName(wanted.trim()), siblings);
+  if (!name || name === found.node.name) return doc;
+  const renamed = updateAnywhere(doc, id, (n) => ({ ...n, name }));
+  const around = componentAround(all, id);
+  if (!around || around.component.id === id) return renamed;
+  const from = namePath(around.component, id);
+  if (!from) return renamed;
+  const to = [...from.split(PATH_SEP).slice(0, -1), name].join(PATH_SEP);
+  const moved = (key: string) => (key === from ? to : key.startsWith(from + PATH_SEP) ? to + key.slice(from.length) : key);
+  const lib = libraryOf(renamed);
+  /** Overrides of an instance of `mainId`, their keys moved where they are the renamed layer's, nested instances' through theirs. */
+  const migrate = (overrides: Record<string, NodeOverride>, mainId: string | undefined): Record<string, NodeOverride> => {
+    const main = mainId ? findComponent(lib, mainId) : null;
+    let changed = false;
+    const out: Record<string, NodeOverride> = {};
+    for (const [key, o] of Object.entries(overrides)) {
+      const k = mainId === around.component.id ? moved(key) : key;
+      let next = o;
+      if (o.overrides && main) {
+        // The nested instance this key names, in the main component (as it is now: renamed).
+        const at = layerByPath(main, k);
+        const inner = at?.type === "instance" ? migrate(o.overrides, at.mainId) : o.overrides;
+        if (inner !== o.overrides) next = { ...o, overrides: inner };
+      }
+      if (k !== key || next !== o) changed = true;
+      out[k] = next;
+    }
+    return changed ? out : overrides;
+  };
+  const fix = (n: SceneNode): SceneNode => {
+    let next = n;
+    if (n.type === "instance" && n.overrides) {
+      const overrides = migrate(n.overrides, n.mainId);
+      if (overrides !== n.overrides) next = { ...n, overrides };
+    }
+    if (isFrameLike(next)) {
+      const children = next.children.map(fix);
+      if (children.some((c, i) => c !== (next as FrameNode).children[i])) next = { ...next, children };
+    }
+    return next;
+  };
+  return { ...renamed, nodes: renamed.nodes.map(fix), pages: renamed.pages?.map((p) => ({ ...p, nodes: p.nodes.map(fix) })) };
+}
+
+/** The layer at a name path inside a component, as stored. */
+function layerByPath(component: FrameNode, path: string): SceneNode | null {
+  let list: SceneNode[] = component.children;
+  let node: SceneNode | null = null;
+  for (const name of path.split(PATH_SEP)) {
+    node = list.find((c) => c.name === name) ?? null;
+    if (!node) return null;
+    list = isFrameLike(node) ? node.children : [];
+  }
+  return node;
+}
+
 /** An instance of `component`, at `x`, `y` — its size the component's. */
 export function makeInstance(component: FrameNode, x: number, y: number): FrameNode {
   return {
@@ -1049,20 +1244,6 @@ export function makeInstance(component: FrameNode, x: number, y: number): FrameN
     strokes: [],
     layoutMode: component.layoutMode,
   };
-}
-
-/** Where a main component's overridable layers sit: the names an instance's overrides are keyed by. */
-export function overridableLayers(component: FrameNode): { key: string; node: SceneNode }[] {
-  const out: { key: string; node: SceneNode }[] = [];
-  const visit = (list: SceneNode[], path: string) => {
-    for (const child of list) {
-      const key = path ? `${path}${PATH_SEP}${child.name}` : child.name;
-      out.push({ key, node: child });
-      if (isFrameLike(child) && child.type !== "instance") visit(child.children, key);
-    }
-  };
-  visit(component.children, "");
-  return out;
 }
 
 // ── Variables ─────────────────────────────────────────────────────────────────
@@ -1085,4 +1266,182 @@ export function numberOf(value: VariableValue | undefined, byId: Map<string, Des
     current = next.light;
   }
   return Number(current.value) || 0;
+}
+
+// ── Resetting and pushing an instance's changes (Figma's Reset ▸ / Push changes to main component) ──
+
+/** What an instance's changes are, by name — the rows of Figma's Reset menu — and the fields each is made of. */
+export const OVERRIDE_GROUPS: { label: string; fields: (keyof NodeOverride)[] }[] = [
+  { label: "Text", fields: ["characters", "charactersEn", "translations"] },
+  { label: "Visibility", fields: ["visible"] },
+  { label: "Fill", fields: ["fills"] },
+  { label: "Stroke", fields: ["strokes"] },
+  { label: "Opacity", fields: ["opacity"] },
+  { label: "Corner radius", fields: ["cornerRadius", "corners"] },
+  { label: "Effects", fields: ["effects"] },
+  { label: "Clip content", fields: ["clipsContent"] },
+  { label: "Auto layout", fields: ["itemSpacing", "counterSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "primaryAlign", "counterAlign", "layoutWrap"] },
+];
+
+/** The kinds of change these overrides make — their layers', nested instances' too — in the menu's order. */
+export function overriddenGroups(overrides: Record<string, NodeOverride> | undefined): string[] {
+  const found = new Set<string>();
+  const visit = (o: NodeOverride) => {
+    for (const g of OVERRIDE_GROUPS) if (g.fields.some((f) => o[f] !== undefined)) found.add(g.label);
+    Object.values(o.overrides ?? {}).forEach(visit);
+  };
+  Object.values(overrides ?? {}).forEach(visit);
+  return OVERRIDE_GROUPS.filter((g) => found.has(g.label)).map((g) => g.label);
+}
+
+/** An override without one kind of change — in it and in the nested ones; emptied ones go. */
+function withoutGroupIn(o: NodeOverride, label: string): NodeOverride {
+  const fields = new Set<string>(OVERRIDE_GROUPS.find((g) => g.label === label)?.fields ?? []);
+  const next = Object.fromEntries(Object.entries(o).filter(([k]) => !fields.has(k) && k !== "overrides")) as NodeOverride;
+  const nested = o.overrides ? withoutGroup(o.overrides, label) : undefined;
+  return nested ? { ...next, overrides: nested } : next;
+}
+
+/** The overrides without one kind of change (every layer's) — or, no `label`, without any. */
+export function withoutGroup(overrides: Record<string, NodeOverride> | undefined, label?: string): Record<string, NodeOverride> | undefined {
+  if (!overrides || !label) return undefined;
+  const out: Record<string, NodeOverride> = {};
+  for (const [key, o] of Object.entries(overrides)) {
+    const next = withoutGroupIn(o, label);
+    if (Object.keys(next).length) out[key] = next;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** The overrides with the layer at `keys` reset: one kind of change of it (and of what it holds), or — no `label` — all of them. */
+export function withResetAt(overrides: Record<string, NodeOverride> | undefined, keys: readonly string[], label?: string): Record<string, NodeOverride> | undefined {
+  const [key, ...rest] = keys;
+  const current = overrides?.[key];
+  if (!overrides || !current) return overrides;
+  let next: NodeOverride | undefined;
+  if (rest.length) {
+    const inner = withResetAt(current.overrides, rest, label);
+    next = { ...current };
+    if (inner) next.overrides = inner;
+    else delete next.overrides;
+  } else next = label ? withoutGroupIn(current, label) : undefined;
+  const out = { ...overrides };
+  if (next && Object.keys(next).length) out[key] = next;
+  else delete out[key];
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * The main component with an instance's changes in it (Figma's Push changes
+ * to main component): each override put on the layer it names (the key ""
+ * the component's own frame; a nested instance's own overrides merged into
+ * that instance's) — every instance then shows them.
+ */
+export function withPushedOverrides(main: FrameNode, overrides: Record<string, NodeOverride>): FrameNode {
+  const apply = (node: SceneNode, o: NodeOverride): SceneNode => {
+    const { overrides: nested, ...fields } = o;
+    let next = { ...node, ...fields } as SceneNode;
+    if (nested && next.type === "instance") next = { ...next, overrides: mergeOverrides(next.overrides, nested) };
+    return next;
+  };
+  let out: FrameNode = main;
+  for (const [key, o] of Object.entries(overrides)) {
+    if (key === "") {
+      out = apply(out, o) as FrameNode;
+      continue;
+    }
+    const target = layerByPath(out, key);
+    if (!target) continue;
+    const replace = (list: SceneNode[]): SceneNode[] => list.map((c) => (c === target ? apply(c, o) : isFrameLike(c) ? { ...c, children: replace(c.children) } : c));
+    out = { ...out, children: replace(out.children) };
+  }
+  return out;
+}
+
+/**
+ * What an instance — or a layer inside one (a composite id) — has changed of
+ * its main component's: the rows of Figma's Reset menu. A property's value
+ * set on the instance is a row of its own (its key "prop:<id>").
+ */
+export function changesAt(nodes: readonly SceneNode[], id: string): { key: string; label: string }[] {
+  if (id.includes("/")) {
+    const at = layerAt(nodes, id);
+    const o = at ? overrideAt(at.instance.overrides, at.keys) : undefined;
+    return o ? overriddenGroups({ o }).map((label) => ({ key: label, label })) : [];
+  }
+  const node = getNode(nodes, id);
+  if (!node || node.type !== "instance") return [];
+  const own = overriddenGroups(node.overrides).map((label) => ({ key: label, label }));
+  const props = node.mainId ? propertiesOf(nodes, node.mainId) : [];
+  const set = new Set([...Object.keys(node.props ?? {}), ...Object.keys(node.propsEn ?? {}), ...Object.values(node.propsI18n ?? {}).flatMap((w) => Object.keys(w))]);
+  const named = props.filter((p) => set.has(p.id)).map((p) => ({ key: `prop:${p.id}`, label: p.name }));
+  return [...named, ...own];
+}
+
+/** An instance without one of its changes (see changesAt) — or, no `key`, without any. */
+export function withoutChange(instance: FrameNode, key?: string): FrameNode {
+  if (!key) return { ...instance, overrides: undefined, props: undefined, propsEn: undefined, propsI18n: undefined };
+  if (key.startsWith("prop:")) {
+    const id = key.slice(5);
+    const drop = <T,>(r: Record<string, T> | undefined) => {
+      if (!r) return undefined;
+      const { [id]: gone, ...rest } = r;
+      void gone;
+      return Object.keys(rest).length ? rest : undefined;
+    };
+    const i18n = instance.propsI18n ? Object.fromEntries(Object.entries(instance.propsI18n).map(([lang, words]) => [lang, drop(words)]).filter(([, w]) => w)) : undefined;
+    return { ...instance, props: drop(instance.props), propsEn: drop(instance.propsEn), propsI18n: i18n && Object.keys(i18n).length ? i18n : undefined };
+  }
+  return { ...instance, overrides: withoutGroup(instance.overrides, key) };
+}
+
+// ── A variant's layer name (Figma's "Property=Value, Property 2=Value") ──────
+
+/** A variant's row in the layers, as Figma shows it: its values — a True/False one with its property ("iconOnly=False"), alone it says nothing. */
+export const variantLabel = (variant: FrameNode) =>
+  (variant.variant ?? []).map((v) => (/^(true|false)$/i.test(v.value) ? `${v.property}=${v.value}` : v.value)).join(", ");
+
+/**
+ * A variant's typed name read as its properties: "State=active, Size=lg" —
+ * or, its values alone, in the set's properties' order ("active, lg"). Null
+ * when it isn't one (Figma's "This layer has an invalid name"): a part
+ * without a property or a value, a property named twice.
+ */
+export function parseVariantName(name: string, properties: readonly string[]): { property: string; value: string }[] | null {
+  const parts = name.split(",").map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  if (parts.every((p) => p.includes("="))) {
+    const pairs = parts.map((p) => {
+      const at = p.indexOf("=");
+      return { property: p.slice(0, at).trim(), value: p.slice(at + 1).trim() };
+    });
+    if (pairs.some((p) => !p.property || !p.value || p.value.includes("="))) return null;
+    if (new Set(pairs.map((p) => p.property)).size !== pairs.length) return null;
+    return pairs;
+  }
+  if (parts.some((p) => p.includes("=")) || parts.length !== properties.length) return null;
+  return parts.map((value, i) => ({ property: properties[i], value }));
+}
+
+/**
+ * The set with one variant's properties as its name says (see
+ * parseVariantName): the values it names set, the properties it leaves out
+ * kept as they were, and a property new to the set given to every other
+ * variant too — with the value this one has — so each still has all of them.
+ */
+export function withVariantName(set: FrameNode, variantId: string, pairs: readonly { property: string; value: string }[]): FrameNode {
+  const known = new Set(variantProperties(set).map((p) => p.name));
+  const added = pairs.filter((p) => !known.has(p.property));
+  const children = set.children.map((c) => {
+    if (c.type !== "component") return c;
+    if (c.id === variantId) {
+      const named = new Map(pairs.map((p) => [p.property, p.value]));
+      const kept = (c.variant ?? []).map((v) => (named.has(v.property) ? { ...v, value: named.get(v.property)! } : v));
+      const variant = [...kept, ...added];
+      const next = { ...c, variant };
+      return { ...next, name: variantName(next) };
+    }
+    return added.length ? { ...c, variant: [...(c.variant ?? []), ...added] } : c;
+  });
+  return { ...set, children };
 }

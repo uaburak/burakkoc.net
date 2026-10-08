@@ -56,44 +56,6 @@ export function IconButton({ children, size = "md", className, ...props }: IconB
   );
 }
 
-/* ── Button ──────────────────────────────────────────────────────────────────
-   Ghost text button — exactly the "‹ Projeler" back-link style.
-   No border, transparent bg, hover fills with --bg-4. Icon scales with size. */
-
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  children: ReactNode;
-  /** Leading icon (e.g. chevron SVG) */
-  startIcon?: ReactNode;
-  /** xs=28px · sm=32px · md=40px · lg=48px */
-  size?: "xs" | "sm" | "md" | "lg";
-}
-
-export function Button({ children, startIcon, size = "md", className, ...props }: ButtonProps) {
-  const s = sizeMap[size];
-  return (
-    <button
-      {...props}
-      className={cn(
-        "inline-flex items-center rounded-full font-medium",
-        "bg-transparent border border-transparent",
-        "text-[var(--text-p)]",
-        "hover:bg-[var(--bg-4)]",
-        "transition-colors duration-200 cursor-pointer",
-        "active:scale-[0.97]",
-        s.outer,
-        className
-      )}
-    >
-      {startIcon && (
-        <span className={cn("flex items-center justify-center flex-shrink-0", s.icon)}>
-          {startIcon}
-        </span>
-      )}
-      {children}
-    </button>
-  );
-}
-
 /* ── PillButton ──────────────────────────────────────────────────────────────
    Bordered pill button — used for editor controls, action buttons etc.
    Three variants: default (bordered+bg), filled (heavier bg), ghost (no border). */

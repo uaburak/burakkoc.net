@@ -3,7 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { FigmaIcon, fi, type FigmaIconName } from "@/components/admin/figmaIcons";
-import type { MenuItem } from "@/components/admin/LiveInspector";
+import type { MenuItem } from "./popover";
 import { ContextMenu, type MenuEntry } from "@/components/admin/ContextMenu";
 
 /**
@@ -123,7 +123,8 @@ export function NumericInput({ label, prefix, value, min = -100000, max = 100000
   const finish = (raw?: string) => {
     if (!typing.current) return;
     typing.current = false;
-    const n = Number(raw?.replace(",", "."));
+    // A number, or arithmetic on numbers ("100+20", "48/2"), as Figma's fields take.
+    const n = raw === undefined ? NaN : evaluate(raw);
     if (raw !== undefined && !raw.trim() && value !== null) onClear?.();
     else if (raw?.trim() && Number.isFinite(n) && clamp(n) !== value) onChange(clamp(n));
     setDraft(null);
@@ -198,9 +199,57 @@ export function Switch({ label, checked, onChange }: { label: string; checked: b
   );
 }
 
-/** A one-line text field in the kit's box. */
+/**
+ * A field's number: plain ("12", "1,5") or arithmetic on numbers — + − × ÷
+ * and parentheses ("100+20", "(48-8)/2") — NaN for anything else (it is
+ * dropped). Parsed by hand: nothing typed is ever run as code.
+ */
+export function evaluate(raw: string): number {
+  const src = raw.replace(/,/g, ".").replace(/\s+/g, "").replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-");
+  if (!src || !/^[0-9.+\-*/()]+$/.test(src)) return NaN;
+  let at = 0;
+  const peek = () => src[at];
+  const number = (): number => {
+    if (peek() === "(") {
+      at++;
+      const v = sum();
+      if (peek() !== ")") return NaN;
+      at++;
+      return v;
+    }
+    if (peek() === "-") { at++; return -number(); }
+    if (peek() === "+") { at++; return number(); }
+    const m = /^\d*\.?\d+|^\d+\.?/.exec(src.slice(at));
+    if (!m) return NaN;
+    at += m[0].length;
+    return Number(m[0]);
+  };
+  const product = (): number => {
+    let v = number();
+    while (peek() === "*" || peek() === "/") {
+      const op = src[at++];
+      const r = number();
+      v = op === "*" ? v * r : v / r;
+    }
+    return v;
+  };
+  const sum = (): number => {
+    let v = product();
+    while (peek() === "+" || peek() === "-") {
+      const op = src[at++];
+      const r = product();
+      v = op === "+" ? v + r : v - r;
+    }
+    return v;
+  };
+  const v = sum();
+  return at === src.length && Number.isFinite(v) ? v : NaN;
+}
+
+/** A one-line text field in the kit's box. Enter or leaving it keeps what was typed (if anything was); Esc puts it back. */
 export function TextInput({ label, value, placeholder, prefix, onChange, onCommit, className, autoFocus = false }: { label: string; value: string; placeholder?: string; prefix?: ReactNode; onChange?: (value: string) => void; onCommit?: (value: string) => void; className?: string; autoFocus?: boolean }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const cancelled = useRef(false);
   return (
     <div className={cn(FIELD, "flex-1", className)}>
       {prefix}
@@ -211,11 +260,17 @@ export function TextInput({ label, value, placeholder, prefix, onChange, onCommi
         placeholder={placeholder}
         {...selectAllOnClick}
         onChange={(e) => { if (onCommit) setDraft(e.target.value); else onChange?.(e.target.value); }}
-        onBlur={(e) => { if (onCommit && draft !== null) { onCommit(e.currentTarget.value); setDraft(null); } }}
+        onBlur={(e) => {
+          const typed = e.currentTarget.value;
+          const keep = onCommit && draft !== null && !cancelled.current && typed !== value;
+          cancelled.current = false;
+          setDraft(null);
+          if (keep) onCommit(typed);
+        }}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-          if (e.key === "Escape") { setDraft(null); (e.currentTarget as HTMLInputElement).blur(); }
+          if (e.key === "Escape") { cancelled.current = true; setDraft(null); (e.currentTarget as HTMLInputElement).blur(); }
         }}
         className={cn("w-0 min-w-0 flex-1 h-full truncate bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] placeholder:text-[var(--f-text-secondary)] outline-none", !prefix && "pl-2")}
       />
@@ -308,11 +363,16 @@ export const hexDigits = (color: string) => color.replace("#", "").slice(0, 8).t
  */
 export function ColorInput({ label, color, opacity, onColor, onOpacity, chit, className }: { label: string; color: string; opacity: number; onColor: (hex: string) => void; onOpacity?: (opacity: number) => void; chit?: ReactNode; className?: string }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const cancelled = useRef(false);
+  // What was typed, when it is a colour other than the field's (leaving it untouched changes nothing — an alias stays an alias); Esc puts it back.
   const commit = (raw: string) => {
+    const typed = draft !== null && !cancelled.current;
+    cancelled.current = false;
     setDraft(null);
+    if (!typed) return;
     const digits = raw.trim().replace("#", "");
-    if (/^[0-9a-f]{6}$/i.test(digits)) onColor(`#${digits.toLowerCase()}`);
-    else if (/^[0-9a-f]{3}$/i.test(digits)) onColor(`#${digits.split("").map((c) => c + c).join("").toLowerCase()}`);
+    const hex = /^[0-9a-f]{6}$/i.test(digits) ? `#${digits.toLowerCase()}` : /^[0-9a-f]{3}$/i.test(digits) ? `#${digits.split("").map((c) => c + c).join("").toLowerCase()}` : null;
+    if (hex && hex !== color.toLowerCase()) onColor(hex);
   };
   const valid = /^#[0-9a-f]{6}$/i.test(color);
   return (
@@ -329,7 +389,7 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, chit, cl
         {...selectAllOnClick}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={(e) => commit(e.currentTarget.value)}
-        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); if (e.key === "Escape") { setDraft(null); (e.currentTarget as HTMLInputElement).blur(); } }}
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); if (e.key === "Escape") { cancelled.current = true; setDraft(null); (e.currentTarget as HTMLInputElement).blur(); } }}
         className="w-0 min-w-0 flex-1 h-full bg-transparent text-[11px] font-[450] leading-4 tracking-[0.055px] text-[var(--f-text)] outline-none uppercase"
       />
       {onOpacity && (
@@ -337,17 +397,6 @@ export function ColorInput({ label, color, opacity, onColor, onOpacity, chit, cl
           <NumericInput label="Opacity" prefix={<span className="w-[7px]" />} value={opacity} min={0} max={100} unit="%" onChange={onOpacity} className="bg-transparent border-0 hover:border-0 flex-1 rounded-none" />
         </span>
       )}
-    </div>
-  );
-}
-
-/** A row of the layers, the pages, the assets: 24px inside its 8px gutters (a page), or the layer row (see Layers). */
-export function SidebarRow({ selected = false, onClick, children, className }: { selected?: boolean; onClick?: () => void; children: ReactNode; className?: string }) {
-  return (
-    <div className={cn("px-2 py-1")}>
-      <button type="button" onClick={onClick} className={cn("flex items-center w-full h-6 pl-1 pr-1 rounded-[5px] text-left cursor-pointer", selected ? "bg-[var(--f-bg-hover)]" : "hover:bg-[var(--f-bg-hover)]", className)}>
-        {children}
-      </button>
     </div>
   );
 }
@@ -366,9 +415,9 @@ export function CollapseHeader({ label, open, onToggle, icons }: { label: string
 }
 
 /** Figma's blue button (Share → Save): 32px, 12px in, 5px corners. */
-export function BrandButton({ children, disabled, onClick, className }: { children: ReactNode; disabled?: boolean; onClick?: () => void; className?: string }) {
+export function BrandButton({ children, disabled, onClick, className, title }: { children: ReactNode; disabled?: boolean; onClick?: () => void; className?: string; title?: string }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className={cn("flex items-center h-8 px-3 rounded-[5px] bg-[var(--f-bg-brand)] text-[11px] font-[450] leading-4 tracking-[0.055px] text-white hover:brightness-105 cursor-pointer disabled:opacity-70 disabled:cursor-default", className)}>
+    <button type="button" disabled={disabled} onClick={onClick} title={title} className={cn("flex items-center h-8 px-3 rounded-[5px] bg-[var(--f-bg-brand)] text-[11px] font-[450] leading-4 tracking-[0.055px] text-white hover:brightness-105 cursor-pointer disabled:opacity-70 disabled:cursor-default", className)}>
       {children}
     </button>
   );

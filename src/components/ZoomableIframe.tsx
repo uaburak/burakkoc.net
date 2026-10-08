@@ -78,6 +78,8 @@ function ScaledIframe({
       >
         <iframe
           src={src}
+          // Loaded when scrolled near, not with the page (a whole site's page, its scripts and pictures).
+          loading="lazy"
           className="w-full h-full border-none"
           scrolling={scrollable ? "yes" : "no"}
           style={{
@@ -179,12 +181,6 @@ export function ZoomableIframe({
     };
   }, []);
 
-  // Update targetRect when activeMode changes during zoom
-  useEffect(() => {
-    if (isZoomed) {
-      setTargetRect(calculateTargetRect(activeMode));
-    }
-  }, [activeMode, isZoomed, calculateTargetRect]);
 
   const handleZoom = () => {
     if (isZoomed || !currentUrl) return;
@@ -304,7 +300,16 @@ export function ZoomableIframe({
           <div
             ref={placeholderRef}
             onClick={handleZoom}
-            className={`relative border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden flex items-center justify-center cursor-pointer group transition-all duration-300 ease-in-out ${inlineContainerStyle()}`}
+            // A button: reached with Tab, opened with Enter or Space, named for screen readers.
+            role="button"
+            tabIndex={0}
+            aria-label={lang === "en" ? "Open the live page" : "Canlı sayfayı aç"}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              handleZoom();
+            }}
+            className={`relative border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden flex items-center justify-center cursor-pointer group transition-all duration-300 ease-in-out outline-none focus-visible:ring-2 focus-visible:ring-[var(--text-title)] ${inlineContainerStyle()}`}
             style={{
               visibility: isZoomed ? "hidden" : "visible",
             }}
@@ -344,7 +349,7 @@ export function ZoomableIframe({
             </IconButton>
           </div>
 
-          {caption && (!placeholderRef.current || placeholderRef.current.style.visibility !== "hidden") && (
+          {caption && !isZoomed && (
             <p className="text-sm font-light leading-5 text-[var(--text-subtitle)] text-center w-full">
               {caption}
             </p>
@@ -383,7 +388,10 @@ export function ZoomableIframe({
                   value={options[activeTabIndex]}
                   onChange={(val) => {
                     const idx = options.indexOf(val);
-                    if (idx !== -1) setActiveTabIndex(idx);
+                    if (idx === -1) return;
+                    setActiveTabIndex(idx);
+                    // The window takes the device's size as it changes (while open).
+                    if (isZoomed) setTargetRect(calculateTargetRect(availableViews[idx] ?? "desktop"));
                   }}
                   size="md"
                 />

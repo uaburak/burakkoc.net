@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { TopBar } from "@/components/TopBar";
 import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
+import { SignOutRow } from "@/components/admin/SignOutRow";
 
 export const metadata = {
-  title: "Admin | Portfolio",
+  title: { absolute: "Admin" },
 };
 
 export default function AdminPage() {
@@ -57,6 +57,8 @@ export default function AdminPage() {
             </div>
             <ChevronRight />
           </Link>
+
+          <SignOutRow />
         </nav>
       </main>
     </div>

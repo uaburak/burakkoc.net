@@ -1,13 +1,14 @@
 "use client";
 
-import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import type { DesignVariable } from "@/types/design";
-import { MOTION_CSS } from "@/components/project/interactions";
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import type { DesignVariable, TextTag } from "@/types/design";
+import { useTextStyles } from "@/components/project/textStyles";
+import { MOTION_CSS, durationOf } from "@/components/project/interactions";
 import { isSafeHref, renderRichText } from "@/components/project/RichText";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { colorWithAlpha, fillsCss, frameLayoutCss, nodeCss, motionCss } from "./css";
 import { EmbedView } from "./EmbedView";
-import { PATH_SEP, findComponent, isFrameLike, resolveInstance, setOf, wordsIn, type FrameNode, type LangCode, type LayoutGrid, type LayoutMode, type Paint, type Reaction, type SceneNode, type ShapeNode, type TextNode } from "./model";
+import { PATH_SEP, actionOf, findComponent, isFrameLike, resolveInstance, setOf, wordsIn, type FrameNode, type LangCode, type LayoutGrid, type LayoutMode, type Paint, type Reaction, type SceneNode, type ShapeNode, type TextNode } from "./model";
 
 /**
  * The nodes drawn as DOM — the editor's canvas and the site's page share it.
@@ -36,6 +37,12 @@ export interface RenderContext {
   editing?: { id: string; onInput: (id: string, text: string) => void; onDone: () => void } | null;
   /** The site's page: links, pictures that open larger, embeds that work */
   site?: boolean;
+  /**
+   * What a reaction does that isn't an instance's change (Navigate to, Back,
+   * Scroll to, Open link): the prototype's player shows another frame, the
+   * site follows a link — `revert`: a hover's or a press's going back
+   */
+  onAction?: (reaction: Reaction, sourceId: string, revert?: boolean) => void;
 }
 
 /** A grid's columns, on its element: the site's page has fewer of them on a phone (see PAGE_CSS). */
@@ -51,22 +58,28 @@ const stackCss = (at: string) => `
   [data-canvas-page] [data-narrow="${at}"] > [data-node-id] { grid-column: auto !important; grid-row: auto !important; align-self: stretch !important; justify-self: stretch !important; width: auto !important; max-width: 100% !important; min-width: 0 !important; height: auto !important; flex: none !important; position: relative !important; left: auto !important; top: auto !important; }`;
 
 /**
- * The site's page on narrower screens — the file itself has no breakpoints:
- * under 1280px (nothing stands beside the page) it keeps 40px over its
- * content, however much its frame has (`--page-lift`: what is taken off);
- * frames marked to (see FrameNode.narrow) stack their layers under 768px
- * or 640px, or keep two columns under 640px; on a phone (under 640px) an
- * unmarked grid of three columns or more has two.
+ * The site's page on narrower screens — the file itself has no breakpoints.
+ * Container queries on the page (`[data-canvas-page]`, its own width — the
+ * screen's on the site, the preview's in the Page Editor): under 1280px
+ * (nothing stands beside the page) it keeps 40px over its content, however
+ * much its frame has (`--page-lift`: what is taken off); frames marked to
+ * (see FrameNode.narrow) stack their layers under 768px or 640px, or keep
+ * two columns under 640px; on a phone (under 640px) an unmarked grid of
+ * three columns or more has two, and what has a fixed width may shrink to
+ * the screen's (rather than run off it).
  */
-export const PAGE_CSS = `@media (max-width: 1279px) {
-  [data-canvas-page] { margin-top: calc(-1 * var(--page-lift, 0px)); }
+export const PAGE_CSS = `[data-canvas-page] { container: page / inline-size; }
+@container page (max-width: 1279px) {
+  [data-page-lift] { margin-top: calc(-1 * var(--page-lift, 0px)); }
 }
-@media (max-width: 767px) {${stackCss("stack")}
+@container page (max-width: 767px) {${stackCss("stack")}
 }
-@media (max-width: 639px) {${stackCss("stack-sm")}
+@container page (max-width: 639px) {${stackCss("stack-sm")}
   [data-canvas-page] [data-narrow="two"][data-grid] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   [data-canvas-page] [data-narrow="two"] > [data-node-id] { grid-column: auto !important; grid-row: auto !important; }
   ${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `[data-canvas-page] [data-grid="${n}"]:not([data-narrow])`).join(", ")} { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  ${[3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `[data-canvas-page] [data-grid="${n}"]:not([data-narrow]) > [data-node-id]`).join(", ")} { grid-column: auto !important; grid-row: auto !important; }
+  [data-canvas-page] [data-node-id] { flex-shrink: 1 !important; min-width: 0; }
 }`;
 
 /** Inside a link (on the site): no link of its own — HTML has no link inside a link. */
@@ -95,17 +108,29 @@ function PictureView({ node, paint, style, id }: { node: ShapeNode; paint: Paint
   void backgroundColor; void backgroundImage; void backgroundSize; void backgroundRepeat; void backgroundPosition;
   const under = fillsCss(node.fills.filter((p) => p !== paint), ctx.byId);
   const image = paint.image!;
+  // The project's cover (the Overview's picture) is what the page opens with: loaded at once, first; the rest when scrolled to.
+  const cover = node.fixed === "image";
   return (
     <div data-node-id={id} data-node-type={node.type} data-picture="" style={{ ...box, ...under, boxShadow }}>
       <span className="absolute inset-0 block overflow-hidden" style={{ borderRadius: "inherit" }}>
-        <ZoomableImage src={image.url} alt="" draggable={false} className={image.fit === "fit" ? "block w-full h-full object-contain" : "block w-full h-full object-cover"} />
+        <ZoomableImage src={image.url} alt={altOf(image, ctx.lang)} loading={cover ? "eager" : "lazy"} fetchPriority={cover ? "high" : undefined} decoding="async" draggable={false} className={image.fit === "fit" ? "block w-full h-full object-contain" : "block w-full h-full object-cover"} />
         {boxShadow && <span aria-hidden className="pointer-events-none absolute inset-0" style={{ boxShadow, borderRadius: "inherit" }} />}
       </span>
     </div>
   );
 }
 
-export const RenderContextCtx = createContext<RenderContext>({ nodes: [], byId: new Map(), lang: "tr", play: false });
+/**
+ * The render context, apart from the file's nodes: what every layer reads (the
+ * variables, the language, typing…) changes seldom; the nodes change with
+ * every edit — only instances read them (LibraryCtx), so an edit draws again
+ * only what it changed and the instances.
+ */
+/** A picture's words in the language shown (Turkish's where it has none in it). */
+const altOf = (image: NonNullable<Paint["image"]>, lang: LangCode) => (lang !== "tr" && image.altEn ? image.altEn : image.alt) ?? "";
+
+export const RenderContextCtx = createContext<Omit<RenderContext, "nodes">>({ byId: new Map(), lang: "tr", play: false });
+const LibraryCtx = createContext<readonly SceneNode[]>([]);
 
 /** A text's words in the language shown (the base language's own when there are none in it). */
 export const textOf = (node: TextNode, lang: LangCode) => wordsIn(node, lang) || node.characters;
@@ -164,90 +189,215 @@ function EditableTextNode({ node, style, id }: { node: TextNode; style: CSSPrope
 function TextView({ node, parentLayout, id, zIndex }: { node: TextNode; parentLayout: LayoutMode; id: string; zIndex?: number }) {
   const ctx = useContext(RenderContextCtx);
   const inLink = useContext(InLinkCtx);
-  const style = { ...nodeCss(node, parentLayout, ctx.byId), zIndex };
+  const textStyles = useTextStyles();
+  const acts = useLayerReactions(node, id);
+  const style = { ...nodeCss(node, parentLayout, ctx.byId), zIndex, ...acts.style };
   if (ctx.editing && ctx.editing.id === id) return <EditableTextNode node={node} style={style} id={id} />;
   const words = textOf(node, ctx.lang);
+  // On the site, what it is (a heading of its level, a paragraph — its own say, else its text style's); in a link a heading stays a heading,
+  // a paragraph becomes a span (no block inside a link's inline flow). The editor draws every text as a block.
+  const said = node.tag ?? (node.textStyle ? textStyles.find((st) => st.id === node.textStyle)?.tag : undefined);
+  const Tag: TextTag = ctx.site && said ? (inLink && said === "p" ? "div" : said) : "div";
   return (
-    <div data-node-id={id} data-node-type="text" data-text-style={node.textStyle} style={style}>
+    <Tag data-node-id={id} data-node-type="text" data-text-style={node.textStyle} style={style} {...acts.props}>
       {/* Its links: to follow on the site only — the editor's canvas and its preview draw them without an anchor. */}
       {words ? renderRichText(words, { links: Boolean(ctx.site) && !inLink }) : ctx.editing !== undefined ? <span style={{ opacity: 0.3 }}>Text</span> : null}
-    </div>
+    </Tag>
   );
 }
 
-/** One instance's prototype: the variant it shows now, its animation, and the handlers its frame gets. */
-function useReactions(instanceId: string, mainId: string | undefined) {
+/** Something being typed (a field): a key reaction leaves it alone. */
+const typing = (e: KeyboardEvent) => {
+  const t = e.target as HTMLElement | null;
+  return Boolean(t && (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT"));
+};
+
+/**
+ * What a layer's reactions listen to, as Figma's triggers (playing only):
+ * a click (and Enter / Space: it is a button), a drag, the pointer over it
+ * (back when it leaves) or pressing it (back on letting go), a key, the
+ * pointer coming in, going out, pressing, letting go — and a delay, once
+ * it shows. `fire` does a reaction; `revert` undoes a hover's or a press's.
+ */
+function useTriggers(reactions: readonly Reaction[], fire: (r: Reaction) => void, revert: (r: Reaction) => void, shownKey: unknown) {
   const ctx = useContext(RenderContextCtx);
+  const live = ctx.play ? reactions : [];
+  const act = useRef({ fire, revert });
+  useLayoutEffect(() => {
+    act.current = { fire, revert };
+  });
+  const dragFrom = useRef<{ x: number; y: number; done: boolean } | null>(null);
+  const delayed = live.find((r) => r.trigger === "delay");
+  useEffect(() => {
+    if (!delayed) return;
+    const t = window.setTimeout(() => act.current.fire(delayed), delayed.delay ?? 800);
+    return () => window.clearTimeout(t);
+  }, [delayed, shownKey]);
+  const keyed = live.filter((r) => r.trigger === "key" && r.key);
+  const keys = keyed.map((r) => `${r.id}:${r.key}`).join("|");
+  useEffect(() => {
+    if (!keys) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (typing(e) || e.repeat) return;
+      const r = keyed.find((k) => k.key!.toLowerCase() === e.key.toLowerCase());
+      if (!r) return;
+      e.preventDefault();
+      act.current.fire(r);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed is what `keys` says
+  }, [keys, shownKey]);
+  if (!live.length) return null;
+  const on = (t: Reaction["trigger"]) => live.find((r) => r.trigger === t);
+  const click = on("click");
+  const drag = on("drag");
+  const handlers: Record<string, unknown> = {
+    onClick: click ? (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); if (dragFrom.current?.done) return; act.current.fire(click); } : undefined,
+    onPointerEnter: () => {
+      const h = on("hover");
+      if (h) act.current.fire(h);
+      const m = on("mouseenter");
+      if (m) act.current.fire(m);
+    },
+    onPointerLeave: () => {
+      const h = on("hover");
+      if (h) act.current.revert(h);
+      const m = on("mouseleave");
+      if (m) act.current.fire(m);
+    },
+    onPointerDown: (e: React.PointerEvent) => {
+      const p = on("press");
+      const m = on("mousedown");
+      if (p || m || drag) e.stopPropagation();
+      if (p) act.current.fire(p);
+      if (m) act.current.fire(m);
+      dragFrom.current = drag ? { x: e.clientX, y: e.clientY, done: false } : null;
+    },
+    onPointerMove: drag
+      ? (e: React.PointerEvent) => {
+          const d = dragFrom.current;
+          if (!d || d.done || Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) return;
+          d.done = true;
+          act.current.fire(drag);
+        }
+      : undefined,
+    onPointerUp: () => {
+      const p = on("press");
+      if (p) act.current.revert(p);
+      const m = on("mouseup");
+      if (m) act.current.fire(m);
+      window.setTimeout(() => { dragFrom.current = null; }, 0);
+    },
+  };
+  // A click's reaction is a button's: reached with Tab, pressed with Enter or Space.
+  if (click) {
+    handlers.role = "button";
+    handlers.tabIndex = 0;
+    handlers.onKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      act.current.fire(click);
+    };
+  }
+  return { handlers, pointer: Boolean(click || drag) };
+}
+
+/** A layer's own reactions (not an instance's: see useReactions) — what they do is the player's, or the site's (see RenderContext.onAction). */
+function useLayerReactions(node: SceneNode, id: string) {
+  const ctx = useContext(RenderContextCtx);
+  const reactions = useMemo(() => (node.reactions ?? []).filter((r) => actionOf(r) !== "change"), [node.reactions]);
+  const t = useTriggers(reactions, (r) => ctx.onAction?.(r, id), (r) => ctx.onAction?.(r, id, true), node.id);
+  if (!t) return { props: undefined, style: undefined };
+  return { props: t.handlers, style: t.pointer ? ({ cursor: "pointer" } as CSSProperties) : undefined };
+}
+
+/**
+ * One instance's prototype: the variant it shows now, its animation, and
+ * the handlers its frame gets — its variant's reactions (Change to: another
+ * variant of the set; the rest the player's) and its own.
+ */
+function useReactions(instance: FrameNode) {
+  const ctx = useContext(RenderContextCtx);
+  const nodes = useContext(LibraryCtx);
   const [shown, setShown] = useState<string | undefined>(undefined);
   const [motion, setMotion] = useState<{ reaction: Reaction; key: number } | null>(null);
-  const back = useRef<{ id: string; via: "hover" | "press" } | null>(null);
-  const currentId = shown ?? mainId;
-  const current = currentId ? findComponent(ctx.nodes, currentId) : null;
-  const reactions = ctx.play ? current?.reactions ?? [] : [];
-  const set = current ? setOf(ctx.nodes, current.id) : null;
-  const change = useCallback((reaction: Reaction, from?: { id: string; via: "hover" | "press" }) => {
-    back.current = from ?? null;
-    setShown(reaction.target);
-    setMotion(reaction.animation === "instant" ? null : { reaction, key: Date.now() });
-  }, []);
-  const goBack = useCallback((via?: "hover" | "press") => {
+  const back = useRef<{ id: string; reaction: string } | null>(null);
+  const currentId = shown ?? instance.mainId;
+  const current = currentId ? findComponent(nodes, currentId) : null;
+  const set = current ? setOf(nodes, current.id) : null;
+  const reactions = useMemo(
+    () => [...(current?.reactions ?? []).filter((r) => actionOf(r) !== "change" || !set || set.children.some((c) => c.id === r.target)), ...(instance.reactions ?? []).filter((r) => actionOf(r) !== "change")],
+    [current, set, instance.reactions]
+  );
+  const fire = (r: Reaction) => {
+    if (actionOf(r) !== "change") return ctx.onAction?.(r, instance.id);
+    // A hover's or a press's change goes back (to the variant before) when it ends.
+    back.current = (r.trigger === "hover" || r.trigger === "press") && currentId ? { id: currentId, reaction: r.id } : null;
+    setShown(r.target);
+    setMotion(r.animation === "instant" ? null : { reaction: r, key: Date.now() });
+  };
+  const revert = (r: Reaction) => {
+    if (actionOf(r) !== "change") return ctx.onAction?.(r, instance.id, true);
     const b = back.current;
-    if (!b || (via && b.via !== via)) return;
+    if (!b || b.reaction !== r.id) return;
     back.current = null;
     setShown(b.id);
     setMotion((m) => (m ? { ...m, key: Date.now() } : m));
-  }, []);
+  };
   // An animation over, its attribute goes.
   useEffect(() => {
     if (!motion) return;
-    const t = window.setTimeout(() => setMotion((m) => (m?.key === motion.key ? null : m)), motion.reaction.duration + 60);
+    const t = window.setTimeout(() => setMotion((m) => (m?.key === motion.key ? null : m)), durationOf(motion.reaction) + 60);
     return () => window.clearTimeout(t);
   }, [motion]);
-  // "After delay": once the variant shows.
-  const delayed = reactions.find((r) => r.trigger === "delay");
-  useEffect(() => {
-    if (!delayed) return;
-    const t = window.setTimeout(() => change(delayed), delayed.delay ?? 800);
-    return () => window.clearTimeout(t);
-  }, [delayed, change, currentId]);
-  const on = (trigger: Reaction["trigger"]) => reactions.find((r) => r.trigger === trigger && (!set || set.children.some((c) => c.id === r.target)));
-  const click = on("click");
-  const handlers = ctx.play
+  const t = useTriggers(reactions, fire, revert, currentId);
+  const handlers = t
     ? {
-        onClick: click ? (e: React.MouseEvent) => { e.stopPropagation(); change(click); } : undefined,
-        onPointerEnter: () => { const h = on("hover"); if (h && currentId) change(h, { id: currentId, via: "hover" }); },
-        onPointerLeave: () => goBack("hover"),
-        onPointerDown: () => { const p = on("press"); if (p && currentId) change(p, { id: currentId, via: "press" }); },
-        onPointerUp: () => goBack("press"),
-        style: { ...(motion ? motionCss(motion.reaction.animation, motion.reaction.easing, motion.reaction.duration) : {}), ...(click ? { cursor: "pointer" } : {}) } as CSSProperties,
+        ...t.handlers,
+        style: { ...(motion ? motionCss(motion.reaction) : {}), ...(t.pointer ? { cursor: "pointer" } : {}) } as CSSProperties,
         "data-variant-motion": motion?.reaction.animation,
       }
     : null;
-  void instanceId;
   return { shownId: shown, handlers };
 }
 
+/** How deep instances may nest (an instance of a component holding an instance…): past it, nothing more is drawn — a cycle can't hang the page. */
+const MAX_INSTANCE_DEPTH = 16;
+const InstanceDepthCtx = createContext(0);
+
 function InstanceView({ node, parentLayout, id, zIndex }: { node: FrameNode; parentLayout: LayoutMode; id: string; zIndex?: number }) {
   const ctx = useContext(RenderContextCtx);
-  const { shownId, handlers } = useReactions(node.id, node.mainId);
-  const resolved = useMemo(() => resolveInstance(ctx.nodes, node, shownId), [ctx.nodes, node, shownId]);
-  if (!resolved) {
+  const nodes = useContext(LibraryCtx);
+  const depth = useContext(InstanceDepthCtx);
+  const { shownId, handlers } = useReactions(node);
+  // Drawn again when what it draws changes — its component, the set holding its properties — not with every edit of the file.
+  const main = findComponent(nodes, shownId ?? node.mainId ?? "");
+  const holder = main ? setOf(nodes, main.id) ?? main : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `nodes` is read for what main and holder already say
+  const resolved = useMemo(() => resolveInstance(nodes, node, shownId), [main, holder, node, shownId]);
+  if (!resolved || depth >= MAX_INSTANCE_DEPTH) {
+    // Its component gone: the site draws nothing; the editor, a dashed box in its place.
+    if (ctx.site) return null;
     return (
       <div data-node-id={id} data-node-type="instance" style={{ ...nodeCss(node, parentLayout, ctx.byId), zIndex, outline: "1px dashed var(--edit-component, #9747ff)" }} />
     );
   }
   const { style: playStyle, ...play } = handlers ?? {};
   return (
-    <FrameBox
-      node={resolved}
-      parentLayout={parentLayout}
-      id={id}
-      type="instance"
-      extraStyle={{ ...playStyle, zIndex }}
-      extraProps={play}
-      childId={(child) => `${id}/${child}`}
-      keyOf={(child) => child.name}
-    />
+    <InstanceDepthCtx.Provider value={depth + 1}>
+      <FrameBox
+        node={resolved}
+        parentLayout={parentLayout}
+        id={id}
+        type="instance"
+        extraStyle={{ ...playStyle, zIndex }}
+        extraProps={play}
+        childId={(child) => `${id}/${child}`}
+        keyOf={(child) => child.name}
+      />
+    </InstanceDepthCtx.Provider>
   );
 }
 
@@ -264,7 +414,12 @@ function FrameBox({ node, parentLayout, id, type, extraStyle, extraProps, childI
 }) {
   const ctx = useContext(RenderContextCtx);
   const inLink = useContext(InLinkCtx);
-  const style = { ...nodeCss(node, parentLayout, ctx.byId), ...extraStyle };
+  // A component set: Figma's dashed purple frame around its variants — the editor's mark, not the site's.
+  const setMark: CSSProperties | undefined = node.type === "componentSet" && !ctx.site ? { outline: "1px dashed var(--edit-component, #9747ff)" } : undefined;
+  // Its own reactions (an instance's come in extraProps, see useReactions).
+  const acts = useLayerReactions(node, id);
+  const style = { ...nodeCss(node, parentLayout, ctx.byId), ...setMark, ...acts.style, ...extraStyle };
+  extraProps = { ...acts.props, ...extraProps };
   // What the site's code draws in its place (see Embed): as tall as it is drawn — inside a link, without links of its own (its badges).
   if (node.embed) {
     return (
@@ -360,16 +515,27 @@ function NestedFrame({ node, parentLayout, id, childId, keyOf, path }: { node: F
 
 /** A node, drawn — `id` is what its element is found by (its own id unless it is inside an instance). */
 export const NodeView = memo(function NodeView({ node, parentLayout, id, zIndex }: { node: SceneNode; parentLayout: LayoutMode; id?: string; zIndex?: number }) {
-  const ctx = useContext(RenderContextCtx);
+  const inLink = useContext(InLinkCtx);
   const key = id ?? node.id;
   if (node.type === "text") return <TextView node={node} parentLayout={parentLayout} id={key} zIndex={zIndex} />;
   if (node.type === "instance") return <InstanceView node={node} parentLayout={parentLayout} id={key} zIndex={zIndex} />;
   if (isFrameLike(node)) return <FrameBox node={node} parentLayout={parentLayout} id={key} type={node.type} extraStyle={zIndex !== undefined ? { zIndex } : undefined} />;
-  const style = { ...nodeCss(node, parentLayout, ctx.byId), zIndex };
-  const paint = ctx.site ? zoomable(node) : null;
-  if (paint && (node.type === "rectangle" || node.type === "ellipse")) return <PictureView node={node} paint={paint} style={style} id={key} />;
-  return <div data-node-id={key} data-node-type={node.type} style={style} />;
+  return <ShapeView node={node} parentLayout={parentLayout} id={key} zIndex={zIndex} inLink={inLink} />;
 });
+
+/** A rectangle, an ellipse, a line — a picture, on the site, when one fills it. */
+function ShapeView({ node, parentLayout, id, zIndex, inLink }: { node: ShapeNode; parentLayout: LayoutMode; id: string; zIndex?: number; inLink: boolean }) {
+  const ctx = useContext(RenderContextCtx);
+  const acts = useLayerReactions(node, id);
+  const style = { ...nodeCss(node, parentLayout, ctx.byId), zIndex, ...acts.style };
+  // Inside a link the click follows it: the picture doesn't also open larger — nor where a reaction takes the click.
+  const paint = ctx.site && !inLink && !acts.props ? zoomable(node) : null;
+  if (paint && (node.type === "rectangle" || node.type === "ellipse")) return <PictureView node={node} paint={paint} style={style} id={id} />;
+  // A picture too small to open larger (an avatar, an icon): its words, when it has some, for screen readers.
+  const picture = ctx.site ? node.fills.find((p) => p.visible !== false && p.type === "image" && p.image?.alt) : undefined;
+  if (picture?.image) return <div data-node-id={id} data-node-type={node.type} role="img" aria-label={altOf(picture.image, ctx.lang)} style={style} {...acts.props} />;
+  return <div data-node-id={id} data-node-type={node.type} style={style} {...acts.props} />;
+}
 
 /** The prototypes' animations, once on the page. */
 export function MotionStyle() {
@@ -378,5 +544,11 @@ export function MotionStyle() {
 
 /** The context's provider, for the canvas and the page. */
 export function RenderProvider({ value, children }: { value: RenderContext; children: ReactNode }) {
-  return <RenderContextCtx.Provider value={value}>{children}</RenderContextCtx.Provider>;
+  const { nodes, byId, lang, play, editing, site, onAction } = value;
+  const rest = useMemo(() => ({ byId, lang, play, editing, site, onAction }), [byId, lang, play, editing, site, onAction]);
+  return (
+    <LibraryCtx.Provider value={nodes}>
+      <RenderContextCtx.Provider value={rest}>{children}</RenderContextCtx.Provider>
+    </LibraryCtx.Provider>
+  );
 }

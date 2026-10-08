@@ -13,7 +13,7 @@
   /* Text — Figma "Text" tokens */
   --text-title:    #1a1a1a;  /* Text/Title  Light: rgba(26,26,26,1)   */
   --text-p:        #2a2a2a;  /* Text/P      Light: rgba(42,42,42,1)   */
-  --text-subtitle: #757575;  /* Text/Subtitle Light: rgba(117,117,117,1) */
+  --text-subtitle: #6e6e6e;  /* Text/Subtitle Light — 4.5:1 on bg-4 (#757575 was 4.1:1) */
 
   /* Border — Figma "Kutu/Default" → rgba(242,242,242,1) */
   --border:       #f2f2f2;
@@ -103,7 +103,7 @@
   --color-progress-track: var(--progress-track);
   --color-progress-fill:  var(--progress-fill);
 
-  --font-matter: "Matter", var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-matter: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 /* ── Base ──────────────────────────────────────────────── */
@@ -525,4 +525,14 @@ pre[class*="language-"] {
 html[data-drag-copy],
 html[data-drag-copy] * {
   cursor: copy !important;
+}
+
+/* Asked for less motion (the system's setting): nothing slides, fades or springs — things are simply there. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

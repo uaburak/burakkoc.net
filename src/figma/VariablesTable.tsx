@@ -5,7 +5,7 @@ import type { DesignVariable, VariableKind } from "@/types/design";
 import { cn } from "@/lib/utils";
 import { FigmaIcon, fi } from "@/components/admin/figmaIcons";
 import { byGroup, resolvedValue, splitName } from "@/components/project/designVariables";
-import type { DesignSystem } from "@/components/admin/useDesignSystem";
+import type { DesignSystem } from "./designSystem";
 import { ColorInput, IconButton, NumericInput, TextInput } from "./ui";
 
 /**
@@ -28,9 +28,7 @@ export function VariablesTable({ system, onClose }: { system: DesignSystem; onCl
     while (collections.includes(`Collection ${n}`)) n++;
     const name = `Collection ${n}`;
     // A collection exists through its variables: the first one is made with it.
-    const id = system.addVariable("color");
-    const made = variables.find((v) => v.id === id);
-    system.setVariable({ ...(made ?? { id, name: "Color", kind: "color", light: { value: "#000000" } }), collection: name });
+    system.addVariable("color", name);
     setCollection(name);
     setGroup(null);
   };
@@ -151,7 +149,7 @@ export function VariablesTable({ system, onClose }: { system: DesignSystem; onCl
             {kindMenu && (
               <div role="menu" className="absolute left-3 bottom-12 w-[172px] p-2 rounded-[8px] bg-[var(--f-bg-menu)] text-white shadow-[0_5px_17px_rgba(0,0,0,0.35)]">
                 {([["color", "Color", <FigmaIcon key="c" name="16.variable" />], ["number", "Number", <FigmaIcon key="n" name="16.number" />], ["weight", "Weight", <span key="w" className="text-[10px] font-[550]">B</span>]] as [VariableKind, string, React.ReactNode][]).map(([kind, label, icon]) => (
-                  <button key={kind} type="button" onClick={() => { const id = system.addVariable(kind); if (collection !== DEFAULT) queueMicrotask(() => { const made = system.variables.find((v) => v.id === id); if (made) system.setVariable({ ...made, collection }); }); setKindMenu(false); }} className="flex items-center gap-2 w-full h-8 px-2 rounded-[5px] text-left hover:bg-[#0d99ff] cursor-pointer">
+                  <button key={kind} type="button" onClick={() => { system.addVariable(kind, collection === DEFAULT ? undefined : collection); setKindMenu(false); }} className="flex items-center gap-2 w-full h-8 px-2 rounded-[5px] text-left hover:bg-[#0d99ff] cursor-pointer">
                     <span className="flex w-4 justify-center text-white/80">{icon}</span>
                     {label}
                   </button>

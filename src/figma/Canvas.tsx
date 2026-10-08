@@ -4,10 +4,14 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { cn } from "@/lib/utils";
 import { FigmaIcon } from "@/components/admin/figmaIcons";
 import { DesignSystemStyle } from "@/components/project/designSystem";
-import { MIN_ZOOM, clampZoom, fitView, zoomAround, type CanvasTool, type CanvasView, type ZoomActions } from "@/components/admin/canvasModel";
-import { findNode, getNode, isFrameLike, isLocked, numberOf, topmost, type FigmaDocument, type FrameNode, type SceneNode } from "./model";
+import { MIN_ZOOM, clampZoom, fitView, zoomAround, type CanvasTool, type CanvasView, type ZoomActions } from "./view";
+import { actionOf, findNode, getNode, isFrameLike, isLocked, numberOf, topmost, walk, type FigmaDocument, type FrameNode, type SceneNode } from "./model";
+import { TRIGGER_SHORT } from "@/components/project/interactions";
+import { Noodles, type Link } from "./Noodles";
 import { fillsCss } from "./css";
-import { MotionStyle, NodeView, RenderProvider, type RenderContext } from "./NodeView";
+import { MotionStyle, NodeView, PAGE_CSS, RenderProvider, type RenderContext } from "./NodeView";
+import { descentOf, glyphLines, isComponentish, pathAt, pickFrom } from "./picking";
+import { RULER, Rulers } from "./Rulers";
 
 /**
  * Figma's canvas: endless, the file's nodes drawn on it at the view's pan and
@@ -35,7 +39,6 @@ type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const ALL_HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 const HANDLE_CURSOR: Record<Handle, string> = { n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize", ne: "nesw-resize", sw: "nesw-resize", nw: "nwse-resize", se: "nwse-resize" };
 const DRAW_TOOLS = new Set<CanvasTool>(["frame", "rectangle", "ellipse", "line", "text"]);
-const RULER = 20;
 
 export interface CanvasProps {
   doc: FigmaDocument;
@@ -64,12 +67,26 @@ export interface CanvasProps {
   /** A double click: a text starts typing, a frame opens (the layer under the pointer) */
   onDoubleClick: (id: string) => void;
   onContextMenu: (id: string | null, e: React.MouseEvent) => void;
+  /** The + under a selected component set (Figma's): a variant added to it */
+  onAddVariant?: (setId: string) => void;
+  /** The Prototype tab: the connections drawn (Figma's noodles), the selected layer's handle that makes one, the flows' starting points */
+  prototyping?: boolean;
+  /** A connection drawn from a layer to a frame (or to another variant of its set) */
+  onConnect?: (sourceId: string, targetId: string) => void;
+  /** A connection's end moved to another frame — or off any (null): the connection goes */
+  onRetarget?: (sourceId: string, reactionId: string, targetId: string | null) => void;
+  /** A connection clicked: its interaction opened (at the screen point) */
+  onOpenReaction?: (sourceId: string, reactionId: string) => void;
+  /** A flow's starting point's play button */
+  onPlayFlow?: (frameId: string) => void;
   zoomActionsRef?: React.RefObject<ZoomActions | null>;
   rulers?: boolean;
   /** The canvas's own colour (Figma's page background) */
   background?: string;
   /** The Page Editor: only this frame (the site's page) is drawn, as a page that scrolls — no pan, no zoom of one's own */
   pageId?: string | null;
+  /** The Page Editor's preview width (a tablet's, a phone's): the page drawn that wide, as the site lays it out there — its own when unset */
+  previewWidth?: number | null;
   /** Hold the right button and drag to pan (a plain right click still opens the menu) */
   rightMousePan?: boolean;
   /** The horizontal wheel zooms around the pointer */
@@ -97,74 +114,6 @@ function pageViewOf(v: CanvasView, size: { width: number; height: number }, page
   const from = v.zoom > 0 && v.zoom !== zoom ? v.y * (zoom / v.zoom) : v.y;
   const y = Math.min(0, Math.max(least, from));
   return v.zoom === zoom && v.x === x && v.y === y ? v : { zoom, x, y };
-}
-
-/** A text layer's lines — where its glyphs are, one box per line (an empty text: its whole box). */
-function glyphLines(el: HTMLElement): DOMRect[] {
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.height > 0);
-  range.detach();
-  return rects.length ? rects : [el.getBoundingClientRect()];
-}
-
-let metricsCtx: CanvasRenderingContext2D | null = null;
-/** How far a text's baseline sits above its line boxes' bottom (the font's descent), in the text's own (unzoomed) px. */
-function descentOf(el: HTMLElement): number {
-  metricsCtx ??= document.createElement("canvas").getContext("2d");
-  if (!metricsCtx) return 0;
-  const cs = getComputedStyle(el);
-  metricsCtx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-  return metricsCtx.measureText("x").fontBoundingBoxDescent || 0;
-}
-
-/** Whether a point is over a text layer's glyphs (its lines' boxes), not the empty rest of its box. An empty text counts whole. */
-function overGlyphs(el: HTMLElement, x: number, y: number): boolean {
-  return glyphLines(el).some((r) => x >= r.left - 1 && x <= r.right + 1 && y >= r.top - 1 && y <= r.bottom + 1);
-}
-
-/** The ids from the top-level node down to the innermost element under `target` (locked ones and what is under them left out); `at` given: a text is only hit on its glyphs (its empty box hits what is under it). */
-function pathAt(target: Element, root: Element, doc: FigmaDocument, at?: { x: number; y: number }): { id: string; el: HTMLElement }[] {
-  const path: { id: string; el: HTMLElement }[] = [];
-  let el = target.closest<HTMLElement>("[data-node-id]");
-  while (el && root.contains(el)) {
-    path.unshift({ id: el.dataset.nodeId!, el });
-    el = el.parentElement?.closest<HTMLElement>("[data-node-id]") ?? null;
-  }
-  const last = path[path.length - 1];
-  if (at && last && last.el.dataset.nodeType === "text" && !overGlyphs(last.el, at.x, at.y)) path.pop();
-  // A locked node can't be picked, nor what is inside it.
-  const locked = path.findIndex((p) => !p.id.includes("/") && getNode(doc.nodes, p.id)?.locked);
-  return locked >= 0 ? path.slice(0, locked) : path;
-}
-
-/**
- * What a press picks, as Figma's: the innermost layer along the path whose parent is "open" — a top-level frame,
- * a selected layer or one of its ancestors. So nothing selected: a top-level frame's direct child; inside a selected
- * layer: the next level down (never two); beside it: its siblings, its parent's siblings… at their own level.
- * `deep` (⌘): the innermost.
- */
-function pickFrom(path: { id: string; el: HTMLElement }[], selection: readonly string[], deep: boolean, root: Element | null): { id: string; el: HTMLElement } | null {
-  if (!path.length) return null;
-  if (deep) return path[path.length - 1];
-  const open = new Set<string>();
-  for (const id of selection) {
-    let el: HTMLElement | null | undefined = root?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
-    if (!el) { open.add(id); continue; }
-    while (el && root?.contains(el)) {
-      open.add(el.dataset.nodeId!);
-      el = el.parentElement?.closest<HTMLElement>("[data-node-id]");
-    }
-  }
-  for (let i = path.length - 1; i >= 2; i--) if (open.has(path[i - 1].id)) return path[i];
-  return path[Math.min(1, path.length - 1)];
-}
-
-/** A component, a set, an instance or a layer inside one (a composite id): outlined in Figma's purple, not blue. */
-function isComponentish(id: string, nodes: SceneNode[]): boolean {
-  if (id.includes("/")) return true;
-  const n = getNode(nodes, id);
-  return !!n && (n.type === "component" || n.type === "componentSet" || n.type === "instance");
 }
 
 /** Figma's measurement red. */
@@ -210,87 +159,6 @@ const rectOf = (el: Element, base: DOMRect): Rect => {
   return { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height };
 };
 
-/** One ruler drawn: its ticks at the view's zoom, the selection's span in blue (as Figma's). */
-function drawRuler(canvas: HTMLCanvasElement | null, view: CanvasView, length: number, vertical: boolean, selected: Rect | null) {
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  const steps = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
-  const step = steps.find((st) => st * view.zoom >= 60) ?? 5000;
-  canvas.width = (vertical ? RULER : length) * dpr;
-  canvas.height = (vertical ? length : RULER) * dpr;
-  const g = canvas.getContext("2d");
-  if (!g) return;
-  g.scale(dpr, dpr);
-  g.clearRect(0, 0, length, length);
-  // The strip on the panel's own background (the editor's tokens), a hairline along its inner edge — as Figma's rulers.
-  const tokens = getComputedStyle(canvas);
-  const token = (name: string, fallback: string) => tokens.getPropertyValue(name).trim() || fallback;
-  g.fillStyle = token("--f-bg", "#ffffff");
-  g.fillRect(0, 0, length, length);
-  g.fillStyle = token("--f-border", "#e6e6e6");
-  if (vertical) g.fillRect(RULER - 1, 0, 1, length);
-  else g.fillRect(0, RULER - 1, length, 1);
-  g.font = "9px Inter, ui-sans-serif, system-ui";
-  const origin = vertical ? view.y : view.x;
-  const span = selected ? { from: (vertical ? selected.y : selected.x) - RULER, size: vertical ? selected.h : selected.w } : null;
-  if (span) {
-    g.fillStyle = "rgba(13, 153, 255, 0.12)";
-    if (vertical) g.fillRect(0, span.from, RULER, span.size);
-    else g.fillRect(span.from, 0, span.size, RULER);
-  }
-  g.fillStyle = token("--f-text-tertiary", "#b3b3b3");
-  g.strokeStyle = token("--f-border", "#e6e6e6");
-  const first = Math.floor(-origin / view.zoom / step) * step;
-  for (let v = first; v * view.zoom + origin < length; v += step) {
-    const at = Math.round(v * view.zoom + origin) + 0.5;
-    g.beginPath();
-    if (vertical) { g.moveTo(RULER - 6, at); g.lineTo(RULER, at); } else { g.moveTo(at, RULER - 6); g.lineTo(at, RULER); }
-    g.stroke();
-    if (vertical) {
-      g.save();
-      g.translate(4, at - 3);
-      g.rotate(-Math.PI / 2);
-      g.fillText(String(v), 0, 8);
-      g.restore();
-    } else g.fillText(String(v), at + 3, 9);
-  }
-  if (span) {
-    const a = Math.round((span.from - origin) / view.zoom);
-    const b = Math.round((span.from + span.size - origin) / view.zoom);
-    g.fillStyle = "#0d99ff";
-    g.font = "600 9px Inter, ui-sans-serif, system-ui";
-    if (vertical) {
-      for (const [val, at] of [[a, span.from], [b, span.from + span.size]] as const) {
-        g.save();
-        g.translate(4, at - 3);
-        g.rotate(-Math.PI / 2);
-        g.fillText(String(val), 0, 8);
-        g.restore();
-      }
-    } else {
-      g.fillText(String(a), span.from - g.measureText(String(a)).width - 3, 9);
-      g.fillText(String(b), span.from + span.size + 3, 9);
-    }
-  }
-}
-
-/** Figma's rulers: a strip along the top and the left. */
-function Rulers({ view, width, height, selected }: { view: CanvasView; width: number; height: number; selected: Rect | null }) {
-  const top = useRef<HTMLCanvasElement>(null);
-  const left = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    drawRuler(top.current, view, width, false, selected);
-    drawRuler(left.current, view, height, true, selected);
-  }, [view, width, height, selected]);
-  return (
-    <>
-      <canvas ref={top} aria-hidden className="pointer-events-none absolute top-0 z-20" style={{ left: RULER, width: width, height: RULER }} />
-      <canvas ref={left} aria-hidden className="pointer-events-none absolute left-0 z-20" style={{ top: RULER, width: RULER, height: height }} />
-      <div aria-hidden className="pointer-events-none absolute left-0 top-0 z-20 bg-[var(--f-bg)] border-r border-b border-[var(--f-border)]" style={{ width: RULER, height: RULER }} />
-    </>
-  );
-}
-
 /** The world: the nodes at their places — memoized, so a pan or a zoom redraws nothing in it. */
 const World = memo(function World({ doc, render }: { doc: FigmaDocument; render: RenderContext }) {
   return (
@@ -302,7 +170,7 @@ const World = memo(function World({ doc, render }: { doc: FigmaDocument; render:
   );
 });
 
-export function Canvas({ doc: file, render, selection, onSelect, view: given, onView, tool, onMove, onReparent, onReorder, onResize, onLayoutEdit, layoutFocus, onDraw, onDoubleClick, onContextMenu, zoomActionsRef, rulers = true, background, pageId = null, rightMousePan = false, horizontalScrollZoom = false, horizontalScrollZoomReversed = false }: CanvasProps) {
+export function Canvas({ doc: file, render, selection, onSelect, view: given, onView, tool, onMove, onReparent, onReorder, onResize, onLayoutEdit, layoutFocus, onDraw, onDoubleClick, onContextMenu, onAddVariant, prototyping = false, onConnect, onRetarget, onOpenReaction, onPlayFlow, zoomActionsRef, rulers = true, background, pageId = null, previewWidth = null, rightMousePan = false, horizontalScrollZoom = false, horizontalScrollZoomReversed = false }: CanvasProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
   const paged = pageId !== null;
@@ -322,8 +190,9 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
   const doc = useMemo<FigmaDocument>(() => {
     if (pageId === null) return file;
     const page = file.nodes.find((n) => n.id === pageId && isFrameLike(n));
-    return { ...file, nodes: page ? [{ ...page, x: 0, y: 0, rotation: undefined, sizingH: undefined }] : [] };
-  }, [file, pageId]);
+    // (A preview width draws it that wide — the model's own width stays.)
+    return { ...file, nodes: page ? [{ ...page, x: 0, y: 0, rotation: undefined, sizingH: undefined, ...(previewWidth ? { width: previewWidth } : {}) }] : [] };
+  }, [file, pageId, previewWidth]);
   const pageNode = paged ? doc.nodes[0] ?? null : null;
   const pageWidth = pageNode?.width ?? 0;
   // Its height as drawn (measured with the lines, every frame).
@@ -342,7 +211,7 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
   const setView = useCallback((update: (view: CanvasView) => CanvasView) => {
     onView(paged ? (v) => pageViewOf(update(v), dims.current.size, dims.current.page) : update);
   }, [onView, paged]);
-  const [shown, setShown] = useState<{ boxes: Rect[]; hover: Rect | null; hoverPurple: boolean; hoverText: boolean; underlines: (Rect & { purple: boolean })[]; parent: Rect | null; labels: { id: string; name: string; rect: Rect; kind: string }[]; measure: { a: Rect; b: Rect } | null; origins: Rect[]; kids: Rect[] }>({ boxes: [], hover: null, hoverPurple: false, hoverText: false, underlines: [], parent: null, labels: [], measure: null, origins: [], kids: [] });
+  const [shown, setShown] = useState<{ boxes: Rect[]; hover: Rect | null; hoverPurple: boolean; hoverText: boolean; underlines: (Rect & { purple: boolean })[]; parent: Rect | null; labels: { id: string; name: string; rect: Rect; kind: string }[]; measure: { a: Rect; b: Rect } | null; origins: Rect[]; kids: Rect[]; links: Link[]; flows: { id: string; name: string; rect: Rect }[] }>({ boxes: [], hover: null, hoverPurple: false, hoverText: false, underlines: [], parent: null, labels: [], measure: null, origins: [], kids: [], links: [], flows: [] });
 
   const probe = useRef<HTMLSpanElement>(null);
   // ⌥ held: a copy drag's ghosts follow the pointer (the originals stay), and distances to what is hovered are measured in red, as Figma's.
@@ -368,9 +237,9 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", clear); };
   }, []);
   const hovered = useRef<HTMLElement | null>(null);
-  const latest = useRef({ view, selection, tool, space, doc, dragging, pageId });
+  const latest = useRef({ view, selection, tool, space, doc, dragging, pageId, prototyping });
   useEffect(() => {
-    latest.current = { view, selection, tool, space, doc, dragging, pageId };
+    latest.current = { view, selection, tool, space, doc, dragging, pageId, prototyping };
   });
 
   // The viewport's size (the rulers, fitting).
@@ -430,15 +299,40 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
   }, [view.zoom]);
   useEffect(() => () => { if (zoomSettle.current !== null) window.clearTimeout(zoomSettle.current); }, []);
 
-  // The lines over the canvas follow what they outline, every frame — measured in canvas units, so a pan or a zoom never leaves them behind.
+  // What the lines over the canvas follow may have moved: measured again on the next frame. (Set by every render, the pointer, the wheel,
+  // the keys — and, at most every 250ms, for what moves on its own: a picture loading, a font arriving.)
+  const remeasure = useRef(true);
+  useEffect(() => {
+    remeasure.current = true;
+  });
+  useEffect(() => {
+    const vp = viewport.current;
+    if (!vp) return;
+    const mark = () => { remeasure.current = true; };
+    window.addEventListener("pointermove", mark, { passive: true });
+    vp.addEventListener("wheel", mark, { passive: true });
+    window.addEventListener("keydown", mark, { passive: true });
+    window.addEventListener("pointerup", mark, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", mark);
+      vp.removeEventListener("wheel", mark);
+      window.removeEventListener("keydown", mark);
+      window.removeEventListener("pointerup", mark);
+    };
+  }, []);
+  // The lines over the canvas follow what they outline — measured in canvas units, so a pan or a zoom never leaves them behind.
   useEffect(() => {
     let raf = 0;
     let last = "";
-    const tick = () => {
+    let measuredAt = 0;
+    const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const vp = viewport.current;
       const w = world.current;
       if (!vp || !w) return;
+      if (!remeasure.current && now - measuredAt < 250) return;
+      remeasure.current = false;
+      measuredAt = now;
       const { selection: sel, doc: d } = latest.current;
       const elFor = (id: string) => ghosts.current.get(id) ?? elOf(id);
       const boxes = sel.map((id) => elFor(id)).filter((el): el is HTMLElement => Boolean(el)).map((el) => worldRect(el));
@@ -501,7 +395,26 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
           kids = n.children.filter((c) => c.visible !== false && !c.absolute).map((c) => elOf(c.id)).filter((el): el is HTMLElement => Boolean(el)).map((el) => worldRect(el));
         }
       }
-      const next = { boxes, hover, hoverPurple, hoverText, underlines, parent, labels, measure, origins, kids };
+      // The Prototype tab: every connection on the page (from its layer to its frame or variant), and where the flows start.
+      const links: Link[] = [];
+      const flows: { id: string; name: string; rect: Rect }[] = [];
+      if (latest.current.prototyping) {
+        walk(d.nodes, (n, parentNode) => {
+          if (!parentNode && isFrameLike(n) && n.flowStart) {
+            const el = elOf(n.id);
+            if (el) flows.push({ id: n.id, name: n.flowStart, rect: worldRect(el) });
+          }
+          for (const r of n.reactions ?? []) {
+            const action = actionOf(r);
+            if (action !== "navigate" && action !== "change" && action !== "scroll") continue;
+            const from = elOf(n.id);
+            const to = r.target ? elOf(r.target) : null;
+            if (!from || !to) continue;
+            links.push({ source: n.id, id: r.id, from: worldRect(from), to: worldRect(to), change: action === "change", label: TRIGGER_SHORT[r.trigger] });
+          }
+        });
+      }
+      const next = { boxes, hover, hoverPurple, hoverText, underlines, parent, labels, measure, origins, kids, links, flows };
       const key = JSON.stringify(next);
       if (key === last) return;
       last = key;
@@ -654,19 +567,53 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
   }, []);
 
-  /** Follows the pointer until it lets go, then `end`. */
+  /**
+   * Follows the pointer until it lets go, then `end` — also when the press is
+   * lost (the system took the pointer, the window lost the focus) or Esc is
+   * pressed: the drag ends where it was, nothing stays stuck to the pointer.
+   */
   const follow = (kind: NonNullable<typeof dragging>, move: (e: PointerEvent) => void, end: (e: PointerEvent) => void) => {
     setDragging(kind);
-    const onMovePointer = (e: PointerEvent) => move(e);
-    const onUp = (e: PointerEvent) => {
+    let last: PointerEvent | null = null;
+    const onMovePointer = (e: PointerEvent) => {
+      last = e;
+      move(e);
+    };
+    const stop = (e: PointerEvent | null) => {
       window.removeEventListener("pointermove", onMovePointer);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("blur", onCancel);
+      window.removeEventListener("keydown", onKey, true);
       setDragging(null);
-      end(e);
+      end(e ?? last ?? new PointerEvent("pointerup"));
+    };
+    const onUp = (e: PointerEvent) => stop(e);
+    const onCancel = () => stop(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      stop(null);
     };
     window.addEventListener("pointermove", onMovePointer);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("blur", onCancel);
+    window.addEventListener("keydown", onKey, true);
   };
+
+  /**
+   * An element's own box in canvas px — its place and size as laid out, before
+   * its rotation and flip (they turn it around its centre): the centre of
+   * what is drawn, its own width and height.
+   */
+  const ownBox = useCallback((el: HTMLElement): Rect => {
+    const r = canvasRect(el);
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    return { x: r.x + r.w / 2 - w / 2, y: r.y + r.h / 2 - h / 2, w, h };
+  }, [canvasRect]);
 
   const startPan = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -772,8 +719,8 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     const { doc: d, selection: sel } = latest.current;
     const ids = sel.includes(primaryId) ? sel : [primaryId];
     const tops = topmost(d.nodes, ids.filter((id) => !id.includes("/")));
-    // (The Page Editor's page stays where it is.)
-    if (!tops.length || tops.some((t) => t.node.id === latest.current.pageId)) return;
+    // (The Page Editor's page stays where it is; a locked layer too.)
+    if (!tops.length || tops.some((t) => t.node.id === latest.current.pageId || isLocked(d.nodes, t.node.id))) return;
     const excluded = new Set(tops.map((t) => t.node.id));
     const els = tops.map((t) => ({ found: t, el: elOf(t.node.id)! })).filter((t) => t.el);
     const start = { x: e.clientX, y: e.clientY };
@@ -900,26 +847,28 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
           const parentId = found.parent?.id ?? null;
           const targetFrame = target.id ? getNode(d2.nodes, target.id) : null;
           const targetAuto = targetFrame && isFrameLike(targetFrame) && targetFrame.layoutMode !== "none";
-          const rect = canvasRect(single.el);
+          // Its own box (a rotated layer's too: not the bounds of what is drawn), moved.
+          const rect = ownBox(single.el);
           const moved = { x: rect.x + delta.dx, y: rect.y + delta.dy };
           if (target.id === parentId) {
-            if (targetAuto && target.el) {
+            if (targetAuto && target.el && isFrameLike(targetFrame)) {
               const index = indexIn(target.el, target.id!, ev.clientX, ev.clientY, excluded);
-              return copy ? onReparent(found.node.id, target.id, 0, 0, index, true) : onReorder(found.node.id, index);
+              if (!copy) return onReorder(found.node.id, index);
+              // The layer stays: the copy's place among all its siblings (the place found leaves the layer out).
+              const kids = targetFrame.children.filter((c) => !excluded.has(c.id));
+              const at = index < kids.length ? targetFrame.children.findIndex((c) => c.id === kids[index].id) : targetFrame.children.length;
+              return onReparent(found.node.id, target.id, 0, 0, at, true);
             }
-            const origin = found.parent ? canvasRect(elOf(found.parent.id)!) : { x: 0, y: 0 };
-            return onMove([{ id: found.node.id, x: Math.round(moved.x - origin.x), y: Math.round(moved.y - origin.y) }], copy);
+            // In the same parent: its own place, moved (exact, whatever the parent's turn).
+            return onMove([{ id: found.node.id, x: Math.round(found.node.x + delta.dx), y: Math.round(found.node.y + delta.dy) }], copy);
           }
-          const origin = target.el ? canvasRect(target.el) : { x: 0, y: 0 };
+          const origin = target.el ? ownBox(target.el) : { x: 0, y: 0 };
           const index = targetAuto && target.el ? indexIn(target.el, target.id!, ev.clientX, ev.clientY, excluded) : undefined;
           return onReparent(found.node.id, target.id, Math.round(moved.x - origin.x), Math.round(moved.y - origin.y), index, copy);
         }
+        // Each in its own parent: its own place, moved.
         onMove(
-          els.map(({ found, el }) => {
-            const rect = canvasRect(el);
-            const origin = found.parent ? canvasRect(elOf(found.parent.id)!) : { x: 0, y: 0 };
-            return { id: found.node.id, x: Math.round(rect.x + delta!.dx - origin.x), y: Math.round(rect.y + delta!.dy - origin.y) };
-          }),
+          els.map(({ found }) => ({ id: found.node.id, x: Math.round(found.node.x + delta!.dx), y: Math.round(found.node.y + delta!.dy) })),
           copy
         );
       }
@@ -933,39 +882,66 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     const el = id ? elOf(id) : null;
     const found = id ? findNode(latest.current.doc.nodes, id) : null;
     if (!id || !el || !found) return;
-    const from = canvasRect(el);
-    const origin = found.parent ? canvasRect(elOf(found.parent.id)!) : { x: 0, y: 0 };
+    // Its own box (before its turn) and the turn: the pointer's move is read along its own sides, so a rotated layer grows along them.
+    const from = ownBox(el);
+    const turn = ((found.node.rotation ?? 0) * Math.PI) / 180;
+    const cos = Math.cos(turn);
+    const sin = Math.sin(turn);
+    const flip = { x: found.node.flipH ? -1 : 1, y: found.node.flipV ? -1 : 1 };
+    const parentEl = found.parent ? elOf(found.parent.id) : null;
+    const origin = parentEl ? ownBox(parentEl) : { x: 0, y: 0 };
     const start = { x: e.clientX, y: e.clientY };
     const changed = { x: handle.includes("e") || handle.includes("w"), y: handle.includes("n") || handle.includes("s") };
-    const ratio = from.h ? from.w / from.h : 1;
+    const ratio = from.w > 0 && from.h > 0 ? from.w / from.h : 1;
+    const inAuto = Boolean(found.parent && found.parent.layoutMode !== "none" && !found.node.absolute);
+    // The drag is previewed on the element (its size and place written on it) and given to the model once, on release:
+    // every model change draws the whole file again. What was written on it is put back before (React sets the rest).
+    const saved = { width: el.style.width, height: el.style.height, left: el.style.left, top: el.style.top, flex: el.style.flex, maxWidth: el.style.maxWidth, maxHeight: el.style.maxHeight, minWidth: el.style.minWidth, minHeight: el.style.minHeight };
+    let result: { rect: Rect } | null = null;
     follow(
       "resize",
       (ev) => {
         const zoom = latest.current.view.zoom;
-        const dx = (ev.clientX - start.x) / zoom;
-        const dy = (ev.clientY - start.y) / zoom;
-        const rect = { ...from };
-        // ⌥: the opposite side moves the same way, the centre stays put (Figma's).
+        const sx = (ev.clientX - start.x) / zoom;
+        const sy = (ev.clientY - start.y) / zoom;
+        // Along its own sides (its turn undone, a flipped side mirrored).
+        const dx = (sx * cos + sy * sin) * flip.x;
+        const dy = (-sx * sin + sy * cos) * flip.y;
         const centred = ev.altKey;
         const k = centred ? 2 : 1;
-        if (handle.includes("e")) rect.w = from.w + k * dx;
-        if (handle.includes("w")) { rect.w = from.w - k * dx; if (!centred) rect.x = from.x + dx; }
-        if (handle.includes("s")) rect.h = from.h + k * dy;
-        if (handle.includes("n")) { rect.h = from.h - k * dy; if (!centred) rect.y = from.y + dy; }
+        let w = from.w;
+        let h = from.h;
+        if (handle.includes("e")) w = from.w + k * dx;
+        if (handle.includes("w")) w = from.w - k * dx;
+        if (handle.includes("s")) h = from.h + k * dy;
+        if (handle.includes("n")) h = from.h - k * dy;
         // ⇧ on a corner, or the node's own constrained proportions: W and H change together.
         if ((ev.shiftKey && changed.x && changed.y) || found.node.lockAspect) {
-          if (changed.x) rect.h = rect.w / ratio;
-          else rect.w = rect.h * ratio;
-          if (!centred && handle.includes("n")) rect.y = from.y + from.h - rect.h;
-          if (!centred && handle.includes("w") && !changed.x) rect.x = from.x + from.w - rect.w;
+          if (changed.x) h = w / ratio;
+          else w = h * ratio;
         }
-        const w = Math.max(1, Math.round(rect.w));
-        const h = Math.max(found.node.type === "line" ? 0 : 1, Math.round(rect.h));
-        const x = centred ? from.x + (from.w - w) / 2 : handle.includes("w") ? from.x + from.w - w : rect.x;
-        const y = centred ? from.y + (from.h - h) / 2 : handle.includes("n") ? from.y + from.h - h : rect.y;
-        onResize(id, { x: Math.round(x - origin.x), y: Math.round(y - origin.y), w, h }, changed);
+        w = Math.max(1, Math.round(w));
+        h = Math.max(found.node.type === "line" ? 0 : 1, Math.round(h));
+        // The side across from the handle stays where it is (the centre, with ⌥): the centre moves by half the growth, along its sides.
+        const gx = centred ? 0 : ((w - from.w) / 2) * (handle.includes("e") ? 1 : handle.includes("w") ? -1 : 0) * flip.x;
+        const gy = centred ? 0 : ((h - from.h) / 2) * (handle.includes("s") ? 1 : handle.includes("n") ? -1 : 0) * flip.y;
+        const cx = from.x + from.w / 2 + gx * cos - gy * sin;
+        const cy = from.y + from.h / 2 + gx * sin + gy * cos;
+        const rect = { x: Math.round(cx - w / 2 - origin.x), y: Math.round(cy - h / 2 - origin.y), w, h };
+        result = { rect };
+        el.style.width = `${w}px`;
+        el.style.height = `${h}px`;
+        el.style.flex = "none";
+        el.style.maxWidth = el.style.maxHeight = el.style.minWidth = el.style.minHeight = "none";
+        if (!inAuto) {
+          el.style.left = `${rect.x}px`;
+          el.style.top = `${rect.y}px`;
+        }
       },
-      () => {}
+      () => {
+        Object.assign(el.style, saved);
+        if (result) onResize(id, result.rect, changed);
+      }
     );
   };
 
@@ -976,23 +952,37 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
     const under = frameUnder(e.clientX, e.clientY, new Set());
     const origin = under.el ? canvasRect(under.el) : { x: 0, y: 0 };
     let rect: Rect = { x: start.x, y: start.y, w: 0, h: 0 };
+    // A line: from where it was pressed to the pointer (its direction kept — ⇧: by 45°).
+    let vec = { dx: 0, dy: 0 };
     follow(
       "draw",
       (ev) => {
         const at = toCanvas(ev.clientX, ev.clientY);
         let w = at.x - start.x;
         let h = at.y - start.y;
-        if (ev.shiftKey) { const s = Math.max(Math.abs(w), Math.abs(h)); w = Math.sign(w || 1) * s; h = Math.sign(h || 1) * s; }
+        if (drawing === "line") {
+          if (ev.shiftKey) {
+            const length = Math.hypot(w, h);
+            const angle = Math.round(Math.atan2(h, w) / (Math.PI / 4)) * (Math.PI / 4);
+            w = Math.cos(angle) * length;
+            h = Math.sin(angle) * length;
+          }
+          vec = { dx: w, dy: h };
+        } else if (ev.shiftKey) { const s = Math.max(Math.abs(w), Math.abs(h)); w = Math.sign(w || 1) * s; h = Math.sign(h || 1) * s; }
         rect = { x: Math.min(start.x, start.x + w), y: Math.min(start.y, start.y + h), w: Math.abs(w), h: Math.abs(h) };
-        if (drawing !== "text") setDrawRect(rect);
+        setDrawRect(rect);
       },
       () => {
         setDrawRect(null);
         const zoom = latest.current.view.zoom;
-        const clicked = drawing === "text" || (rect.w * zoom < 3 && rect.h * zoom < 3);
-        const r = clicked ? { x: start.x, y: start.y, w: 100, h: 100 } : rect;
+        const clicked = rect.w * zoom < 3 && rect.h * zoom < 3;
         // Into an auto layout: at the pointer's place in its flow (Figma's), not at its end.
         const index = under.id && under.el ? (() => { const i = indexIn(under.el, under.id, e.clientX, e.clientY, new Set()); return i >= 0 ? i : undefined; })() : undefined;
+        if (drawing === "line" && !clicked) {
+          // Its start and its vector (signed): the editor turns it into a line of that length at that angle.
+          return onDraw(drawing, under.id, { x: Math.round(start.x - origin.x), y: Math.round(start.y - origin.y), w: Math.round(vec.dx), h: Math.round(vec.dy) }, false, index);
+        }
+        const r = clicked ? { x: start.x, y: start.y, w: 100, h: 100 } : rect;
         onDraw(drawing, under.id, { x: Math.round(r.x - origin.x), y: Math.round(r.y - origin.y), w: Math.max(1, Math.round(r.w)), h: Math.max(drawing === "line" ? 0 : 1, Math.round(r.h)) }, clicked, index);
       }
     );
@@ -1096,17 +1086,46 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
       return;
     }
     if (!latest.current.selection.includes(id)) onSelect([id]);
-    startMove(e, id);
+    // A locked frame: picked, not moved.
+    if (!getNode(latest.current.doc.nodes, id)?.locked) startMove(e, id);
   };
 
   // The lines, at the screen's scale — from the same view the world is drawn with.
   const S = (r: Rect): Rect => ({ x: view.x + r.x * view.zoom, y: view.y + r.y * view.zoom, w: r.w * view.zoom, h: r.h * view.zoom });
+  /**
+   * What a connection from `sourceId` goes to under the pointer, as Figma's:
+   * inside a component set, another of its variants (Change to); else a
+   * top-level frame other than its own (Navigate to). Its box on the screen.
+   */
+  const linkTarget = (clientX: number, clientY: number, sourceId: string): { id: string; rect: Rect } | null => {
+    const w = world.current;
+    const { doc: d, view: v } = latest.current;
+    if (!w) return null;
+    const onScreen = (el: Element): Rect => { const r = worldRect(el); return { x: v.x + r.x * v.zoom, y: v.y + r.y * v.zoom, w: r.w * v.zoom, h: r.h * v.zoom }; };
+    const hit = document.elementsFromPoint(clientX, clientY).find((el): el is HTMLElement => el instanceof HTMLElement && Boolean(el.dataset.nodeId) && w.contains(el));
+    if (!hit) return null;
+    const source = findNode(d.nodes, sourceId.split("/")[0]);
+    const set = source?.path.map((id) => getNode(d.nodes, id)).find((n): n is FrameNode => n?.type === "componentSet") ?? null;
+    if (set) {
+      for (let el: HTMLElement | null = hit; el && w.contains(el); el = el.parentElement?.closest<HTMLElement>("[data-node-id]") ?? null) {
+        const id = el.dataset.nodeId!;
+        if (set.children.some((c) => c.id === id)) return { id, rect: onScreen(el) };
+      }
+    }
+    const top = findNode(d.nodes, hit.dataset.nodeId!.split("/")[0])?.path[0];
+    if (!top || top === source?.path[0]) return null;
+    const node = getNode(d.nodes, top);
+    const el = elOf(top);
+    return node && isFrameLike(node) && node.type !== "componentSet" && el ? { id: top, rect: onScreen(el) } : null;
+  };
   const boxes = shown.boxes.map(S);
   const hoverBox = shown.hover ? S(shown.hover) : null;
   // A hovered text is drawn as its underline only (Figma's), not as a box.
   const hoverIsText = shown.hoverText;
   const parentBox = shown.parent ? S(shown.parent) : null;
   const box = boxes.length === 1 ? boxes[0] : null;
+  const selectedSetNode = selection.length === 1 && !selection[0].includes("/") ? getNode(doc.nodes, selection[0]) : null;
+  const selectedSet = selectedSetNode?.type === "componentSet" ? { id: selectedSetNode.id, count: selectedSetNode.children.filter((c) => c.type === "component").length } : null;
   const multiBounds = boxes.length > 1
     ? (() => {
         const x = Math.min(...boxes.map((b) => b.x));
@@ -1254,6 +1273,12 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
   const cursor = dragging === "pan" || (dragging === null && (space || tool === "hand")) ? (dragging === "pan" ? "grabbing" : "grab") : tool === "text" ? "text" : DRAW_TOOLS.has(tool) ? "crosshair" : undefined;
   const ruled = rulers && !paged;
   const inset = ruled ? RULER : 0;
+  // (The same objects while nothing they say changes: the rulers redraw only then.)
+  const rulerView = useMemo(() => ({ ...view, x: view.x - inset, y: view.y - inset }), [view, inset]);
+  const selectedSpan = box ?? multiBounds;
+  const spanKey = selectedSpan ? `${selectedSpan.x},${selectedSpan.y},${selectedSpan.w},${selectedSpan.h}` : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by its numbers
+  const rulerSelected = useMemo(() => selectedSpan, [spanKey]);
   // The page's scrollbar: what is in sight of the page (and the room under it), along the view's right edge.
   const scrollbar = (() => {
     if (!paged) return null;
@@ -1339,7 +1364,17 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
           <MotionStyle />
           {/* The Page Editor: the page's own fill behind and around it, as far as the view goes — the site's page has no canvas beside it. */}
           {pageNode && <div data-page-backdrop="" aria-hidden className="pointer-events-none absolute" style={{ left: -view.x / view.zoom, top: -view.y / view.zoom, width: size.width / view.zoom, height: size.height / view.zoom, ...fillsCss(pageNode.fills, render.byId) }} />}
-          <World doc={doc} render={render} />
+          {paged ? (
+            // The Page Editor: the page in the site's own container (its width the preview's) — the site's narrow-screen rules apply in it.
+            <div data-canvas-page="" className="absolute left-0 top-0" style={{ width: pageWidth, "--page-lift": "0px" } as React.CSSProperties}>
+              <style>{PAGE_CSS}</style>
+              <div data-page-lift="" className="relative">
+                <World doc={doc} render={render} />
+              </div>
+            </div>
+          ) : (
+            <World doc={doc} render={render} />
+          )}
         </div>
       </div>
 
@@ -1493,7 +1528,44 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
             style={{ left: box.x + (handle.includes("w") ? 0 : handle.includes("e") ? box.w : box.w / 2), top: box.y + (handle.includes("n") ? 0 : handle.includes("s") ? box.h : box.h / 2), borderColor: tone, cursor: HANDLE_CURSOR[handle] }}
           />
         ))}
-      {(box ?? multiBounds) && dragging !== "resize" && (
+      {prototyping && (
+        <Noodles
+          links={shown.links}
+          flows={shown.flows}
+          toScreen={S}
+          selected={selection}
+          handle={!dragging && box && selection.length === 1 && !selection[0].includes("/") ? { id: selection[0], box } : null}
+          viewport={viewport}
+          findTarget={linkTarget}
+          onConnect={onConnect}
+          onRetarget={onRetarget}
+          onOpenReaction={onOpenReaction}
+          onPlayFlow={onPlayFlow}
+        />
+      )}
+      {/* A component set selected, as Figma's: under it how many variants it has (in the size's place), and a + adding one. */}
+      {box && dragging !== "resize" && selectedSet && (
+        <>
+          <span aria-hidden className="pointer-events-none absolute -translate-x-1/2 px-1.5 rounded-[3px] text-[11px] font-medium leading-4 text-white whitespace-nowrap" style={{ left: box.x + box.w / 2, top: box.y + box.h + 6, background: tone }}>
+            {selectedSet.count} {selectedSet.count === 1 ? "Variant" : "Variants"}
+          </span>
+          {onAddVariant && (
+            <button
+              type="button"
+              data-canvas-ui=""
+              aria-label="Add variant"
+              title="Add variant"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onAddVariant(selectedSet.id)}
+              className="absolute -translate-x-1/2 flex items-center justify-center w-5 h-5 rounded-[4px] text-white cursor-pointer hover:brightness-110"
+              style={{ left: box.x + box.w / 2, top: box.y + box.h + 28, background: tone }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden><path d="M6 1.5v9M1.5 6h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+            </button>
+          )}
+        </>
+      )}
+      {(box ?? multiBounds) && dragging !== "resize" && !(box && selectedSet) && (
         <span aria-hidden className="pointer-events-none absolute -translate-x-1/2 px-1 rounded-[3px] text-[11px] font-medium leading-4 text-white tabular-nums whitespace-nowrap" style={{ left: (box ?? multiBounds)!.x + (box ?? multiBounds)!.w / 2, top: (box ?? multiBounds)!.y + (box ?? multiBounds)!.h + 6, background: tone }}>
           {Math.round((box ?? multiBounds)!.w / view.zoom)} × {Math.round((box ?? multiBounds)!.h / view.zoom)}
         </span>
@@ -1501,7 +1573,7 @@ export function Canvas({ doc: file, render, selection, onSelect, view: given, on
       {drawRect && (
         <div aria-hidden className="pointer-events-none absolute border border-[var(--edit-accent)]" style={{ left: view.x + drawRect.x * view.zoom, top: view.y + drawRect.y * view.zoom, width: drawRect.w * view.zoom, height: drawRect.h * view.zoom }} />
       )}
-      {ruled && <Rulers view={{ ...view, x: view.x - inset, y: view.y - inset }} width={size.width - inset} height={size.height - inset} selected={box ?? multiBounds} />}
+      {ruled && <Rulers view={rulerView} width={size.width - inset} height={size.height - inset} selected={rulerSelected} />}
       {scrollbar && (
         <span
           data-canvas-ui=""

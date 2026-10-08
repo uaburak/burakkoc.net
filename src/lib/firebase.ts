@@ -1,8 +1,10 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore }  from "firebase/firestore";
-import { getStorage }    from "firebase/storage";
-import { getAuth }       from "firebase/auth";
+import { getFirestore, initializeFirestore, type Firestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
+import { getAuth } from "firebase/auth";
 
+// A web app's config is public by design: what protects the data is the
+// project's security rules (firestore.rules, storage.rules) and sign-in.
 const firebaseConfig = {
   apiKey:            "AIzaSyDxG-Rh5V2AFWD2JeP43jzpET1nXuER5zs",
   authDomain:        "burakkoc-a15d3.firebaseapp.com",
@@ -16,6 +18,16 @@ const firebaseConfig = {
 // Singleton — safe for Next.js hot-reload
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-export const db      = getFirestore(app);
+/** Firestore, taking `undefined` fields as absent (an optional field left unset is simply not written). */
+function firestore(): Firestore {
+  try {
+    return initializeFirestore(app, { ignoreUndefinedProperties: true });
+  } catch {
+    // Already made (a hot reload): the same one.
+    return getFirestore(app);
+  }
+}
+
+export const db = firestore();
 export const storage = getStorage(app);
-export const auth    = getAuth(app);
+export const auth = getAuth(app);

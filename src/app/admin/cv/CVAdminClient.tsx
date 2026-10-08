@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { Input } from "@/components/Input";
 import { PillButton } from "@/components/Button";
 import { Segmented } from "@/components/Segmented";
 import { Select } from "@/components/Select";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useEditorContext, EditorNavControls } from "@/components/admin/EditorNavControls";
 import { getCVData, saveCVData } from "@/lib/firestore";
-import { uploadFile, cvStoragePath } from "@/lib/storage";
+import { useUndo } from "@/components/admin/useUndo";
+import { uploadMedia } from "@/lib/storage";
 import { CVData } from "@/types/cv";
 import { CVClient } from "@/app/cv/CVClient";
 import { cn } from "@/lib/utils";
@@ -91,7 +91,10 @@ function TrafficDots({
       {onDelete && (
         <button
           type="button"
-          onClick={onDelete}
+          onClick={() => {
+            // (Undo — ⌘Z — brings it back too, until the page is left.)
+            if (window.confirm("Bu öğe silinsin mi?")) onDelete();
+          }}
           title="Sil"
           data-traffic-color="#e20000"
           data-traffic-icon="trash"
@@ -173,12 +176,12 @@ function MediaUploadField({
   const handleFile = async (file: File) => {
     setProgress(0);
     try {
-      const path = cvStoragePath(folderSlug, file);
-      const url = await uploadFile(file, path, setProgress);
+      // The CV's own folder (cv/…): never a project's, so no project's deletion takes it.
+      const url = await uploadMedia(file, `cv/${folderSlug.replace(/^cv-/, "")}`, setProgress);
       onChange(url);
     } catch (err) {
       console.error("Upload failed:", err);
-      alert("Dosya yüklenirken hata oluştu.");
+      alert(err instanceof Error ? `Dosya yüklenemedi: ${err.message}` : "Dosya yüklenirken hata oluştu.");
     } finally {
       setProgress(null);
     }
@@ -247,43 +250,114 @@ function MediaUploadField({
 
 // ── Main CV Admin Client ───────────────────────────────────────────────────────
 
+/** What the JSON editor may put in the CV: its lists lists, its words words — else what is wrong. */
+function cvProblem(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "Bir nesne olmalı: { … }";
+  const v = value as Record<string, unknown>;
+  for (const key of ["aboutParagraphs", "experience", "education", "skillsList", "hobbies", "contact"]) {
+    if (!Array.isArray(v[key])) return `“${key}” bir liste olmalı: [ … ]`;
+  }
+  for (const key of ["myname", "myrole", "profileImage", "cvPdfUrl"]) {
+    if (v[key] !== undefined && typeof v[key] !== "string") return `“${key}” bir metin olmalı`;
+  }
+  if ((v.aboutParagraphs as unknown[]).some((p) => typeof p !== "string")) return "“aboutParagraphs” metinlerden oluşmalı";
+  if ((v.hobbies as unknown[]).some((p) => typeof p !== "string")) return "“hobbies” metinlerden oluşmalı";
+  for (const key of ["experience", "education", "skillsList", "contact"]) {
+    if ((v[key] as unknown[]).some((x) => !x || typeof x !== "object" || Array.isArray(x))) return `“${key}” nesnelerden oluşmalı`;
+  }
+  return null;
+}
+
+type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string };
+
 export function CVAdminClient() {
   const [cvData, setCvData] = useState<CVData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState<CVData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
 
-  const { saveStatus, setSaveStatus, registerSave } = useEditorContext();
-
-  useEffect(() => {
+  const load = useCallback(() => {
     getCVData()
       .then((data) => {
+        setLoadError(null);
         setCvData(data);
-        setLoading(false);
+        setSaved(data);
       })
       .catch((err) => {
         console.error("Failed to load CV data:", err);
-        setLoading(false);
+        setLoadError(err instanceof Error ? err.message : String(err));
       });
   }, []);
+  useEffect(load, [load]);
 
+  // Undo / redo (⌘Z, ⇧⌘Z): the last 20 steps, in memory; nothing is written until Kaydet.
+  const state = useMemo(() => ({ cv: cvData }), [cvData]);
+  const history = useUndo(state, (step) => setCvData(step.cv), { ready: Boolean(cvData) });
+  const dirty = Boolean(cvData && saved && cvData !== saved);
+
+  const latest = useRef({ cvData, dirty });
+  useEffect(() => {
+    latest.current = { cvData, dirty };
+  });
   const handleSave = useCallback(async () => {
-    if (!cvData) return;
-    setSaveStatus("saving");
+    const data = latest.current.cvData;
+    if (!data) return;
+    setSaveState({ kind: "saving" });
     try {
-      await saveCVData(cvData);
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2500);
+      await saveCVData(data);
+      // What was written is saved — an edit made meanwhile stays unsaved.
+      setSaved(data);
+      setSaveState({ kind: "saved" });
+      window.setTimeout(() => setSaveState((st) => (st.kind === "saved" ? { kind: "idle" } : st)), 2000);
     } catch (err) {
       console.error("Failed to save CV data:", err);
-      setSaveStatus("error");
-      setTimeout(() => setSaveStatus("idle"), 3000);
+      const code = (err as { code?: string }).code;
+      setSaveState({ kind: "error", message: code === "permission-denied" ? "Yetki yok — admin hesabıyla giriş yap." : err instanceof Error ? err.message : String(err) });
     }
-  }, [cvData, setSaveStatus]);
+  }, []);
 
+  // ⌘S saves, ⌘Z / ⇧⌘Z undo and redo (not while a field is typed in: its own undo is the browser's).
   useEffect(() => {
-    registerSave(handleSave);
-  }, [handleSave, registerSave]);
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.code === "KeyS") {
+        e.preventDefault();
+        (document.activeElement as HTMLElement | null)?.blur?.();
+        window.setTimeout(() => void handleSave(), 0);
+        return;
+      }
+      const typing = document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+      if (typing || e.code !== "KeyZ") return;
+      e.preventDefault();
+      if (e.shiftKey) history.redo();
+      else history.undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleSave, history]);
 
-  if (loading || !cvData) {
+  // Leaving with something unsaved asks first.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen w-full bg-[var(--bg-1)] flex flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-base font-medium text-[var(--text-title)]">CV yüklenemedi</p>
+        <p className="max-w-[420px] text-sm text-[var(--text-subtitle)]">{loadError}</p>
+        <button type="button" onClick={load} className="h-9 px-4 rounded-full border border-[var(--border)] text-sm text-[var(--text-p)] hover:bg-[var(--bg-4)] cursor-pointer">Tekrar dene</button>
+      </div>
+    );
+  }
+  if (!cvData) {
     return (
       <div className="min-h-screen w-full bg-[var(--bg-1)] flex items-center justify-center">
         <Spinner className="w-6 h-6 text-[var(--text-subtitle)]" />
@@ -298,6 +372,7 @@ export function CVAdminClient() {
         <div className="flex items-center gap-3">
           <Link
             href="/admin"
+            onClick={(e) => { if (latest.current.dirty && !window.confirm("Kaydedilmemiş değişiklikler var. Kaydetmeden çıkılsın mı?")) e.preventDefault(); }}
             className="inline-flex items-center h-10 gap-1.5 px-3 rounded-full text-sm font-medium text-[var(--text-p)] hover:bg-[var(--bg-4)] transition-colors duration-200"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -323,7 +398,11 @@ export function CVAdminClient() {
               {cvData.myname || "CV Yönetimi"}
             </div>
             <div className="flex items-center gap-2">
-              <EditorNavControls />
+              {saveState.kind === "error" && <span className="max-w-[220px] truncate text-xs text-red-500" title={saveState.message}>Kaydedilemedi: {saveState.message}</span>}
+              <PillButton size="md" variant={saveState.kind === "saved" ? "filled" : "default"} onClick={() => void handleSave()} disabled={saveState.kind === "saving"} className="relative" title="Kaydet (⌘S)">
+                {saveState.kind === "saving" ? "Kaydediliyor…" : saveState.kind === "saved" && !dirty ? "Kaydedildi" : "Kaydet"}
+                {dirty && saveState.kind !== "saving" && <span aria-label="Kaydedilmemiş değişiklikler" className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400" />}
+              </PillButton>
             </div>
           </div>
 
@@ -506,7 +585,7 @@ export function CVAdminClient() {
                         value={exp.year}
                         onChange={(e) => {
                           const next = [...cvData.experience];
-                          next[index].year = e.target.value;
+                          next[index] = { ...next[index], year: e.target.value };
                           setCvData({ ...cvData, experience: next });
                         }}
                       />
@@ -517,7 +596,7 @@ export function CVAdminClient() {
                         value={exp.company}
                         onChange={(e) => {
                           const next = [...cvData.experience];
-                          next[index].company = e.target.value;
+                          next[index] = { ...next[index], company: e.target.value };
                           setCvData({ ...cvData, experience: next });
                         }}
                       />
@@ -528,7 +607,7 @@ export function CVAdminClient() {
                         value={exp.role}
                         onChange={(e) => {
                           const next = [...cvData.experience];
-                          next[index].role = e.target.value;
+                          next[index] = { ...next[index], role: e.target.value };
                           setCvData({ ...cvData, experience: next });
                         }}
                       />
@@ -539,7 +618,7 @@ export function CVAdminClient() {
                       value={exp.description}
                       onChange={(val) => {
                         const next = [...cvData.experience];
-                        next[index].description = val;
+                        next[index] = { ...next[index], description: val };
                         setCvData({ ...cvData, experience: next });
                       }}
                       placeholder="Deneyim açıklaması…"
@@ -620,7 +699,7 @@ export function CVAdminClient() {
                         value={edu.year}
                         onChange={(e) => {
                           const next = [...cvData.education];
-                          next[index].year = e.target.value;
+                          next[index] = { ...next[index], year: e.target.value };
                           setCvData({ ...cvData, education: next });
                         }}
                       />
@@ -631,7 +710,7 @@ export function CVAdminClient() {
                         value={edu.institution}
                         onChange={(e) => {
                           const next = [...cvData.education];
-                          next[index].institution = e.target.value;
+                          next[index] = { ...next[index], institution: e.target.value };
                           setCvData({ ...cvData, education: next });
                         }}
                       />
@@ -642,7 +721,7 @@ export function CVAdminClient() {
                         value={edu.degree}
                         onChange={(e) => {
                           const next = [...cvData.education];
-                          next[index].degree = e.target.value;
+                          next[index] = { ...next[index], degree: e.target.value };
                           setCvData({ ...cvData, education: next });
                         }}
                       />
@@ -653,7 +732,7 @@ export function CVAdminClient() {
                       value={edu.description}
                       onChange={(val) => {
                         const next = [...cvData.education];
-                        next[index].description = val;
+                        next[index] = { ...next[index], description: val };
                         setCvData({ ...cvData, education: next });
                       }}
                       placeholder="Eğitim açıklaması…"
@@ -699,7 +778,7 @@ export function CVAdminClient() {
                         value={skill.name}
                         onChange={(e) => {
                           const next = [...cvData.skillsList];
-                          next[index].name = e.target.value;
+                          next[index] = { ...next[index], name: e.target.value };
                           setCvData({ ...cvData, skillsList: next });
                         }}
                         className="flex-1 font-medium"
@@ -711,7 +790,7 @@ export function CVAdminClient() {
                         value={skill.iconType}
                         onChange={(val) => {
                           const next = [...cvData.skillsList];
-                          next[index].iconType = val;
+                          next[index] = { ...next[index], iconType: val };
                           setCvData({ ...cvData, skillsList: next });
                         }}
                         className="w-28"
@@ -731,7 +810,7 @@ export function CVAdminClient() {
                         value={skill.level}
                         onChange={(e) => {
                           const next = [...cvData.skillsList];
-                          next[index].level = Number(e.target.value);
+                          next[index] = { ...next[index], level: Number(e.target.value) };
                           setCvData({ ...cvData, skillsList: next });
                         }}
                         className="flex-1 accent-[var(--text-title)] cursor-pointer"
@@ -841,7 +920,7 @@ export function CVAdminClient() {
                         value={item.label}
                         onChange={(e) => {
                           const next = [...cvData.contact];
-                          next[index].label = e.target.value;
+                          next[index] = { ...next[index], label: e.target.value };
                           setCvData({ ...cvData, contact: next });
                         }}
                       />
@@ -852,7 +931,7 @@ export function CVAdminClient() {
                         value={item.value}
                         onChange={(e) => {
                           const next = [...cvData.contact];
-                          next[index].value = e.target.value;
+                          next[index] = { ...next[index], value: e.target.value };
                           setCvData({ ...cvData, contact: next });
                         }}
                       />
@@ -864,7 +943,7 @@ export function CVAdminClient() {
                       value={item.href}
                       onChange={(e) => {
                         const next = [...cvData.contact];
-                        next[index].href = e.target.value;
+                        next[index] = { ...next[index], href: e.target.value };
                         setCvData({ ...cvData, contact: next });
                       }}
                     />
@@ -874,7 +953,7 @@ export function CVAdminClient() {
             </div>
 
             {/* Editable JSON Output */}
-            <JsonEditor value={cvData} onChange={setCvData} />
+            <JsonEditor value={cvData} onChange={setCvData} validate={cvProblem} />
           </div>
         </div>
 

@@ -3,13 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import gsap from "gsap";
-import { TopBar } from "@/components/TopBar";
 import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
-import { ProjectData } from "@/types/project";
-import { sectionBlocks } from "@/lib/projectLayout";
+import type { ProjectSummary } from "@/types/project";
 import PageEntrance from "@/components/PageEntrance";
 
-export default function ProjectsClient({ initialProjects }: { initialProjects: ProjectData[] }) {
+export default function ProjectsClient({ initialProjects }: { initialProjects: ProjectSummary[] }) {
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -77,19 +75,8 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
     }
   }, [activeImage]);
 
-  const handleMouseEnterProject = (project: ProjectData) => {
-    let imgUrl = project.coverImage;
-    if (!imgUrl) {
-      for (const item of (project.items || [])) {
-        if (item.kind === "section") {
-          const imgBlock = sectionBlocks(item).find((b) => b.type === "image" && b.src);
-          if (imgBlock?.src) {
-            imgUrl = imgBlock.src;
-            break;
-          }
-        }
-      }
-    }
+  const handleMouseEnterProject = (project: ProjectSummary) => {
+    const imgUrl = project.coverImage || project.images[0];
 
     if (imgUrl) {
       setActiveImage(imgUrl);
@@ -127,6 +114,7 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
         className="fixed top-0 left-0 z-50 pointer-events-none hidden md:block w-[280px] sm:w-[320px] aspect-[16/10] rounded-2xl overflow-hidden border border-[var(--border)] bg-[var(--bg-2)] shadow-[0_20px_50px_rgba(0,0,0,0.3)]"
       >
         {activeImage && (
+          /* eslint-disable-next-line @next/next/no-img-element -- a cursor-following preview of the bucket's file, as it is */
           <img
             ref={imageRef}
             src={activeImage}
@@ -154,8 +142,8 @@ export default function ProjectsClient({ initialProjects }: { initialProjects: P
 
       {/* ── Main content ── */}
       <main className="flex flex-col items-start w-full max-w-[720px] mx-auto px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]">
-        {/* Mobile-only Header Title Block */}
-        <div className="flex flex-col items-start w-full pt-[10px] pb-6 xl:hidden">
+        {/* Mobile-only Header Title Block — at xl only screen readers get it (the page's h1) */}
+        <div className="flex flex-col items-start w-full pt-[10px] pb-6 xl:sr-only">
           <h1 className="w-full text-base font-medium leading-5 text-[var(--text-title)]">
             Projects
           </h1>

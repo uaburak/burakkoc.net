@@ -1,173 +1,22 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { ProjectData } from "@/types/project";
-import { useEditorContext } from "@/components/admin/EditorNavControls";
-import { saveProject, loadProject } from "@/lib/firestore";
 import { Spinner } from "@/components/icons";
-import { normalizeItems } from "@/lib/projectLayout";
 import { DesignSystemProvider } from "@/components/project/designSystem";
-import { useDesignSystem } from "@/components/admin/useDesignSystem";
-import { useUndo } from "@/components/admin/useUndo";
 import { FigmaEditor } from "@/figma/FigmaEditor";
-import { newDocument, type FigmaDocument } from "@/figma/model";
-import { hasLegacyPage, withLegacyPage } from "@/figma/fromLegacy";
-import { keepsOverview, withOverviewFields, withProjectCanvas } from "@/figma/overview";
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const EMPTY_PROJECT: ProjectData = {
-  slug: "",
-  title: "",
-  titleEn: "",
-  category: "",
-  year: new Date().getFullYear().toString(),
-  coverImage: "",
-  description: "",
-  descriptionEn: "",
-  items: [],
-};
-
-const STORAGE_KEY = "admin_project_draft";
-
-// ── Draft cache ───────────────────────────────────────────────────────────────
-
-/** Reads the local draft, migrating the old `sections` shape to `items`. */
-function readDraft(slug: string): ProjectData | null {
-  try {
-    const cached = localStorage.getItem(`${STORAGE_KEY}_${slug}`);
-    if (!cached) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parsed = JSON.parse(cached) as any;
-    if (!parsed.items && Array.isArray(parsed.sections)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      parsed.items = parsed.sections.map((s: any) => ({ ...s, kind: "section" }));
-      delete parsed.sections;
-    }
-    parsed.items = Array.isArray(parsed.items) ? normalizeItems(parsed.items) : [];
-    return { ...parsed, slug };
-  } catch {
-    return null;
-  }
-}
-
-// ── Main editor ───────────────────────────────────────────────────────────────
+import { useEditSession } from "@/figma/session";
 
 /**
- * The project's editor: Figma, for its page (see FigmaEditor). The project
- * is loaded from Firestore, edited in memory, written back only with
- * Kaydet — with the site's variables (useDesignSystem). Undo / redo keeps
- * the last 20 steps in memory.
+ * The project's editor: Figma, for its page (see FigmaEditor) — the project
+ * and the site's design system loaded, edited in memory and written back
+ * only with Save (see useEditSession).
  */
 export function AdminEditorClient({ slug }: { slug: string }) {
-  const [project, setProject] = useState<ProjectData>({ ...EMPTY_PROJECT, slug });
-  const { setSaveStatus, registerSave } = useEditorContext();
-  const [loadingFromDB, setLoadingFromDB] = useState(true);
-  /** Whether this project exists in Firestore (i.e. has been published at least once) */
-  const [isPublished, setIsPublished] = useState(false);
-  const system = useDesignSystem();
+  const session = useEditSession(slug);
+  const { status, file, system, meta } = session;
 
-  // ── Load from Firestore on mount — always enforce URL slug ──
-  useEffect(() => {
-    loadProject(slug)
-      .then((data) => {
-        if (data) {
-          if (!Array.isArray(data.items)) data.items = [];
-          const normalized = withProjectCanvas({ ...data, slug });
-          setProject(normalized);
-          setIsPublished(true);
-          localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(normalized));
-        } else {
-          const draft = readDraft(slug);
-          setProject((p) => withProjectCanvas(draft ?? (p.slug !== slug ? { ...p, slug } : p)));
-        }
-      })
-      .catch((err) => {
-        console.warn("Firestore load failed, using local cache:", err);
-        const draft = readDraft(slug);
-        setProject((p) => withProjectCanvas(draft ?? p));
-      })
-      .finally(() => setLoadingFromDB(false));
-  }, [slug]);
-
-  // ── Mirror to localStorage a moment after the last edit ──
-  const latestProject = useRef<ProjectData | null>(null);
-  useEffect(() => {
-    latestProject.current = loadingFromDB ? null : project;
-  }, [project, loadingFromDB]);
-  useEffect(() => {
-    if (loadingFromDB) return;
-    const timer = window.setTimeout(() => {
-      try { localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(project)); } catch { /* ignore */ }
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [project, slug, loadingFromDB]);
-  useEffect(() => () => {
-    const last = latestProject.current;
-    if (last) try { localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(last)); } catch { /* ignore */ }
-  }, [slug]);
-
-  async function handleSave() {
-    // The project's title, category, year, description and cover: as its page's overview says.
-    const dataToSave = withOverviewFields({ ...project, slug });
-    setSaveStatus("saving");
-    try {
-      await saveProject(dataToSave);
-      await system.save();
-      setProject(dataToSave);
-      setIsPublished(true);
-      localStorage.setItem(`${STORAGE_KEY}_${slug}`, JSON.stringify(dataToSave));
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 2500);
-    } catch (err) {
-      console.error("Firestore save failed:", err);
-      setSaveStatus("error");
-      setTimeout(() => setSaveStatus("idle"), 3000);
-    }
-  }
-
-  // ── Undo / redo (⌘Z, ⇧⌘Z): the last 20 steps, in memory only ──
-  const { variables: storedVariables, textStyles: storedTextStyles, components: storedComponents, nodes: storedNodes } = system.stored;
-  const edited = useMemo(
-    () => ({ project, variables: storedVariables, textStyles: storedTextStyles, components: storedComponents, nodes: storedNodes }),
-    [project, storedVariables, storedTextStyles, storedComponents, storedNodes]
-  );
-  const history = useUndo(
-    edited,
-    (step) => {
-      setProject(step.project);
-      system.restore({ variables: step.variables, textStyles: step.textStyles, components: step.components, nodes: step.nodes });
-    },
-    { ready: !loadingFromDB && system.loaded }
-  );
-
-  // Register the save handler once, the latest one behind it.
-  const saveRef = useRef(handleSave);
-  useEffect(() => {
-    saveRef.current = handleSave;
-  });
-  useEffect(() => {
-    registerSave(() => saveRef.current());
-  }, [registerSave]);
-
-  const doc = project.canvas ?? null;
-  // The page made again from the project's older page (the editor's menu): what is on the page frame is replaced — one step to undo.
-  // Its overview from what the page's says now.
-  const rebuildPage = useCallback(() => {
-    setProject((p) => (p.canvas && hasLegacyPage(p) ? { ...p, canvas: withLegacyPage(p.canvas, withOverviewFields(p)) } : p));
-  }, []);
-  // An edit that would break the page's overview (delete it, move it, wrap it…) is refused: the project's own layers stay.
-  const onDoc = useCallback((update: (doc: FigmaDocument) => FigmaDocument) => {
-    setProject((p) => {
-      const current = p.canvas ?? newDocument(p.title || p.slug);
-      const next = update(current);
-      return next === p.canvas || !keepsOverview(current, next) ? p : { ...p, canvas: next };
-    });
-  }, []);
-
-  if (loadingFromDB || !doc) {
+  if (status.kind !== "ready" || !file || !system || !meta) {
     return (
       <div className="flex flex-col h-full bg-[var(--bg-1)]">
         <header className="shrink-0 flex items-center justify-between gap-3 px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-1)] select-none">
@@ -176,8 +25,24 @@ export function AdminEditorClient({ slug }: { slug: string }) {
           </Link>
           <ThemeToggle />
         </header>
-        <div className="flex-1 min-h-0 flex items-center justify-center">
-          <Spinner className="w-6 h-6 text-[var(--text-subtitle)]" />
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          {status.kind === "loading" && <Spinner className="w-6 h-6 text-[var(--text-subtitle)]" />}
+          {status.kind === "missing" && (
+            <>
+              <p className="text-base font-medium text-[var(--text-title)]">“{slug}” adında bir proje yok</p>
+              <p className="text-sm text-[var(--text-subtitle)]">Projeler listesinden yeni bir proje oluşturabilirsin.</p>
+            </>
+          )}
+          {status.kind === "error" && (
+            <>
+              <p className="text-base font-medium text-[var(--text-title)]">Proje açılamadı</p>
+              <p className="max-w-[420px] text-sm text-[var(--text-subtitle)]">{status.message}</p>
+              <p className="max-w-[420px] text-sm text-[var(--text-subtitle)]">Hiçbir şey değiştirilmedi ve kaydedilmedi.</p>
+              <button type="button" onClick={() => window.location.reload()} className="mt-2 h-9 px-4 rounded-full border border-[var(--border)] text-sm text-[var(--text-p)] hover:bg-[var(--bg-4)] cursor-pointer">
+                Tekrar dene
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -185,18 +50,8 @@ export function AdminEditorClient({ slug }: { slug: string }) {
 
   return (
     <div className="flex flex-col h-full">
-      <DesignSystemProvider variables={system.variables} textStyles={system.textStyles} components={system.components}>
-        <FigmaEditor
-          doc={doc}
-          onDoc={onDoc}
-          title={project.title}
-          slug={slug}
-          system={system}
-          isPublished={isPublished}
-          undo={history.undo}
-          redo={history.redo}
-          onRebuildPage={project.canvas?.fromLegacy && hasLegacyPage(project) ? rebuildPage : undefined}
-        />
+      <DesignSystemProvider variables={system.variables} textStyles={system.textStyles}>
+        <FigmaEditor doc={file} onDoc={session.onDoc} title={meta.title} slug={slug} system={system} session={session} undo={session.undo} redo={session.redo} />
       </DesignSystemProvider>
     </div>
   );

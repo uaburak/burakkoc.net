@@ -36,7 +36,7 @@ export default function TextScrollingEffect({
         "p, h1, h2, h3, h4, h5, h6, li, blockquote"
       );
 
-      const splitInstances: any[] = [];
+      const splitInstances: { revert: () => void }[] = [];
 
       textElements.forEach((text) => {
         const split = SplitText.create(text, {

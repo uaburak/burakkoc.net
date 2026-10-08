@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { DesignVariable, TextField, TextStyle, Typography, VariableKind } from "@/types/design";
+import type { DesignVariable, TextStyle, Typography, VariableKind } from "@/types/design";
 import { cssValue } from "./designVariables";
 
 /**
@@ -23,17 +23,17 @@ const style = (id: string, name: string, fontSize: string, fontWeight: string, l
 
 /**
  * The typography the site's texts already have (the components' texts, see
- * STARTING_COMPONENTS), as the first text styles — so nothing changes until
+ * starting library), as the first text styles — so nothing changes until
  * they are edited. Their names are paths ("Tipografi/Başlıklar/Başlık"): the
  * editor's Styles list groups them by these, as Figma's does.
  */
 export const STARTING_TEXT_STYLES: TextStyle[] = [
-  style("section-title", "Tipografi/Başlıklar/Bölüm başlığı", "font-size-m", "weight-medium", "line-height-s", "text-title"),
+  { ...style("section-title", "Tipografi/Başlıklar/Bölüm başlığı", "font-size-m", "weight-medium", "line-height-s", "text-title"), tag: "h2" },
   style("subtitle", "Tipografi/Başlıklar/Alt başlık", "font-size-m", "weight-regular", "line-height-m", "text-subtitle"),
-  style("heading", "Tipografi/Başlıklar/Başlık", "font-size-m", "weight-medium", "line-height-m", "text-title"),
+  { ...style("heading", "Tipografi/Başlıklar/Başlık", "font-size-m", "weight-medium", "line-height-m", "text-title"), tag: "h3" },
   style("strong", "Tipografi/Başlıklar/Vurgulu", "font-size-m", "weight-medium", "line-height-m", "text-title"),
-  style("text", "Tipografi/Metin/Metin", "font-size-m", "weight-light", "line-height-l", "text-p"),
-  style("body", "Tipografi/Metin/Gövde", "font-size-m", "weight-light", "line-height-m", "text-p"),
+  { ...style("text", "Tipografi/Metin/Metin", "font-size-m", "weight-light", "line-height-l", "text-p"), tag: "p" },
+  { ...style("body", "Tipografi/Metin/Gövde", "font-size-m", "weight-light", "line-height-m", "text-p"), tag: "p" },
   style("label", "Tipografi/Etiketler/Etiket", "font-size-s", "weight-regular", "line-height-s", "text-subtitle"),
   style("value", "Tipografi/Etiketler/Değer", "font-size-m", "weight-regular", "line-height-m", "text-title"),
   style("caption", "Tipografi/Etiketler/Açıklama", "font-size-s", "weight-light", "line-height-s", "text-subtitle"),
@@ -47,12 +47,6 @@ export const STARTING_TEXT_STYLES: TextStyle[] = [
   style("micro-light", "Tipografi/Etiketler/Mikro ince", "font-size-xs", "weight-light", "line-height-s", "text-subtitle"),
 ];
 
-/** The style a text showing that field starts with — for a text layer whose style is gone. */
-export function startingStyle(field: TextField): string {
-  const byField: Partial<Record<TextField, string>> = { label: "label", value: "value", title: "strong", eyebrow: "label", caption: "caption", subheading: "subtitle", author: "section-title", authorRole: "subtitle" };
-  return byField[field] ?? "text";
-}
-
 /** The site's text styles: the starting ones — as stored, when changed — in their place, then the added ones. */
 export function withStartingTextStyles(stored: TextStyle[]): TextStyle[] {
   const byId = new Map(stored.map((s) => [s.id, s]));
@@ -62,7 +56,8 @@ export function withStartingTextStyles(stored: TextStyle[]): TextStyle[] {
   return [
     ...STARTING_TEXT_STYLES.map((s) => {
       const st = byId.get(s.id);
-      return st ? (st.name === leaf(s.name) ? { ...st, name: s.name } : st) : s;
+      // (A stored one without a tag of its own keeps the starting one's.)
+      return st ? { ...(st.tag === undefined && s.tag ? { tag: s.tag } : {}), ...(st.name === leaf(s.name) ? { ...st, name: s.name } : st) } : s;
     }),
     ...stored.filter((s) => !starting.has(s.id)),
   ];

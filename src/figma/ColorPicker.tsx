@@ -129,7 +129,7 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
       setUploading(true);
       try {
         const url = await onUpload(file);
-        onPaint?.({ ...paint!, type: "image", image: { url, fit: paint?.image?.fit ?? "fill" } });
+        onPaint?.({ ...paint!, type: "image", image: { ...paint?.image, url, fit: paint?.image?.fit ?? "fill" } });
       } finally {
         setUploading(false);
       }
@@ -218,10 +218,13 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
             <div className="flex flex-col gap-2">
               <div className="w-full h-[120px] rounded-[5px] bg-[var(--f-bg-secondary)] bg-center bg-no-repeat" style={{ backgroundImage: paint?.image?.url ? `url("${paint.image.url}")` : undefined, backgroundSize: paint?.image?.fit === "fit" ? "contain" : paint?.image?.fit === "tile" ? "auto" : "cover", backgroundRepeat: paint?.image?.fit === "tile" ? "repeat" : "no-repeat" }} />
               <div className="flex items-center gap-2">
-                <Select label="Scale mode" value={paint?.image?.fit ?? "fill"} options={[{ value: "fill", label: "Fill" }, { value: "fit", label: "Fit" }, { value: "tile", label: "Tile" }]} onChange={(fit) => onPaint?.({ ...paint!, image: { url: paint?.image?.url ?? "", fit: fit as "fill" | "fit" | "tile" } })} />
+                <Select label="Scale mode" value={paint?.image?.fit ?? "fill"} options={[{ value: "fill", label: "Fill" }, { value: "fit", label: "Fit" }, { value: "tile", label: "Tile" }]} onChange={(fit) => onPaint?.({ ...paint!, image: { ...paint?.image, url: paint?.image?.url ?? "", fit: fit as "fill" | "fit" | "tile" } })} />
                 <button type="button" onClick={chooseImage} disabled={!onUpload || uploading} className="flex h-6 shrink-0 items-center px-2 rounded-[5px] bg-[var(--f-bg-secondary)] text-[var(--f-text)] hover:bg-[var(--f-bg-hover)] cursor-pointer disabled:opacity-50">{uploading ? "Uploading…" : "Choose image"}</button>
               </div>
-              <TextInput label="Image URL" value={paint?.image?.url ?? ""} placeholder="https://…" onCommit={(url) => onPaint?.({ ...paint!, image: { url: url.trim(), fit: paint?.image?.fit ?? "fill" } })} />
+              <TextInput label="Image URL" value={paint?.image?.url ?? ""} placeholder="https://…" onCommit={(url) => onPaint?.({ ...paint!, image: { ...paint?.image, url: url.trim(), fit: paint?.image?.fit ?? "fill" } })} />
+              {/* What it shows, in words: for screen readers and search engines (and when it can't load). */}
+              <TextInput label="Alt text" value={paint?.image?.alt ?? ""} placeholder="Alt text — what it shows" onCommit={(alt) => onPaint?.({ ...paint!, image: { url: paint?.image?.url ?? "", fit: paint?.image?.fit ?? "fill", ...paint?.image, alt: alt.trim() || undefined } })} />
+              <TextInput label="Alt text (English)" value={paint?.image?.altEn ?? ""} placeholder="Alt text in English" onCommit={(altEn) => onPaint?.({ ...paint!, image: { url: paint?.image?.url ?? "", fit: paint?.image?.fit ?? "fill", ...paint?.image, altEn: altEn.trim() || undefined } })} />
             </div>
           ) : (
           <div className="relative w-full h-[184px] rounded-[5px] overflow-hidden cursor-crosshair" style={{ background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, ${hueColor})` }} onPointerDown={(e) => drag(e, (x, y) => set({ ...hsv, s: x, v: 1 - y }))}>
@@ -250,8 +253,13 @@ export function ColorPicker({ color, opacity, anchor, variables, byId, mode, pag
                 value={hexDraft ?? hsvToHex(hsv).replace("#", "").toUpperCase()}
                 {...selectAllOnClick}
                 onChange={(e) => setHexDraft(e.target.value)}
-                onBlur={(e) => { const d = e.currentTarget.value.replace("#", ""); if (/^[0-9a-f]{6}$/i.test(d)) set(hexToHsv(`#${d}`)); setHexDraft(null); }}
-                onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); }}
+                onBlur={(e) => {
+                  // Only what was typed, and a colour other than this one: leaving the field untouched keeps a bound colour bound.
+                  const d = e.currentTarget.value.replace("#", "");
+                  if (hexDraft !== null && /^[0-9a-f]{6}$/i.test(d) && `#${d.toLowerCase()}` !== hsvToHex(hsv).toLowerCase()) set(hexToHsv(`#${d}`));
+                  setHexDraft(null);
+                }}
+                onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); if (e.key === "Escape") { setHexDraft(null); requestAnimationFrame(() => (e.target as HTMLInputElement).blur()); } }}
                 className="min-w-0 flex-1 h-full pl-2 bg-transparent outline-none uppercase text-[var(--f-text)]"
               />
               <span className="flex w-[53px] shrink-0 h-full items-center border-l border-[var(--f-bg)]">

@@ -1,25 +1,13 @@
 import type { ProjectData } from "@/types/project";
-import { COMPONENTS_PAGE_ID, withStartingLibrary } from "./library";
-import {
-  OVERVIEW_NAME,
-  inPageColumn,
-  overviewContent,
-  overviewFor,
-  pageFrameOf,
-  sitePageFrame,
-  withProjectPage,
-  type OverviewContent,
-} from "./fromLegacy";
+import { OVERVIEW_NAME, inPageColumn, overviewContent, overviewFor, pageFrameOf, sitePageFrame } from "./page";
 import {
   findComponent,
   insertNode,
   isFrameLike,
   libraryOf,
-  newDocument,
   propertiesOf,
   removeNodes,
   resolveInstance,
-  upgradeDocument,
   walk,
   type FigmaDocument,
   type FixedPart,
@@ -34,7 +22,7 @@ import {
  * description and cover — as the page frame's first layer, on every
  * project's page: an instance of the Overview component (c-overview, on the
  * Components page), made with a new project's page, the template's example
- * in it to fill in (see fromLegacy's Missing).
+ * in it to fill in (see page.ts's Missing).
  *
  *  - Its look is the component's: edited on the component (Go to main
  *    component), it changes the page's overview. Its words are the
@@ -164,59 +152,8 @@ function unmarked(node: SceneNode): SceneNode {
   return isFrameLike(own) ? { ...own, children: own.children.map(unmarked) } : own;
 }
 
-const isText = (node: SceneNode): node is TextNode => node.type === "text";
 const shown = (node?: SceneNode) => Boolean(node && node.visible !== false);
 const said = (s?: string | null): s is string => Boolean(s && s.trim());
-
-/** An older overview's header: a frame named so, or the first frame of texts only. */
-const headerOf = (frame: FrameNode) =>
-  frame.children.find((c): c is FrameNode => c.type === "frame" && c.name === "Header") ??
-  frame.children.find((c): c is FrameNode => c.type === "frame" && c.children.length > 0 && c.children.every(isText));
-
-/** Is it the overview an older page was made with (see withLegacyPage) — a frame named so, its header in it? */
-const isOlderOverview = (node: SceneNode): node is FrameNode => node.type === "frame" && node.name === OVERVIEW_NAME && Boolean(headerOf(node));
-
-/**
- * What an older page's overview (a frame of its own, made before it was the
- * component's) says, its parts known by their text styles, then their
- * place: the header's title and subtitle, the description, the cover's
- * picture. What it lacks, the project's fields say. A description is there
- * as the page showed it; a subtitle and a cover — the projects' list shows
- * them too — whenever either has one. What else the frame held (layers of
- * the user's own) is `kept`: the frame without its parts.
- */
-function olderContent(frame: FrameNode, project: ProjectData): { content: OverviewContent; kept: FrameNode | null } {
-  const fields = overviewContent(project, "hidden");
-  const header = headerOf(frame);
-  const texts = header?.children.filter(isText) ?? [];
-  const title = texts.find((t) => t.textStyle === "section-title") ?? texts[0];
-  const subtitle = texts.find((t) => t !== title && t.textStyle === "subtitle") ?? texts.find((t) => t !== title);
-  const own = frame.children.filter(isText);
-  const description = own.find((t) => t.textStyle === "text") ?? own[0];
-  const cover = frame.children.find((c): c is FrameNode => c.type === "frame" && c.name === "Cover");
-  const image = cover?.children.find((c): c is ShapeNode => c.type === "rectangle");
-  const url = image?.fills.find((p) => p.type === "image" && p.image?.url)?.image?.url;
-  const used = new Set<SceneNode | undefined>([title, subtitle, description, image]);
-  const rest = frame.children.flatMap((c): SceneNode[] => {
-    if (used.has(c)) return [];
-    if (c !== header && c !== cover) return [c];
-    const inner = c.children.filter((x) => !used.has(x));
-    return inner.length ? [{ ...c, children: inner }] : [];
-  });
-  const kept = rest.length ? { ...frame, name: `${OVERVIEW_NAME} (kept)`, children: rest } : null;
-  const content: OverviewContent = {
-    title: title?.characters.trim() || fields.title,
-    titleEn: title?.charactersEn?.trim() || fields.titleEn,
-    subtitle: subtitle?.characters.trim() || fields.subtitle,
-    subtitleShown: (shown(subtitle) && said(subtitle?.characters)) || fields.subtitleShown,
-    description: description?.characters.trim() || fields.description,
-    descriptionEn: description?.charactersEn?.trim() || fields.descriptionEn,
-    descriptionShown: shown(description) && said(description?.characters),
-    cover: url || fields.cover,
-    coverShown: (shown(cover) && shown(image) && said(url)) || fields.coverShown,
-  };
-  return { content, kept };
-}
 
 /** Is it an instance of the Overview component (a variant of it too)? */
 const isOverviewInstance = (lib: readonly SceneNode[], node: SceneNode) =>
@@ -226,52 +163,30 @@ const isOverviewInstance = (lib: readonly SceneNode[], node: SceneNode) =>
  * The file with its page's overview whole (see overviewOf): kept as it is
  * when it is; on an empty page — a new project's — the site's page made, its
  * overview the template's example to fill in; otherwise the instance there
- * (marked, or the page's first) put first and marked — or, on a page made
- * from an older one, its overview of its own made the component's — or a new
- * one, from the project's fields. Nothing else on the page keeps a mark. A
- * page frame isn't made where there is none, nor an overview without its
- * component.
+ * (marked, or the page's first) put first and marked — or a new one, from
+ * the project's fields. Nothing else on the page keeps a mark. A page frame
+ * isn't made where there is none, nor an overview without its component.
  */
 export function withOverview(doc: FigmaDocument, project: ProjectData): FigmaDocument {
   const page = pageFrameOf(doc);
   if (!page || overviewOf(doc)) return doc;
   if (!page.children.length) {
-    const made = sitePageFrame(page, project, [inPageColumn(overviewFor(doc, overviewContent(project, "sample")), project)]);
+    const made = sitePageFrame(page, project.title || project.slug, [inPageColumn(overviewFor(doc, overviewContent(project, "sample")))]);
     return keep(doc, { ...doc, nodes: doc.nodes.map((n) => (n.id === page.id ? made : n)) });
   }
   const lib = libraryOf(doc);
   const kids = page.children;
   let at = kids.findIndex((c) => c.fixed === "overview" && isOverviewInstance(lib, c));
   if (at < 0 && isOverviewInstance(lib, kids[0])) at = 0;
-  // What leads the page: the overview, then — an older one's layers of the user's own — what else it held.
-  let lead: SceneNode[];
-  if (at >= 0) {
-    lead = [{ ...kids[at], fixed: "overview", name: OVERVIEW_NAME, visible: undefined }];
-  } else {
-    at = kids.findIndex((c) => (c.type === "frame" && c.fixed === "overview") || (Boolean(doc.fromLegacy) && isOlderOverview(c)));
-    const older = at >= 0 ? olderContent(kids[at] as FrameNode, project) : null;
-    const made = inPageColumn(overviewFor(doc, older?.content ?? overviewContent(project, "hidden")), project);
-    lead = older?.kept ? [made, older.kept] : [made];
-  }
+  const lead: SceneNode = at >= 0
+    ? { ...kids[at], fixed: "overview", name: OVERVIEW_NAME, visible: undefined }
+    : inPageColumn(overviewFor(doc, overviewContent(project, "hidden")));
   const rest = kids.filter((_, i) => i !== at);
-  return keep(doc, { ...doc, nodes: doc.nodes.map((n) => (n.id === page.id ? { ...page, children: [...lead, ...rest].map((c, i) => (i === 0 ? c : unmarked(c))) } : n)) });
+  return keep(doc, { ...doc, nodes: doc.nodes.map((n) => (n.id === page.id ? { ...page, children: [lead, ...rest].map((c, i) => (i === 0 ? c : unmarked(c))) } : n)) });
 }
 
 /** `next` when its overview is whole — else the file as it was. */
 const keep = (doc: FigmaDocument, next: FigmaDocument) => (overviewOf(next) ? next : doc);
-
-/**
- * The project with its Figma file — a new one when it has none yet (its page
- * frame named after it) — the starting components on their page (the
- * Overview's among them), its page made from its older page while it waits
- * for it (see withProjectPage), its overview whole (withOverview).
- */
-export function withProjectCanvas(project: ProjectData): ProjectData {
-  const stored = project.canvas ? upgradeDocument(project.canvas) : newDocument(project.title || project.slug);
-  // The Components page isn't opened as a page any more (a component is edited on its own: see FigmaEditor) — a file left on it opens on the project's.
-  const canvas = withStartingLibrary(stored.currentPage === COMPONENTS_PAGE_ID ? { ...stored, currentPage: undefined } : stored);
-  return { ...project, canvas: withOverview(withProjectPage(canvas, project), project) };
-}
 
 /**
  * Another top-level frame as the site's page ("Set as site page"): the
@@ -287,9 +202,17 @@ export function withSitePage(doc: FigmaDocument, id: string): FigmaDocument {
   if (!target || target.type !== "frame") return doc;
   const lead = target.children[0];
   const copy = lead && !lead.fixed && isOverviewInstance(libraryOf(doc), lead) ? (lead as FrameNode) : null;
-  const moved: FrameNode = copy ? { ...parts.instance, mainId: copy.mainId, props: copy.props, propsEn: copy.propsEn, overrides: copy.overrides } : parts.instance;
+  const moved: FrameNode = copy ? { ...parts.instance, mainId: copy.mainId, props: copy.props, propsEn: copy.propsEn, propsI18n: copy.propsI18n, overrides: copy.overrides } : parts.instance;
   const gone = new Set([parts.instance.id, ...(copy ? [copy.id] : [])]);
   return { ...doc, pageId: id, nodes: insertNode(removeNodes(doc.nodes, gone), id, moved, 0) };
+}
+
+/** The page's Overview saying another title (a copy of the project): its instance's Title property, the page frame's name. */
+export function withOverviewTitle(doc: FigmaDocument, title: string): FigmaDocument {
+  const page = pageFrameOf(doc);
+  if (!page) return doc;
+  const children = page.children.map((c, i) => (i === 0 && c.fixed === "overview" && c.type === "instance" ? { ...c, props: { ...c.props, title } } : c));
+  return { ...doc, nodes: doc.nodes.map((n) => (n.id === page.id ? { ...page, name: title, children } : n)) };
 }
 
 // ── The project's fields ──────────────────────────────────────────────────────
@@ -325,8 +248,3 @@ export function overviewFields(doc: FigmaDocument): OverviewFields | null {
   };
 }
 
-/** The project with its fields as its page's overview says (see overviewFields) — as it is when it has none. */
-export function withOverviewFields(project: ProjectData): ProjectData {
-  const fields = project.canvas ? overviewFields(project.canvas) : null;
-  return fields ? { ...project, ...fields } : project;
-}

@@ -3,9 +3,7 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, memo } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { listProjects } from "@/lib/firestore";
-import { ProjectData } from "@/types/project";
-import { sectionBlocks } from "@/lib/projectLayout";
+import type { ProjectSummary } from "@/types/project";
 
 interface ImageItem {
   url: string;
@@ -67,31 +65,17 @@ const GEOMETRIC_SLOTS = [
 ];
 
 // Helper to collect all unique images from a list of projects
-const collectImagesFromProjects = (projects: ProjectData[]): ImageItem[] => {
+const collectImagesFromProjects = (projects: ProjectSummary[]): ImageItem[] => {
   const urls: ImageItem[] = [];
   projects.forEach((project) => {
-    if (project.coverImage) {
-      urls.push({ url: project.coverImage, projectSlug: project.slug });
-    }
-    project.items?.forEach((item) => {
-      if (item.kind === "section") {
-        sectionBlocks(item).forEach((block) => {
-          if (block.type === "image" && block.src) {
-            urls.push({ url: block.src, projectSlug: project.slug });
-          } else if (block.figmaCover) {
-            urls.push({ url: block.figmaCover, projectSlug: project.slug });
-          } else if (block.figmaWorkspaceCover) {
-            urls.push({ url: block.figmaWorkspaceCover, projectSlug: project.slug });
-          }
-        });
-      }
-    });
+    if (project.coverImage) urls.push({ url: project.coverImage, projectSlug: project.slug });
+    project.images.forEach((url) => urls.push({ url, projectSlug: project.slug }));
   });
   return urls.filter((item, index, self) => self.findIndex((t) => t.url === item.url) === index);
 };
 
 // Filter images based on category strings
-const filterImagesByCategory = (category: string, projects: ProjectData[]): ImageItem[] => {
+const filterImagesByCategory = (category: string, projects: ProjectSummary[]): ImageItem[] => {
   const allUrls = collectImagesFromProjects(projects);
   if (category === "Burak") {
     return allUrls;
@@ -138,7 +122,7 @@ const getOpacityForZ = (z: number): number => {
 };
 
 interface FlyingImagesProps {
-  initialProjects?: ProjectData[];
+  initialProjects?: ProjectSummary[];
 }
 
 /**
@@ -162,14 +146,14 @@ const measureLayer = () => {
 };
 
 export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>((props, ref) => {
-  const [imagePool, setImagePool] = useState<ImageItem[]>(() => {
+  const [imagePool] = useState<ImageItem[]>(() => {
     if (props.initialProjects && props.initialProjects.length > 0) {
       return collectImagesFromProjects(props.initialProjects);
     }
     return [];
   });
   const [layer, setLayer] = useState<{ screenHeight: number; pageHeight: number } | null>(null);
-  const projectsRef = useRef<ProjectData[]>(props.initialProjects || []);
+  const projectsRef = useRef<ProjectSummary[]>(props.initialProjects || []);
   const poolRef = useRef<ImageItem[]>(
     props.initialProjects && props.initialProjects.length > 0
       ? collectImagesFromProjects(props.initialProjects)
@@ -264,33 +248,6 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
       isExitingRef.current = true;
     }
   }));
-
-  // Load projects from database on mount if not provided as initial props
-  useEffect(() => {
-    if (props.initialProjects && props.initialProjects.length > 0) {
-      // If we got initial projects, we don't query Firestore on mount
-      return;
-    }
-    let active = true;
-    listProjects()
-      .then((projects) => {
-        if (!active) return;
-        projectsRef.current = projects;
-
-        const uniqueUrls = collectImagesFromProjects(projects);
-        if (uniqueUrls.length > 0) {
-          poolRef.current = uniqueUrls;
-          setImagePool(uniqueUrls); // Triggers render and animation loop once loaded
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to load project images:", err);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [props.initialProjects]);
 
   // Setup the animation loop (runs once when imagePool is loaded)
   useEffect(() => {
@@ -561,6 +518,7 @@ export const FlyingImages = memo(forwardRef<FlyingImagesRef, FlyingImagesProps>(
               willChange: "transform, opacity",
             }}
           >
+            {/* eslint-disable-next-line @next/next/no-img-element -- its src is swapped as the images fly (imgRefs), which next/image can't follow */}
             <img
               ref={(el) => {
                 imgRefs.current[index] = el;

@@ -1,38 +1,25 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { DesignComponent, DesignVariable, TextStyle } from "@/types/design";
-import { DesignComponentsContext, withStartingComponents } from "./components";
-import { DesignVariablesContext, useDesignVariables, variablesCss, withStartingVariables } from "./designVariables";
-import { TextStylesContext, textStylesCss, useTextStyles, withStartingTextStyles } from "./textStyles";
+import type { DesignVariable, TextStyle } from "@/types/design";
+import { DesignVariablesContext, useDesignVariables, variablesCss } from "./designVariables";
+import { TextStylesContext, textStylesCss, useTextStyles } from "./textStyles";
 import { MOTION_CSS } from "./interactions";
 
 /**
- * The site's design system — its variables, text styles and components — for
+ * The site's design system — its variables and text styles — for
  * everything rendered inside: the project page, the editor's canvas.
  */
 export interface SiteDesign {
   variables: DesignVariable[];
   textStyles: TextStyle[];
-  components: DesignComponent[];
 }
 
-/** The design system from what is stored: the starting variables, text styles and components added. */
-export function fromStored(stored: SiteDesign): SiteDesign {
-  return {
-    variables: withStartingVariables(stored.variables),
-    textStyles: withStartingTextStyles(stored.textStyles),
-    components: withStartingComponents(stored.components),
-  };
-}
-
-/** Takes all of them — the starting ones included (see fromStored). */
-export function DesignSystemProvider({ variables, textStyles, components, children }: SiteDesign & { children: ReactNode }) {
+/** Takes all of them — the starting ones included. */
+export function DesignSystemProvider({ variables, textStyles, children }: SiteDesign & { children: ReactNode }) {
   return (
     <DesignVariablesContext.Provider value={variables}>
-      <TextStylesContext.Provider value={textStyles}>
-        <DesignComponentsContext.Provider value={components}>{children}</DesignComponentsContext.Provider>
-      </TextStylesContext.Provider>
+      <TextStylesContext.Provider value={textStyles}>{children}</TextStylesContext.Provider>
     </DesignVariablesContext.Provider>
   );
 }

@@ -1,48 +1,58 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/context/ThemeContext";
-import { useEditorContext } from "@/components/admin/EditorNavControls";
 import { FigmaIcon, fi } from "@/components/admin/figmaIcons";
 import { ScrollArea } from "@/components/ScrollArea";
 import { ContextMenu, keys, type MenuEntry } from "@/components/admin/ContextMenu";
-import { DesignSystemStyle } from "@/components/project/designSystem";
-import type { CanvasTool, CanvasView, ZoomActions } from "@/components/admin/canvasModel";
-import type { DesignSystem } from "@/components/admin/useDesignSystem";
-import type { MenuItem } from "@/components/admin/LiveInspector";
+import { createViewStore, type CanvasTool, type CanvasView, type ViewStore, type ZoomActions } from "./view";
+import { useView } from "./useView";
+import type { DesignSystem } from "./designSystem";
+import type { EditSession } from "./session";
+import { VersionsWindow } from "./VersionsWindow";
+import { componentIds, instancesOf } from "./systemLibrary";
+import type { MenuItem } from "./popover";
 import { Canvas, type Rect } from "./Canvas";
 import { VariablesTable } from "./VariablesTable";
 import { colorsIn } from "./ColorPicker";
 import { copyElementAs, exportElement } from "./exportNode";
 import { nodeCss } from "./css";
-import { fileExt, uploadFile } from "@/lib/storage";
+import { uploadMedia } from "@/lib/storage";
 import { Inspector, type EditorOps } from "./Inspector";
 import { Layers, layerIcon, requestRename, type TreePlace } from "./Layers";
 import { BrandButton, CollapseHeader, EDITOR_CSS, IconButton, Tab } from "./ui";
-import { MotionStyle, NodeView, RenderProvider, type RenderContext } from "./NodeView";
+import type { RenderContext } from "./NodeView";
 import { fixedIds, withSitePage } from "./overview";
+import { inPageColumn, isOverviewNode } from "./page";
 import { COMPONENTS_PAGE_ID } from "./library";
 import { ImagesPanel } from "./ImagesPanel";
 import { SettingsWindow } from "./SettingsWindow";
 import { useEditorSettings } from "./settings";
 import { FindPanel, type FindPage } from "./FindPanel";
 import { useAccount } from "./account";
+import { AccountButton, FIGMA_TOKENS, ModeTab, NavTab, PublishButton, SaveButton, SaveProblem, Tool, ZoomPercent } from "./chrome";
+import { IS_MAC, domRect, isTyping, rectOf } from "./dom";
+import { Player } from "./Player";
 import {
   allComponents,
   applyPropertyValue,
+  changesAt,
   BASE_LANGUAGE,
   byIdMap,
   cloneNode,
+  componentAround,
   findComponent,
   findNode,
+  freePropertyName,
   getNode,
   insertNode,
   isFrameLike,
   languagesOf,
   PATH_SEP,
   layerAt,
+  layerName,
   libraryOf,
   makeFrame,
   makeInstance,
@@ -62,24 +72,32 @@ import {
   updateAnywhere,
   walk,
   withOverride,
+  withRenamedLayer,
   withoutLanguage,
+  withVariantName,
+  parseVariantName,
+  withoutChange,
+  withPushedOverrides,
+  withResetAt,
+  writtenLanguages,
   wordsPatch,
   topmost,
   updateNode,
   updateNodes,
   variantProperties,
   variantsOf,
+  EMBED_LABEL,
+  type EmbedKind,
   type FigmaDocument,
   type FrameNode,
   type LangCode,
   type NodeOverride,
   type Paint,
+  type Reaction,
   type SceneNode,
   type TextNode,
 } from "./model";
 
-/** Where the editor uploads a file: the project's folder, under the time (a path of its own — see uploadFile). */
-const uploadPath = (slug: string, f: File) => `projects/${slug}/figma/${Date.now()}.${fileExt(f)}`;
 
 /**
  * Where a picture goes in an instance (`list`: its layers, as drawn): the
@@ -116,7 +134,7 @@ const leadsWithOverview = (siblings: readonly SceneNode[]) => isPageOverview(sib
  * project. Undo is the project's (see AdminEditorClient).
  */
 
-type LeftTab = "file" | "assets" | "images" | "variables";
+type LeftTab = "file" | "components" | "assets" | "images" | "variables";
 
 /**
  * The editor's three views of the same file, switched at the toolbar's end:
@@ -132,114 +150,18 @@ const EDITOR_MODES: { id: EditorMode; label: string }[] = [
 ];
 const EDITOR_MODE_KEY = "figma-editor-mode";
 
+/** The Page Editor's preview widths: the page's own (the desktop's), a tablet's, a phone's. */
+const PREVIEW_WIDTHS: { label: string; width: number | null }[] = [{ label: "Desktop", width: null }, { label: "Tablet", width: 768 }, { label: "Phone", width: 375 }];
+
+/** What marks the editor's layers on the system's clipboard (a paste in another tab finds them). */
+const CLIPBOARD_MARK = "figma-layers:";
+
+/** The embeds Assets offers, in its order. */
+const EMBED_KINDS: EmbedKind[] = ["video", "code", "figma", "iframe", "compare", "devices", "image"];
+
 /** The navigation bar's width (w-12). */
 const NAV_WIDTH = 48;
 const PANEL_WIDTHS_KEY = "figma-panel-widths";
-
-/** Figma's colours, as its UI kit's variables resolve (Light / Dark) — the chrome's tokens, and the site's ones over them for shared pieces. */
-
-const FIGMA_TOKENS: Record<"light" | "dark", CSSProperties> = {
-  light: {
-    "--f-bg": "#ffffff", "--f-bg-secondary": "#f5f5f5", "--f-bg-tertiary": "#e6e6e6", "--f-bg-toggle-hover": "#f4f4f4", "--f-bg-hover": "#f5f5f5", "--f-bg-selected": "#e5f4ff", "--f-bg-selected-secondary": "#f2f9ff", "--f-bg-brand": "#0d99ff", "--f-bg-menu": "#1e1e1e",
-    // The layers' and pages' rows: the site's bg/3 hovered, bg/4 selected (the user's choice — grey, light, not Figma's blue)
-    "--f-bg-row-hover": "#f5f5f5", "--f-bg-row-selected": "#f0f0f0", "--f-bg-row-selected-secondary": "#f7f7f7",
-    "--f-border": "#e6e6e6", "--f-border-translucent": "rgba(0,0,0,0.1)", "--f-border-selected": "#0d99ff",
-    "--f-text": "rgba(0,0,0,0.9)", "--f-text-secondary": "rgba(0,0,0,0.5)", "--f-text-tertiary": "rgba(0,0,0,0.3)", "--f-text-brand": "#007be5", "--f-text-component": "#8638e5",
-    "--f-icon": "rgba(0,0,0,0.9)", "--f-icon-secondary": "rgba(0,0,0,0.5)", "--f-icon-tertiary": "rgba(0,0,0,0.3)",
-    "--bg-1": "#ffffff", "--bg-2": "#ffffff", "--bg-3": "#ffffff", "--bg-4": "#f5f5f5", "--bg-5": "#e6e6e6",
-    "--border": "#e6e6e6", "--border-hover": "#b3b3b3",
-    "--text-title": "rgba(0,0,0,0.9)", "--text-p": "rgba(0,0,0,0.9)", "--text-subtitle": "rgba(0,0,0,0.5)",
-    "--edit-component": "#8638e5", "--edit-canvas": "#f5f5f5", "--edit-selected": "#e5f4ff",
-  } as CSSProperties,
-  dark: {
-    "--f-bg": "#2c2c2c", "--f-bg-secondary": "#383838", "--f-bg-tertiary": "#444444", "--f-bg-toggle-hover": "#585858", "--f-bg-hover": "#383838", "--f-bg-selected": "#4a5878", "--f-bg-selected-secondary": "#394360", "--f-bg-brand": "#0c8ce9", "--f-bg-menu": "#1e1e1e",
-    "--f-bg-row-hover": "#262626", "--f-bg-row-selected": "#1e1e1e", "--f-bg-row-selected-secondary": "#232323",
-    "--f-border": "#444444", "--f-border-translucent": "rgba(255,255,255,0.1)", "--f-border-selected": "#0c8ce9",
-    "--f-text": "#ffffff", "--f-text-secondary": "rgba(255,255,255,0.7)", "--f-text-tertiary": "rgba(255,255,255,0.4)", "--f-text-brand": "#7cc4f8", "--f-text-component": "#c9a5ff",
-    "--f-icon": "#ffffff", "--f-icon-secondary": "rgba(255,255,255,0.7)", "--f-icon-tertiary": "rgba(255,255,255,0.4)",
-    "--bg-1": "#2c2c2c", "--bg-2": "#2c2c2c", "--bg-3": "#2c2c2c", "--bg-4": "#383838", "--bg-5": "#444444",
-    "--border": "#444444", "--border-hover": "#5c5c5c",
-    "--text-title": "#ffffff", "--text-p": "rgba(255,255,255,0.9)", "--text-subtitle": "rgba(255,255,255,0.7)",
-    "--edit-component": "#c9a5ff", "--edit-canvas": "#1e1e1e", "--edit-selected": "#4a5878",
-  } as CSSProperties,
-};
-
-/** A tab of the navigation bar: its icon alone — its name the tooltip. */
-function NavTab({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button type="button" aria-label={label} data-tip={label} aria-pressed={active} onClick={onClick} className="group/nav flex w-12 items-center justify-center py-1 cursor-pointer select-none">
-      <span className={cn("flex items-center justify-center w-7 h-7 rounded-[5px] transition-colors", active ? "bg-[var(--f-bg-selected)] text-[var(--f-text-brand)]" : "text-[var(--f-icon)] group-hover/nav:bg-[var(--f-bg-hover)]")}>{icon}</span>
-    </button>
-  );
-}
-
-function SaveButton() {
-  const { saveStatus, triggerSave } = useEditorContext();
-  const label = saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" : saveStatus === "error" ? "Error" : "Save";
-  return (
-    <BrandButton disabled={saveStatus === "saving" || !triggerSave} onClick={() => triggerSave?.()} className={cn(saveStatus === "error" && "bg-[#f24822]")}>
-      {label}
-    </BrandButton>
-  );
-}
-
-/** The person at the panel's corner (Figma's avatar with its chevron): their photo, or a plain circle until there is a sign-in (see account.ts). */
-function AccountButton({ account, onClick }: { account: ReturnType<typeof useAccount>; onClick: (el: HTMLElement) => void }) {
-  return (
-    <button type="button" aria-label="Account" aria-haspopup="menu" onClick={(e) => onClick(e.currentTarget)} className="flex items-center gap-0.5 h-8 pl-1 pr-0.5 rounded-[5px] cursor-pointer hover:bg-[var(--f-bg-hover)] text-[var(--f-icon-secondary)]">
-      <span className="flex items-center justify-center w-6 h-6 overflow-hidden rounded-full bg-[var(--f-bg-tertiary)] text-[var(--f-icon-secondary)]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {account.photoURL ? <img src={account.photoURL} alt={account.name ?? ""} className="w-full h-full object-cover" /> : <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden><circle cx="8" cy="6" r="2.75" /><path d="M2.75 14c.4-2.6 2.5-4 5.25-4s4.85 1.4 5.25 4z" /></svg>}
-      </span>
-      {fi("16.chevron.down")}
-    </button>
-  );
-}
-
-/** One of the editor's views at the toolbar's end: a tab as the panels' (Design / Prototype), as tall as the tools. */
-function ModeTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button type="button" role="tab" aria-selected={active} onClick={onClick} className={cn("h-8 px-2.5 rounded-[5px] text-[11px] leading-4 tracking-[0.055px] whitespace-nowrap cursor-pointer transition-colors", active ? "font-[550] text-[var(--f-text)] bg-[var(--f-bg-secondary)]" : "font-[450] text-[var(--f-text-secondary)] hover:text-[var(--f-text)] hover:bg-[var(--f-bg-hover)]")}>
-      {label}
-    </button>
-  );
-}
-
-/** A toolbar tool, as the kit's: a 24px icon in a 32px box, blue while in use; a 16px chevron opens its menu. */
-function Tool({ icon, label, shortcut, active = false, onClick, menu, menuLabel }: { icon: ReactNode; label: string; shortcut?: string; active?: boolean; onClick: () => void; menu?: (el: HTMLElement) => void; menuLabel?: string }) {
-  return (
-    <div className="relative group/tool flex items-center gap-px">
-      <button type="button" aria-label={label} aria-pressed={active} onClick={onClick} className={cn("flex items-center justify-center w-8 h-8 rounded-[5px] transition-colors cursor-pointer", active ? "bg-[var(--f-bg-brand)] text-white" : "text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)]")}>
-        {icon}
-      </button>
-      {menu && (
-        <button type="button" aria-label={menuLabel ?? `${label} menu`} onClick={(e) => menu(e.currentTarget)} className="flex items-center justify-center w-4 h-8 rounded-[5px] text-[var(--f-icon-secondary)] hover:bg-[var(--f-bg-hover)] cursor-pointer">
-          {fi("16.chevron.down")}
-        </button>
-      )}
-      <span className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 z-50 hidden group-hover/tool:inline-flex items-center gap-2 h-7 px-2.5 rounded-[6px] bg-[var(--f-bg-menu)] text-[11px] font-medium text-white whitespace-nowrap">
-        {label}
-        {shortcut && <span className="text-white/50">{shortcut}</span>}
-      </span>
-    </div>
-  );
-}
-
-/** A canvas rect of a node as drawn (canvas px) — read from the canvas's DOM. */
-function domRect(id: string): { x: number; y: number; w: number; h: number } | null {
-  const canvas = document.querySelector<HTMLElement>("[data-figma-canvas]");
-  const el = canvas?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
-  const world = canvas?.querySelector<HTMLElement>("[data-design-scope]");
-  if (!canvas || !el || !world) return null;
-  const w = world.getBoundingClientRect();
-  // The world's probe (see Canvas): a 1000px span whose drawn width is the zoom — the world itself has no width of its own (everything in it is placed absolutely).
-  const probe = world.querySelector<HTMLElement>("[data-zoom-probe]");
-  const pw = probe?.getBoundingClientRect().width ?? 0;
-  const zoom = pw > 0 ? pw / 1000 : w.width / Math.max(1, world.offsetWidth || 1);
-  const r = el.getBoundingClientRect();
-  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-  return { x: (r.left - w.left) / scale, y: (r.top - w.top) / scale, w: r.width / scale, h: r.height / scale };
-}
 
 /** What only a text, a shape or frame, or only a frame can take — for edits made to several layers at once. */
 const TEXT_ONLY = new Set(["characters", "charactersEn", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "textAlign", "textAutoResize", "textStyle", "textCase", "textDecoration", "verticalAlign", "paragraphSpacing"]);
@@ -248,23 +170,18 @@ const FRAME_ONLY = new Set(["children", "clipsContent", "layoutMode", "itemSpaci
 
 const KIND_HINT: Record<SceneNode["type"], string> = { frame: "frame", rectangle: "rectangle", ellipse: "ellipse", line: "line", text: "text", component: "component", componentSet: "component set", instance: "instance" };
 
-const isTyping = () => {
-  const el = document.activeElement as HTMLElement | null;
-  return Boolean(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)));
-};
-
-export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished, undo, redo, onRebuildPage }: {
+export function FigmaEditor({ doc: file, onDoc, title, slug, system, session, undo, redo }: {
   doc: FigmaDocument;
   onDoc: (update: (doc: FigmaDocument) => FigmaDocument) => void;
   title: string;
   slug: string;
   system: DesignSystem;
-  isPublished: boolean;
+  /** The project open: its save, its publishing, its versions (see useEditSession) */
+  session: EditSession;
   undo: () => void;
   redo: () => void;
-  /** The page frame made again from the project's page as it was before the Figma editor (a project that has one) */
-  onRebuildPage?: () => void;
 }) {
+  const isPublished = Boolean(session.meta?.published);
   const router = useRouter();
   const { theme, toggle: toggleTheme } = useTheme();
   // The language edited: the file's languages are its own (Turkish, English and what was added); one that is gone falls back to the base.
@@ -291,20 +208,38 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const iso = isolatedNode ? isolation : null;
   const mode: EditorMode = iso ? "canvas" : pickedMode === "page" && file.currentPage ? "canvas" : pickedMode;
   const paged = mode === "page";
-  // Each view keeps its own place: the canvas its pan and zoom, the page its scroll.
-  const [canvasView, setCanvasView] = useState<CanvasView>({ x: 120, y: 80, zoom: 0.5 });
-  const [pageView, setPageView] = useState<CanvasView>({ x: 0, y: 0, zoom: 1 });
-  const view = paged ? pageView : canvasView;
-  const setView = paged ? setPageView : setCanvasView;
+  // Each view keeps its own place: the canvas its pan and zoom, the page its scroll — in stores of their own, so a wheel tick draws only
+  // the canvas again (and the zoom's label), not the whole editor. What places things by the view reads it when it acts (viewNow).
+  const [canvasStore] = useState(() => createViewStore({ x: 120, y: 80, zoom: 0.5 }));
+  const [pageStore] = useState(() => createViewStore({ x: 0, y: 0, zoom: 1 }));
+  const viewStore = paged ? pageStore : canvasStore;
+  const viewNow = () => viewStore.get();
   const [tool, setTool] = useState<CanvasTool>("move");
   const [leftTab, setLeftTab] = useState<LeftTab>("file");
+  // The Components tab is the site's library page open on the canvas: the tab follows the page (Images stays beside either).
+  const inLibrary = file.currentPage === COMPONENTS_PAGE_ID;
+  const tab: LeftTab = inLibrary ? (leftTab === "images" ? "images" : "components") : leftTab === "components" ? "file" : leftTab;
+  // Where the canvas was (its page, its pan and zoom) when the library page was opened: back there when it is left.
+  const libraryReturn = useRef<{ page: string; view: CanvasView } | null>(null);
   const [rightTab, setRightTab] = useState<"design" | "prototype">("design");
   const [open, setOpen] = useState<Set<string>>(() => new Set([file.pageId]));
   const [editing, setEditing] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [previewing, setPreviewing] = useState<string | null>(null);
+  // The interaction whose window is open (its row, or its noodle on the canvas, clicked).
+  const [reactionOpen, setReactionOpen] = useState<string | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
+  // The Page Editor's preview width: the page as the site lays it out on a tablet or a phone (its own width when unset).
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+  // A word for the user that goes on its own (what an export left out, an upload that failed…).
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   // The editor's settings (the mouse), kept in the browser; their window.
   const [settings, changeSetting] = useEditorSettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -325,7 +260,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     if (wasMinimized.current === minimized) return;
     wasMinimized.current = minimized;
     const left = NAV_WIDTH + panelWidths.left;
-    setCanvasView((v) => ({ ...v, x: v.x + (minimized ? left : -left) }));
+    canvasStore.set((v) => ({ ...v, x: v.x + (minimized ? left : -left) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the toggle moves the view (the widths are fixed while the panels are hidden)
   }, [minimized]);
   const resizePanel = (side: "left" | "right") => (e: React.PointerEvent) => {
@@ -417,6 +352,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     });
     return hit;
   };
+  /** What an instance swap would put in: an instance of `componentId` (for createsCycle). */
+  const swapProbe = (componentId: string): SceneNode => ({ ...makeFrame("Swap", 0, 0, 1, 1), type: "instance", mainId: componentId });
   // The page edits go to: a component edited on its own, its page; else the open one.
   const editedPage = useRef<string | null>(null);
   useLayoutEffect(() => {
@@ -436,14 +373,30 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const pages = useMemo(() => [{ id: "", name: file.pageName ?? getNode(file.nodes, file.pageId)?.name ?? title ?? "Page 1" }, ...(file.pages ?? []).map((pg) => ({ id: pg.id, name: pg.name }))], [file, title]);
   const [renamingPage, setRenamingPage] = useState<string | null>(null);
   const openTab = (next: LeftTab) => {
+    if (next === "components") {
+      setLeftTab("components");
+      if (!inLibrary) switchPage(COMPONENTS_PAGE_ID);
+      return;
+    }
     setLeftTab(next);
     if (next === "images") setImagesOpened(true);
+    // The file and the assets are the project's: the library page is left for the page it was opened from.
+    if (inLibrary && next !== "images") switchPage(libraryReturn.current?.page ?? "");
   };
   const switchPage = (id: string) => {
+    const from = file.currentPage ?? "";
     setSelectionState([]);
     setEditing(null);
     // Another page: no component edited on its own any more (nor one that went, to come back with a redo).
     setIsolation(null);
+    if (id === COMPONENTS_PAGE_ID && from !== id) {
+      libraryReturn.current = { page: from, view: canvasStore.get() };
+      requestAnimationFrame(() => requestAnimationFrame(() => zoomActions.current?.fitAll()));
+    } else if (from === COMPONENTS_PAGE_ID && id !== from && libraryReturn.current) {
+      const { view } = libraryReturn.current;
+      libraryReturn.current = null;
+      canvasStore.set(() => view);
+    }
     onDoc((d) => ({ ...d, currentPage: id || undefined }));
   };
 
@@ -451,41 +404,46 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   // The canvas's pan and zoom before: back as it ends.
   const viewBefore = useRef<CanvasView | null>(null);
   const editComponent = (id: string) => {
-    const holder = setOf(library, id) ?? findComponent(library, id);
+    const own = getNode(library, id);
+    const holder = setOf(library, id) ?? findComponent(library, id) ?? (own?.type === "componentSet" ? own : null);
     const page = holder ? pageOfNode(file, holder.id) : null;
     if (!holder || page === null) return;
-    if (!iso) viewBefore.current = canvasView;
-    setIsolation({ id: holder.id, page });
+    // The component on the library page, selected and in view (the Components tab).
+    if (iso) endIsolation();
+    setLeftTab("components");
+    if (page !== (file.currentPage ?? "")) switchPage(page);
     setSelectionState([id]);
     setEditing(null);
     setTool("move");
-    setLeftTab("file");
-    // Its layers open (a variant's set too); the canvas fits it, once drawn.
     const its = page ? file.pages?.find((x) => x.id === page)?.nodes ?? [] : file.nodes;
     const holders = findNode(its, id)?.path ?? [];
     setOpen((prev) => new Set([...prev, ...holders]));
-    requestAnimationFrame(() => requestAnimationFrame(() => zoomActions.current?.fitAll()));
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => zoomActions.current?.fitSelection())));
   };
   /**
-   * A component taken out of the file (Assets › Delete component): a
-   * variant from its set — the set itself when it is its only one — from
-   * whatever page it sits on; the project's own (the Overview's) stays. Its
-   * instances are left without it (one undo brings it back).
+   * A component taken out of the site's library (Assets › Delete component):
+   * a variant from its set — the set itself when it is its only one; the
+   * project's own (the Overview's) stays. Its instances — on this project's
+   * pages, in other components, in the projects opened later — become
+   * frames of their own, looking as they did (one undo brings it back).
    */
   const deleteComponent = (id: string) => {
     const set = setOf(library, id);
     const holder = set && variantsOf(set).length === 1 ? set.id : id;
-    const page = pageOfNode(file, holder);
-    if (page === null || stays.has(id) || stays.has(holder)) return;
+    const node = getNode(library, holder);
+    if (!node || stays.has(id) || stays.has(holder)) return;
+    const count = instancesOf(library, new Set(componentIds(node)));
+    const used = count ? `${count} instance${count === 1 ? "" : "s"} of it here will become frames of their own (other projects' too, when they are opened).` : "No instance of it is used in this project (other projects' become frames of their own when they are opened).";
+    if (!window.confirm(`Delete “${node.name}” from the site's components?\n\n${used}\n\nUndo brings it back until you leave.`)) return;
     if (iso && (iso.id === holder || iso.id === id)) endIsolation();
-    const gone = new Set([holder]);
-    onDoc((d) => (page ? { ...d, pages: d.pages?.map((pg) => (pg.id === page ? { ...pg, nodes: removeNodes(pg.nodes, gone) } : pg)) } : { ...d, nodes: removeNodes(d.nodes, gone) }));
+    system.deleteComponent(holder);
   };
   const endIsolation = () => {
     setIsolation(null);
     setSelectionState([]);
     setEditing(null);
-    if (viewBefore.current) setCanvasView(viewBefore.current);
+    const before = viewBefore.current;
+    if (before) canvasStore.set(() => before);
     viewBefore.current = null;
   };
 
@@ -498,17 +456,10 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const found = findNode(list, id);
     if (!found) return;
     const top = found.path[0];
-    if (page === COMPONENTS_PAGE_ID) {
-      if (iso?.id !== top) {
-        if (!iso) viewBefore.current = canvasView;
-        setIsolation({ id: top, page });
-      }
-    } else {
-      if (iso && !(iso.page === page && found.path.includes(iso.id))) endIsolation();
-      if (!(iso && iso.page === page && found.path.includes(iso.id)) && (file.currentPage ?? "") !== page) switchPage(page);
-      // In the Page Editor, a layer beside the page frame is on the canvas.
-      if (!iso && paged && page === "" && top !== file.pageId) setMode("canvas");
-    }
+    if (iso && !(iso.page === page && found.path.includes(iso.id))) endIsolation();
+    if (!(iso && iso.page === page && found.path.includes(iso.id)) && (file.currentPage ?? "") !== page) switchPage(page);
+    // In the Page Editor, a layer beside the page frame is on the canvas.
+    if (!iso && paged && page === "" && top !== file.pageId) setMode("canvas");
     setSelectionState([id]);
     setEditing(null);
     setOpen((prev) => new Set([...prev, ...found.path.slice(0, -1)]));
@@ -567,14 +518,15 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     });
   }, [nodes]);
 
-  // The selected row stays in sight in the layers.
+  // The selected row stays in sight in the layers — when the selection changes (not on every edit of the file).
+  const selectedKey = selected.join(" ");
   useEffect(() => {
     requestAnimationFrame(() => document.querySelector("[data-left-panel] [data-selected-row]")?.scrollIntoView({ block: "nearest" }));
-  }, [selected]);
+  }, [selectedKey]);
 
-  const latest = useRef({ selected, nodes, doc, tool, editing, lang, previewing, mode, pageRoot, isolated: Boolean(iso) });
+  const latest = useRef({ selected, nodes, doc, tool, editing, lang, previewing, mode, pageRoot, isolated: Boolean(iso), library, viewStore });
   useEffect(() => {
-    latest.current = { selected, nodes, doc, tool, editing, lang, previewing, mode, pageRoot, isolated: Boolean(iso) };
+    latest.current = { selected, nodes, doc, tool, editing, lang, previewing, mode, pageRoot, isolated: Boolean(iso), library, viewStore };
   });
 
   // ── Editing ──
@@ -625,7 +577,19 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const deleteSelection = () => {
     const ids = new Set(latest.current.selected.filter(removable));
     if (!ids.size) return;
-    setNodes((list) => removeNodes(list, ids));
+    // A main component (a set, a variant) goes as Assets' Delete component does: its instances keep how they look, as frames of their own.
+    const mains = [...ids].filter((id) => { const n = getNode(nodes, id); return n?.type === "component" || n?.type === "componentSet"; });
+    if (mains.length) {
+      const count = instancesOf(library, new Set(mains.flatMap((id) => { const n = getNode(library, id); return n ? componentIds(n) : []; })));
+      const names = mains.map((id) => `“${getNode(nodes, id)?.name}”`).join(", ");
+      if (!window.confirm(`Delete ${names} from the site's components?\n\n${count ? `${count} instance${count === 1 ? "" : "s"} of ${mains.length === 1 ? "it" : "them"} here will become frames of their own (other projects' too, when they are opened).` : "No instance is used in this project (other projects' become frames of their own when they are opened)."}\n\nUndo brings ${mains.length === 1 ? "it" : "them"} back until you leave.`)) return;
+      for (const id of mains) {
+        const set = setOf(library, id);
+        system.deleteComponent(set && variantsOf(set).length === 1 ? set.id : id);
+        ids.delete(id);
+      }
+    }
+    if (ids.size) setNodes((list) => removeNodes(list, ids));
     setSelection([]);
   };
 
@@ -639,8 +603,18 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       for (const t of tops) {
         const found = findNode(next, t.node.id);
         if (!found) continue;
+        // A variant: another variant of its set, right after it (its first property's value a new one), as Figma's.
+        if (found.node.type === "component" && found.parent?.type === "componentSet") {
+          const set = found.parent;
+          const variant = cloneNode(found.node, true);
+          variant.reactions = undefined;
+          const first = found.node.variant?.[0];
+          if (first) variant.variant = (found.node.variant ?? []).map((v, i) => (i === 0 ? { ...v, value: nextValue(set, first.property) } : v));
+          made.push(variant.id);
+          next = insertNode(next, set.id, variant, found.index + 1);
+          continue;
+        }
         const copy = found.node.type === "component" ? makeInstance(found.node, found.node.x, found.node.y + found.node.height + 24) : cloneNode(found.node);
-        if (found.node.type === "component" && found.parent?.type === "componentSet") continue;
         made.push(copy.id);
         next = insertNode(next, found.parent?.id ?? null, copy, found.index + 1);
       }
@@ -649,18 +623,59 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     if (made.length) setSelection(made);
   };
 
-  const copySelection = () => {
+  /** Copy: the selected layers kept here — and on the system's clipboard too (as a marked text), so another tab or project pastes them. */
+  const copySelection = (data?: DataTransfer | null) => {
     const tops = topmost(nodes, latest.current.selected.filter((id) => !id.includes("/")));
+    // Nothing of its own selected (a layer inside an instance): the clipboard stays as it was.
+    if (!tops.length) return false;
     clipboard.current = tops.map((t) => structuredClone(t.node));
+    const text = CLIPBOARD_MARK + JSON.stringify(clipboard.current);
+    if (data) data.setData("text/plain", text);
+    else navigator.clipboard?.writeText(text).catch(() => { /* this tab's copy serves */ });
+    return true;
   };
-  const paste = () => {
-    if (!clipboard.current.length) return;
+  /**
+   * A copy of a layer as Figma makes one (a paste, a ⌥-drag): a main
+   * component of the file gives an instance of it — a set's, of its default
+   * (first) variant; anything else a copy of its own.
+   */
+  const copyOf = (n: SceneNode): SceneNode => {
+    const real = getNode(library, n.id);
+    const main = real?.type === "component" ? real : real?.type === "componentSet" ? variantsOf(real)[0] : undefined;
+    if (main && real && real.type === n.type) return { ...makeInstance(main, n.x, n.y), name: real.type === "componentSet" ? real.name : main.name };
+    return cloneNode(n);
+  };
+  const paste = (from?: SceneNode[]) => {
+    const source = from ?? clipboard.current;
+    if (!source.length) return;
     const target = selected[0] && !selected[0].includes("/") ? findNode(nodes, selected[0]) : null;
     const into = target && (target.node.type === "frame" || target.node.type === "component") ? target.node.id : target?.parent?.id ?? insertRoot;
-    const copies = clipboard.current.map((n) => cloneNode(n));
+    const copies = source.map(copyOf);
     if (createsCycle(into, copies)) return;
     setNodes((list) => copies.reduce((acc, c) => insertNode(acc, into, c), list));
     setSelection(copies.map((c) => c.id));
+  };
+  /** A paste from the system's clipboard: layers copied in another tab, a picture (uploaded, placed), or words (a new text). */
+  const pasteFrom = (data: DataTransfer) => {
+    const text = data.getData("text/plain");
+    if (text.startsWith(CLIPBOARD_MARK)) {
+      try {
+        const list = JSON.parse(text.slice(CLIPBOARD_MARK.length)) as SceneNode[];
+        if (Array.isArray(list) && list.every((n) => n && typeof n.id === "string" && typeof n.type === "string")) {
+          clipboard.current = list;
+          return paste(list);
+        }
+      } catch { /* not ours after all */ }
+    }
+    const picture = [...data.files].find((f) => f.type.startsWith("image/"));
+    if (picture) return void placeFile(picture);
+    if (text.trim()) {
+      const node = makeText(0, 0, text.trim());
+      node.name = layerName(text.trim().slice(0, 40));
+      if (text.trim().length > 40) { node.width = 320; node.textAutoResize = "height"; }
+      return paste([node]);
+    }
+    paste();
   };
 
   /** ⌘G a group, ⌥⌘G a frame — or ⇧A: a frame with auto layout inferred from how the layers sit (their direction and gaps), hugging them, as Figma's. Its id — null when nothing was grouped. */
@@ -669,9 +684,10 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     if (!tops.length || tops.some((t) => isRoot(t.node.id) || stays.has(t.node.id))) return null;
     const parentId = tops[0].parent?.id ?? null;
     if (tops.some((t) => (t.parent?.id ?? null) !== parentId)) return null;
-    const rects = tops.map((t) => ({ t, r: domRect(t.node.id) })).filter((x) => x.r) as { t: (typeof tops)[number]; r: Rect }[];
-    if (!rects.length) return null;
     const parentRect = parentId ? domRect(parentId) : { x: 0, y: 0, w: 0, h: 0 };
+    // In their order in the parent (the group keeps how they stack), each as drawn — a hidden one at its own place.
+    const rects: { t: (typeof tops)[number]; r: Rect }[] = [...tops].sort((a, b) => a.index - b.index).map((t) => ({ t, r: rectOf(t.node, parentRect) }));
+    if (!rects.length) return null;
     const x = Math.min(...rects.map((x) => x.r.x));
     const y = Math.min(...rects.map((x) => x.r.y));
     const right = Math.max(...rects.map((x) => x.r.x + x.r.w));
@@ -693,7 +709,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       frame.sizingV = "hug";
     }
     const ids = new Set(tops.map((t) => t.node.id));
-    const index = Math.min(...tops.map((t) => t.index));
+    // Where the topmost of them was (as Figma's): its place once they are all taken out.
+    const index = Math.max(...tops.map((t) => t.index)) - (tops.length - 1);
     setNodes((list) => insertNode(removeNodes(list, ids), parentId, frame, index));
     setSelection([frame.id]);
     return frame.id;
@@ -703,11 +720,13 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const id = selected[0];
     const found = id && !id.includes("/") ? findNode(nodes, id) : null;
     if (!found || !isFrameLike(found.node) || found.node.type === "instance" || isRoot(id) || stays.has(id)) return;
-    const frameRect = domRect(id);
     const parentRect = found.parent ? domRect(found.parent.id) : { x: 0, y: 0, w: 0, h: 0 };
+    const frameRect = rectOf(found.node, parentRect);
+    // Each child where it was drawn, now in the frame's parent — a hidden one at its own place in the frame, its own size.
     const children = found.node.children.map((c) => {
-      const r = domRect(c.id);
-      return r && frameRect && parentRect ? { ...c, x: Math.round(r.x - parentRect.x), y: Math.round(r.y - parentRect.y), width: Math.round(r.w), height: Math.round(r.h), sizingH: undefined, sizingV: undefined } : c;
+      const r = rectOf(c, frameRect);
+      const origin = parentRect ?? { x: 0, y: 0 };
+      return { ...c, x: Math.round(r.x - origin.x), y: Math.round(r.y - origin.y), width: Math.round(r.w), height: Math.round(r.h), sizingH: undefined, sizingV: undefined };
     });
     setNodes((list) => children.reduce((acc, c, i) => insertNode(acc, found.parent?.id ?? null, c, found.index + i), removeNodes(list, new Set([id]))));
     setSelection(children.map((c) => c.id));
@@ -716,6 +735,9 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const createComponent = () => {
     const tops = topmost(nodes, latest.current.selected.filter((id) => !id.includes("/")));
     if (!tops.length || tops.some((t) => stays.has(t.node.id))) return;
+    // A set or one of its variants selected: ⌥⌘K adds a variant (as Figma's).
+    if (tops.length === 1 && (tops[0].node.type === "componentSet" || (tops[0].node.type === "component" && tops[0].parent?.type === "componentSet"))) return addVariant(tops[0].node.id);
+    if (tops.some((t) => t.node.type === "component" || t.node.type === "componentSet")) return;
     if (tops.length === 1 && tops[0].node.type === "frame") {
       patch(tops[0].node.id, { type: "component" } as Partial<SceneNode>);
       return;
@@ -725,13 +747,24 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     if (made) requestAnimationFrame(() => patch(made, { type: "component" } as Partial<SceneNode>));
   };
 
+  /** Figma's Create multiple components: each selected layer a component of its own — a frame in place, anything else in a component frame of its size. */
+  const createMultipleComponents = () => {
+    const tops = topmost(nodes, latest.current.selected.filter((id) => !id.includes("/"))).filter((t) => !stays.has(t.node.id) && !isRoot(t.node.id) && t.node.type !== "component" && t.node.type !== "componentSet" && t.node.type !== "instance");
+    if (!tops.length) return;
+    setNodes((list) => tops.reduce((acc, t) => updateNode(acc, t.node.id, (n) => {
+      if (n.type === "frame") return { ...n, type: "component" } as SceneNode;
+      const holder = makeFrame(n.name, n.x, n.y, n.width, n.height);
+      return { ...holder, type: "component", fills: [], clipsContent: false, sizingH: n.sizingH, sizingV: n.sizingV, children: [{ ...n, x: 0, y: 0, sizingH: undefined, sizingV: undefined }] } as SceneNode;
+    }), list));
+  };
+
   const detach = () => {
     const id = selected[0];
     const node = id && !id.includes("/") ? getNode(nodes, id) : null;
     if (!node || node.type !== "instance" || stays.has(id)) return;
     const resolved = resolveInstance(library, node);
     if (!resolved) return patch(id, { type: "frame", mainId: undefined, overrides: undefined } as Partial<SceneNode>);
-    const detached = cloneNode({ ...resolved, type: "frame", mainId: undefined, overrides: undefined } as FrameNode);
+    const detached = cloneNode({ ...resolved, type: "frame", mainId: undefined, overrides: undefined, props: undefined, propsEn: undefined, propsI18n: undefined, mainProp: undefined } as FrameNode);
     detached.id = node.id;
     setNodes((list) => updateNode(list, id, () => detached));
   };
@@ -803,7 +836,16 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     // The components' properties, each once, become the set's (see propertyHolder).
     const properties = tops.flatMap((t) => (t.node as FrameNode).properties ?? []).filter((p, i, all) => all.findIndex((q) => q.id === p.id) === i);
     if (properties.length) set.properties = properties;
-    set.children = tops.map((t) => ({ ...(t.node as FrameNode), x: 0, y: 0, properties: undefined, variant: [{ property: "Property 1", value: t.node.name }] }));
+    const parts = tops.map((t) => t.node.name.split("/").map((p) => p.trim()));
+    const slashed = parts.every((p) => p.length > 1 && p.length === parts[0].length && p[0] === parts[0][0]);
+    if (slashed) set.name = parts[0][0];
+    set.children = tops.map((t, i) => ({
+      ...(t.node as FrameNode),
+      x: 0,
+      y: 0,
+      properties: undefined,
+      variant: slashed ? parts[i].slice(1).map((value, k) => ({ property: `Property ${k + 1}`, value })) : [{ property: "Property 1", value: t.node.name }],
+    }));
     setNodes((list) => {
       const real = tops.map((t) => findNode(list, t.node.id)).filter((f): f is NonNullable<typeof f> => Boolean(f));
       if (!real.length) return list;
@@ -823,10 +865,38 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       }
       return next as unknown as SceneNode;
     })),
+    updateMany: (ids, update) => setNodes((list) => updateNodes(list, ids.filter((id) => !id.includes("/")), update)),
     override,
     align: (kind) => {
       const tops = topmost(nodes, latest.current.selected.filter((id) => !id.includes("/")));
       if (!tops.length) return;
+      // Layers of different parents: lined up as drawn on the canvas, each placed back in its own parent.
+      if (tops.some((t) => (t.parent?.id ?? null) !== (tops[0].parent?.id ?? null))) {
+        const placed = tops.map((t) => {
+          const parentRect = t.parent ? domRect(t.parent.id) : { x: 0, y: 0, w: 0, h: 0 };
+          return { t, parentRect, r: rectOf(t.node, parentRect) };
+        });
+        const left = Math.min(...placed.map((p) => p.r.x));
+        const top = Math.min(...placed.map((p) => p.r.y));
+        const right = Math.max(...placed.map((p) => p.r.x + p.r.w));
+        const bottom = Math.max(...placed.map((p) => p.r.y + p.r.h));
+        const moves = new Map<string, Partial<SceneNode>>();
+        for (const { t, parentRect, r } of placed) {
+          // One in an auto layout has no place of its own to change.
+          if (t.parent && t.parent.layoutMode !== "none" && !t.node.absolute) continue;
+          const o = parentRect ?? { x: 0, y: 0 };
+          const p: Partial<SceneNode> = {};
+          if (kind === "left") p.x = Math.round(left - o.x);
+          if (kind === "hcenter") p.x = Math.round(left + (right - left - r.w) / 2 - o.x);
+          if (kind === "right") p.x = Math.round(right - r.w - o.x);
+          if (kind === "top") p.y = Math.round(top - o.y);
+          if (kind === "vcenter") p.y = Math.round(top + (bottom - top - r.h) / 2 - o.y);
+          if (kind === "bottom") p.y = Math.round(bottom - r.h - o.y);
+          moves.set(t.node.id, p);
+        }
+        setNodes((list) => updateNodes(list, [...moves.keys()], (n) => ({ ...n, ...moves.get(n.id) } as SceneNode)));
+        return;
+      }
       const parent = tops[0].parent;
       const bounds = tops.length > 1
         ? { x: Math.min(...tops.map((t) => t.node.x)), y: Math.min(...tops.map((t) => t.node.y)), w: Math.max(...tops.map((t) => t.node.x + t.node.width)) - Math.min(...tops.map((t) => t.node.x)), h: Math.max(...tops.map((t) => t.node.y + t.node.height)) - Math.min(...tops.map((t) => t.node.y)) }
@@ -870,7 +940,88 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     },
     createComponent,
     detach,
-    resetOverrides: () => selected[0] && patch(selected[0], { overrides: undefined, props: undefined, propsEn: undefined, propsI18n: undefined } as Partial<SceneNode>),
+    resetOverrides: () => {
+      const id = selected[0];
+      if (!id) return;
+      // The Overview's changes are the project's title, description and cover: asked first.
+      if (isOverviewNode(getNode(nodes, id) ?? undefined) && !window.confirm("Reset the Overview? The project's title, category, year, description and cover go back to the component's sample text.\n\nUndo brings them back.")) return;
+      patch(id, { overrides: undefined, props: undefined, propsEn: undefined, propsI18n: undefined } as Partial<SceneNode>);
+    },
+    resetChange: (id, key) => {
+      if (id.includes("/")) {
+        const at = layerAt(library, id);
+        if (!at) return;
+        return patch(at.instance.id, { overrides: withResetAt(at.instance.overrides, at.keys, key) } as Partial<SceneNode>);
+      }
+      const node = getNode(nodes, id);
+      if (node?.type !== "instance") return;
+      if (!key && isOverviewNode(node) && !window.confirm("Reset the Overview? The project's title, category, year, description and cover go back to the component's sample text.\n\nUndo brings them back.")) return;
+      setNodes((list) => updateNode(list, id, (n) => (n.type === "instance" ? withoutChange(n, key) : n)));
+    },
+    pushToMain: () => {
+      const id = selected[0];
+      const node = id && !id.includes("/") ? getNode(nodes, id) : null;
+      if (node?.type !== "instance" || !node.mainId || stays.has(node.mainId)) return;
+      const main = findComponent(library, node.mainId);
+      if (!main) return;
+      const holder = setOf(library, main.id) ?? main;
+      const props = node.props ?? {};
+      onDoc((d) => {
+        // The look and words into the main; the property values it set, the properties' defaults (each bound layer then shows it).
+        let next = updateAnywhere(d, main.id, (m) => (isFrameLike(m) && node.overrides ? withPushedOverrides(m, node.overrides) : m));
+        if (Object.keys(props).length) {
+          next = updateAnywhere(next, holder.id, (h) => {
+            if (!isFrameLike(h)) return h;
+            let out: FrameNode = { ...h, properties: (h.properties ?? []).map((p) => (p.id in props ? { ...p, value: props[p.id] } : p)) };
+            for (const [pid, value] of Object.entries(props)) out = applyPropertyValue(out, pid, value);
+            return out;
+          });
+        }
+        return updateAnywhere(next, node.id, (n) => (n.type === "instance" ? { ...n, overrides: undefined, props: undefined } : n));
+      });
+    },
+    swapInstance: (id, componentId) => {
+      const node = getNode(nodes, id);
+      if (node?.type !== "instance" || stays.has(id) || !findComponent(library, componentId) || createsCycle(id, [swapProbe(componentId)])) return;
+      // As Figma's swap to another component: only the text changes stay (another variant of the same set keeps them all: swapVariant).
+      const textOnly = (o: Record<string, NodeOverride> | undefined): Record<string, NodeOverride> | undefined => {
+        if (!o) return undefined;
+        const out = Object.fromEntries(Object.entries(o).map(([k, v]) => {
+          const kept: NodeOverride = {};
+          if (v.characters !== undefined) kept.characters = v.characters;
+          if (v.charactersEn !== undefined) kept.charactersEn = v.charactersEn;
+          if (v.translations) kept.translations = v.translations;
+          const nested = textOnly(v.overrides);
+          if (nested) kept.overrides = nested;
+          return [k, kept];
+        }).filter(([, v]) => Object.keys(v as object).length));
+        return Object.keys(out).length ? out : undefined;
+      };
+      const sameSet = node.mainId && setOf(library, node.mainId) && setOf(library, node.mainId) === setOf(library, componentId);
+      patch(id, { mainId: componentId, ...(sameSet ? {} : { overrides: textOnly(node.overrides), props: undefined, propsEn: undefined, propsI18n: undefined }) } as Partial<SceneNode>);
+    },
+    selectMatching: () => {
+      const first = selected[0];
+      const target = first ? (first.includes("/") ? layerAt(library, first)?.node : getNode(nodes, first)) : null;
+      if (!target) return;
+      // Its likes on this page: the same name and kind — inside instances too (as their composite ids).
+      const out: string[] = [];
+      walk(nodes, (n) => {
+        if (n.name === target.name && n.type === target.type) out.push(n.id);
+        if (n.type !== "instance") return;
+        const resolved = resolveInstance(library, n);
+        const visit = (list: SceneNode[], path: string) => {
+          for (const c of list) {
+            const key = path ? `${path}${PATH_SEP}${c.name}` : c.name;
+            if (c.name === target.name && c.type === target.type) out.push(`${n.id}/${key}`);
+            if (isFrameLike(c) && c.type !== "instance") visit(c.children, key);
+          }
+        };
+        if (resolved) visit(resolved.children, "");
+      });
+      if (out.length) setSelection([...new Set(out)]);
+    },
+    instanceActions: (id) => instanceActions(id),
     select: (ids) => setSelection(ids),
     // The main component, edited on its own (wherever it sits).
     goToMain: () => {
@@ -879,13 +1030,35 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     },
     addVariant,
     combineAsVariants,
-    setVariantValue: (variantId, property, value) => patch(variantId, { variant: (getNode(nodes, variantId) as FrameNode).variant?.map((v) => (v.property === property ? { ...v, value } : v)) } as Partial<SceneNode>),
-    renameProperty: (setId, from, to) => setNodes((list) => updateNode(list, setId, (set) => (set.type === "componentSet" ? { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: c.variant?.map((v) => (v.property === from ? { ...v, property: to } : v)) } : c)) } : set))),
-    renameValue: (setId, property, from, to) => setNodes((list) => updateNode(list, setId, (set) => (set.type === "componentSet" ? { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: c.variant?.map((v) => (v.property === property && v.value === from ? { ...v, value: to } : v)) } : c)) } : set))),
+    // A variant's values: never the same as another variant's (two variants of one combination — instances could reach only one).
+    setVariantValue: (variantId, property, value) => {
+      const set = setOf(library, variantId);
+      const variant = getNode(nodes, variantId) as FrameNode | null;
+      if (!variant) return;
+      const combo = (v: FrameNode, override?: string) => JSON.stringify((v.variant ?? []).map((x) => [x.property, x.property === property && override !== undefined ? override : x.value]));
+      const others = set ? variantsOf(set).filter((v) => v.id !== variantId).map((v) => combo(v)) : [];
+      let next = value.trim() || "Default";
+      for (let n = 2; others.includes(combo(variant, next)); n++) next = `${value.trim() || "Default"} ${n}`;
+      patch(variantId, { variant: variant.variant?.map((v) => (v.property === property ? { ...v, value: next } : v)) } as Partial<SceneNode>);
+    },
+    // A property's name: none of the set's others (variant and component properties alike).
+    renameProperty: (setId, from, to) => setNodes((list) => updateNode(list, setId, (set) => {
+      if (set.type !== "componentSet" || !to.trim() || to.trim() === from) return set;
+      const name = freePropertyName({ ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: c.variant?.filter((v) => v.property !== from) } : c)) } as FrameNode, to.trim());
+      return { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: c.variant?.map((v) => (v.property === from ? { ...v, property: name } : v)) } : c)) };
+    })),
+    // A value's name: one the property already has would make two variants one — numbered instead.
+    renameValue: (setId, property, from, to) => setNodes((list) => updateNode(list, setId, (set) => {
+      if (set.type !== "componentSet" || !to.trim() || to.trim() === from) return set;
+      const values = variantProperties(set).find((p) => p.name === property)?.values ?? [];
+      let value = to.trim();
+      for (let n = 2; values.includes(value); n++) value = `${to.trim()} ${n}`;
+      return { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: c.variant?.map((v) => (v.property === property && v.value === from ? { ...v, value } : v)) } : c)) };
+    })),
     addProperty: (setId) => setNodes((list) => updateNode(list, setId, (set) => {
       if (set.type !== "componentSet") return set;
-      const count = variantProperties(set).length + 1;
-      return { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: [...(c.variant ?? []), { property: `Property ${count}`, value: "Default" }] } : c)) };
+      const name = freePropertyName(set, `Property ${variantProperties(set).length + 1}`);
+      return { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: [...(c.variant ?? []), { property: name, value: "Default" }] } : c)) };
     })),
     removeProperty: (setId, name) => setNodes((list) => updateNode(list, setId, (set) => (set.type === "componentSet" ? { ...set, children: set.children.map((c) => (c.type === "component" ? { ...c, variant: c.variant?.filter((v) => v.property !== name) } : c)) } : set))),
     // Component properties (booleans, texts, instance swaps): defined on the main component or its set, bound to its layers, valued on each instance.
@@ -893,10 +1066,14 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       if (!isFrameLike(n)) return n;
       return { ...pruneBindings(n, new Set(properties.map((p) => p.id))), properties: properties.length ? properties : undefined };
     })),
-    setPropertyValue: (holderId, propId, value) => onDoc((d) => updateAnywhere(d, holderId, (n) => {
-      if (!isFrameLike(n)) return n;
-      return { ...applyPropertyValue(n, propId, value), properties: (n.properties ?? []).map((p) => (p.id === propId ? { ...p, value } : p)) };
-    })),
+    setPropertyValue: (holderId, propId, value) => {
+      // An instance swap's default that would draw the component itself (its own instance, all the way down) is refused: it would draw without end.
+      if (typeof value === "string" && findComponent(library, value) && createsCycle(holderId, [swapProbe(value)])) return;
+      onDoc((d) => updateAnywhere(d, holderId, (n) => {
+        if (!isFrameLike(n)) return n;
+        return { ...applyPropertyValue(n, propId, value), properties: (n.properties ?? []).map((p) => (p.id === propId ? { ...p, value } : p)) };
+      }));
+    },
     bindProperty: (nodeId, kind, propId) => patch(nodeId, { [kind === "visible" ? "visibleProp" : kind === "text" ? "charactersProp" : "mainProp"]: propId } as Partial<SceneNode>),
     typeInInstance,
     languages,
@@ -905,17 +1082,27 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       onDoc((d) => (languagesOf(d).some((l) => l.code === language.code) ? d : { ...d, languages: [...languagesOf(d), language] }));
       setLangPicked(language.code);
     },
-    // Back to the base language; its words in this one go with it (undo brings them back).
+    // Back to the base language; its words in this project go with it — asked first when it has some (undo brings them back). The library's stay: they are every project's.
     removeLanguage: (code) => {
       if (code === BASE_LANGUAGE) return;
-      onDoc((d) => withoutLanguage(d, code));
+      const own = { ...file, nodes: [...file.nodes, ...(file.pages ?? []).filter((pg) => pg.id !== COMPONENTS_PAGE_ID).flatMap((pg) => pg.nodes)] };
+      const name = languages.find((l) => l.code === code)?.name ?? code;
+      if (writtenLanguages(own).some((l) => l.code === code) && !window.confirm(`Remove ${name}? Its words in this project go with it.\n\nUndo brings them back.`)) return;
+      onDoc((d) => withoutLanguage(d, code, COMPONENTS_PAGE_ID));
       setLangPicked(BASE_LANGUAGE);
     },
-    setInstanceProp: (instanceId, propId, value, language) => onDoc((d) => updateAnywhere(d, instanceId, (n) => {
-      if (n.type !== "instance") return n;
-      if (language && language !== BASE_LANGUAGE && typeof value === "string") return { ...n, ...propsPatch(n, language, propId, value) };
-      return { ...n, props: { ...n.props, [propId]: value } };
-    })),
+    setInstanceProp: (instanceId, propId, value, language) => {
+      // An instance swap to a component that draws this instance's component (or the one it sits in) is refused: it would draw without end.
+      if (typeof value === "string" && findComponent(library, value)) {
+        const inst = getNode(library, instanceId);
+        if (createsCycle(instanceId, [swapProbe(value)]) || (inst?.type === "instance" && inst.mainId && createsCycle(inst.mainId, [swapProbe(value)]))) return;
+      }
+      onDoc((d) => updateAnywhere(d, instanceId, (n) => {
+        if (n.type !== "instance") return n;
+        if (language && language !== BASE_LANGUAGE && typeof value === "string") return { ...n, ...propsPatch(n, language, propId, value) };
+        return { ...n, props: { ...n.props, [propId]: value } };
+      }));
+    },
     swapVariant: (instanceId, property, value) => {
       const instance = getNode(nodes, instanceId);
       const main = instance?.type === "instance" && instance.mainId ? findComponent(library, instance.mainId) : null;
@@ -923,9 +1110,11 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       if (!main || !set) return;
       patch(instanceId, { mainId: pickVariant(set, main, property, value).id } as Partial<SceneNode>);
     },
-    setReactions: (variantId, reactions) => patch(variantId, { reactions: reactions.length ? reactions : undefined } as Partial<SceneNode>),
+    setReactions: (nodeId, reactions) => patch(nodeId, { reactions: reactions.length ? reactions : undefined } as Partial<SceneNode>),
+    reactionOpen,
+    openReaction: setReactionOpen,
     setLayoutFocus,
-    preview: (id) => setPreviewing(id ?? previewTarget()),
+    preview: (id) => startPreview(id),
     openVariables: () => setVariablesOpen(true),
     setBackground: (color) => onDoc((d) => {
       const at = pageOf(d);
@@ -1008,9 +1197,12 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     exportNode: (id, setting) => {
       const el = document.querySelector<HTMLElement>(`[data-figma-canvas] [data-node-id="${CSS.escape(id)}"]`);
       const n = getNode(nodes, id);
-      if (el && n) exportElement(el, n.name, setting).catch((err) => console.warn("Could not export:", err));
+      if (!el || !n) return setNotice("Nothing to export: the layer isn't drawn on this page.");
+      exportElement(el, n.name, setting)
+        .then((missing) => missing.length && setNotice(`Exported — ${missing.length} picture${missing.length === 1 ? "" : "s"} ${setting.format === "svg" ? "linked by address, not inside the file" : "left blank"}: the bucket doesn't allow reading them here (see cors.json).`))
+        .catch((err) => setNotice(`Couldn't export: ${(err as Error).message}`));
     },
-    upload: (f) => uploadFile(f, uploadPath(slug, f)),
+    upload: (f) => uploadMedia(f),
     pageId: doc.pageId,
     addAutoLayout: () => autoLayout(),
     lockProportions: (id, on) => {
@@ -1038,11 +1230,61 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     pageColors: pageColors,
   };
 
-  /** What the preview plays: the selected top-level frame, else the page. */
+  /** What the preview plays: the selected top-level frame, else the component edited on its own, else the page — a frame of the open page, or nothing. */
   const previewTarget = () => {
     const id = latest.current.selected[0]?.split("/")[0];
     const top = id ? findNode(nodes, id)?.path[0] : undefined;
-    return top ?? iso?.id ?? doc.pageId;
+    for (const candidate of [top, iso?.id, doc.pageId]) {
+      const n = candidate ? getNode(nodes, candidate) : null;
+      if (n && isFrameLike(n)) return n.id;
+    }
+    return null;
+  };
+  /** Present: the preview opens on what it plays — with nothing to play, it doesn't (nor does it take the editor's keys). */
+  const startPreview = (id?: string | null) => {
+    const target = id ?? previewTarget();
+    const n = target ? getNode(nodes, target) : null;
+    if (n && isFrameLike(n)) setPreviewing(n.id);
+  };
+
+  // ── The prototype on the canvas (Figma's noodles) ──
+  /**
+   * A connection drawn from a layer: to another variant of its set, a Change
+   * to on the variant it is in (Smart animate, as Figma's); to a frame, a
+   * Navigate to on the layer itself (instant) — the page's first connection
+   * starts its first flow, at the layer's frame. Its interaction opens.
+   */
+  const connect = (sourceId: string, targetId: string) => {
+    const source = findNode(nodes, sourceId);
+    const target = getNode(nodes, targetId);
+    if (!source || !target) return;
+    const set = target.type === "component" ? setOf(library, targetId) : null;
+    const variant = set ? source.path.map((id) => getNode(nodes, id)).find((n): n is FrameNode => n?.type === "component" && setOf(library, n.id)?.id === set.id) : undefined;
+    const holder = variant ?? source.node;
+    const reaction: Reaction = variant
+      ? { id: nid("r"), trigger: "click", action: "change", target: targetId, animation: "smart", easing: "ease-out", duration: 300 }
+      : { id: nid("r"), trigger: "click", action: "navigate", target: targetId, animation: "instant", direction: "left", easing: "ease-out", duration: 300 };
+    setNodes((list) => {
+      let next = updateNode(list, holder.id, (n) => ({ ...n, reactions: [...(n.reactions ?? []), reaction] }));
+      if (!variant && !next.some((n) => isFrameLike(n) && n.flowStart)) next = updateNode(next, source.path[0], (n) => (isFrameLike(n) ? { ...n, flowStart: "Flow 1" } : n));
+      return next;
+    });
+    setSelection([holder.id]);
+    setReactionOpen(reaction.id);
+  };
+  /** A connection's end moved: to another frame (or variant) — or off any, the connection gone. */
+  const retarget = (sourceId: string, reactionId: string, targetId: string | null) => {
+    setNodes((list) => updateNode(list, sourceId, (n) => {
+      const reactions = (n.reactions ?? []).flatMap((r) => (r.id !== reactionId ? [r] : targetId ? [{ ...r, target: targetId }] : []));
+      return { ...n, reactions: reactions.length ? reactions : undefined };
+    }));
+    if (!targetId && reactionOpen === reactionId) setReactionOpen(null);
+  };
+  /** A noodle clicked: its layer selected, its interaction open in the Prototype tab. */
+  const openConnection = (sourceId: string, reactionId: string) => {
+    setSelection([sourceId]);
+    setRightTab("prototype");
+    setReactionOpen(reactionId);
   };
 
   // ── The canvas's callbacks ──
@@ -1056,7 +1298,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       copied.reduce((acc, m) => {
         const found = findNode(acc, m.id);
         if (!found) return acc;
-        const clone = { ...cloneNode(found.node), x: m.x, y: m.y };
+        const clone = { ...copyOf(found.node), x: m.x, y: m.y };
         made.push(clone.id);
         return insertNode(acc, found.parent?.id ?? null, clone, found.index + 1);
       }, list)
@@ -1072,7 +1314,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const target = parentId ? getNode(nodes, parentId) : null;
     if (target && isFrameLike(target)) index = fromIndex(target.children, index);
     const auto = target && isFrameLike(target) && target.layoutMode !== "none";
-    const source = copy ? cloneNode(found.node) : found.node;
+    const source = copy ? copyOf(found.node) : found.node;
     const moved: SceneNode = { ...source, x, y, ...(auto ? {} : { sizingH: found.node.sizingH === "fill" ? undefined : found.node.sizingH, sizingV: found.node.sizingV === "fill" ? undefined : found.node.sizingV }) };
     setNodes((list) => insertNode(copy ? list : removeNodes(list, new Set([id])), parentId, moved, index));
     if (copy) setSelection([moved.id]);
@@ -1088,7 +1330,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
   const onResize = (id: string, rect: Rect, changed: { x: boolean; y: boolean }) => {
     const found = findNode(nodes, id);
     if (!found) return;
-    const inAuto = found.parent && found.parent.layoutMode !== "none";
+    // In an auto layout its place is the layout's — unless it is positioned absolutely (its x and y its own, moved by a W or N handle).
+    const inAuto = found.parent && found.parent.layoutMode !== "none" && !found.node.absolute;
     const p: Partial<SceneNode> = { width: rect.w, height: rect.h };
     if (!inAuto) { p.x = rect.x; p.y = rect.y; }
     // Proportions kept: both sides change, so both become Fixed (as Figma's).
@@ -1105,6 +1348,13 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     let node: SceneNode;
     if (drawn === "frame") node = makeFrame(nextName(nodes, "Frame"), rect.x, rect.y, rect.w, rect.h);
     else if (drawn === "text") { node = makeText(rect.x, rect.y, ""); if (!clicked) { node.width = rect.w; node.textAutoResize = "height"; } }
+    else if (drawn === "line" && !clicked) {
+      // A line drawn from its start along its vector (rect.w, rect.h signed): its length, turned to its angle around its centre.
+      const length = Math.max(1, Math.round(Math.hypot(rect.w, rect.h)));
+      const angle = Math.round((Math.atan2(rect.h, rect.w) * 180) / Math.PI * 10) / 10;
+      node = makeShape("line", nextName(nodes, "Line"), rect.x + rect.w / 2 - length / 2, rect.y + rect.h / 2, length, 0);
+      if (angle) node.rotation = angle;
+    }
     else node = makeShape(drawn === "ellipse" ? "ellipse" : drawn === "line" ? "line" : "rectangle", nextName(nodes, drawn === "ellipse" ? "Ellipse" : drawn === "line" ? "Line" : "Rectangle"), rect.x, rect.y, rect.w, rect.h);
     // Drawn on the canvas around a component edited on its own: into it (beside it, it would be out of sight) — at its place in it.
     if (!parentId && iso && insertRoot) {
@@ -1142,11 +1392,21 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       const typed = latest.current.lang;
       if (editing.includes("/")) typeInInstance(editing, text, typed);
       else if (typed !== BASE_LANGUAGE) { const node = getNode(latest.current.nodes, id); patch(id, wordsPatch(node?.type === "text" ? node : {}, typed, text) as Partial<SceneNode>); }
-      // A text is named after its words — the project's own (the Overview's) keep their names.
-      else patch(id, (getNode(latest.current.nodes, id)?.fixed ? { characters: text } : { characters: text, name: text.trim().slice(0, 40) || "Text" }) as Partial<SceneNode>);
+      else {
+        // A text is named after its words, as Figma's — while its name is still its words (a name given to it stays), and never inside a
+        // main component (its instances' overrides go by its name) nor the project's own (the Overview's).
+        const node = getNode(latest.current.nodes, id);
+        const auto = node?.type === "text" && !node.fixed && (node.name === "Text" || node.name === layerName(node.characters.trim().slice(0, 40))) && !componentAround(latest.current.library, id);
+        patch(id, (auto ? { characters: text, name: layerName(text.trim().slice(0, 40)) || "Text" } : { characters: text }) as Partial<SceneNode>);
+      }
     },
-    onDone: () => setEditing(null),
-  } : null, [editing, typeInInstance, patch]);
+    onDone: () => {
+      setEditing(null);
+      // A text left empty goes, as Figma's (the project's own stay, as does one inside an instance: its words are the instance's).
+      const n = !editing.includes("/") ? getNode(latest.current.nodes, editing) : null;
+      if (n?.type === "text" && !n.fixed && !n.characters.trim() && !n.charactersEn?.trim()) setNodes((list) => removeNodes(list, new Set([n.id])));
+    },
+  } : null, [editing, typeInInstance, patch, setNodes]);
   const render = useMemo<RenderContext>(() => ({ nodes: library, byId, lang, play: false, editing: editingCtx }), [library, byId, lang, editingCtx]);
 
   // ── Layers ──
@@ -1193,9 +1453,68 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const r = el.getBoundingClientRect();
     setMenu({ x: align === "left" ? r.left : r.right - 200, y: r.bottom + 4, entries });
   };
+  /**
+   * A layer renamed from the layers. A variant's name is its properties, as
+   * Figma's ("State=active, Size=lg" — or its values alone): typing it sets
+   * them; a name that isn't one is refused with Figma's words.
+   */
+  const renameLayer = (id: string, name: string) => {
+    const set = setOf(library, id);
+    const variant = set ? findComponent(library, id) : null;
+    if (!set || !variant?.variant?.length) return onDoc((d) => withRenamedLayer(d, id, name));
+    const pairs = parseVariantName(name, variantProperties(set).map((p) => p.name));
+    if (!pairs) return setNotice("This layer has an invalid name — a variant is named by its properties: Property=Value, Property 2=Value.");
+    onDoc((d) => updateAnywhere(d, set.id, (n) => (n.type === "componentSet" ? withVariantName(n, id, pairs) : n)));
+  };
+  /** Swap instance's list, as Figma's: each component once — a set as its default (first) variant. */
+  const swapEntries = (node: FrameNode): MenuEntry[] => {
+    const seen = new Set<string>();
+    const out: MenuEntry[] = [];
+    for (const { component, set } of components) {
+      const key = set?.id ?? component.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const target = set ? variantsOf(set)[0] ?? component : component;
+      const current = set ? Boolean(node.mainId && setOf(library, node.mainId)?.id === set.id) : node.mainId === component.id;
+      out.push({ label: (set ?? component).name, icon: fi("16.component"), checked: current, disabled: current, onSelect: () => ops.swapInstance(node.id, target.id) });
+    }
+    return out;
+  };
+  /**
+   * An instance's actions, as Figma's ⋯ (and its right-click menu): swap,
+   * reset one change or all, push the changes to the main component, go to
+   * it, select the likes, detach. For a layer inside an instance: its reset
+   * and select matching.
+   */
+  const instanceActions = (id: string): MenuEntry[] => {
+    const changes = changesAt(library, id);
+    const reset: MenuEntry = {
+      label: "Reset",
+      disabled: !changes.length,
+      items: [...changes.map((c) => ({ label: `Reset ${c.label}`, onSelect: () => ops.resetChange(id, c.key) })), "-", { label: "Reset all changes", onSelect: () => ops.resetChange(id) }],
+    };
+    const matching: MenuEntry = { label: "Select matching layers", shortcut: keys("alt", "mod", "a"), onSelect: ops.selectMatching };
+    if (id.includes("/")) return [reset, matching];
+    const node = getNode(nodes, id);
+    if (node?.type !== "instance") return [];
+    const fixed = stays.has(id);
+    return [
+      { label: "Swap instance", disabled: fixed, items: swapEntries(node) },
+      reset,
+      { label: "Push changes to main component", disabled: fixed || !changes.length, onSelect: ops.pushToMain },
+      "-",
+      { label: "Go to main component", disabled: !node.mainId, onSelect: ops.goToMain },
+      matching,
+      { label: "Detach instance", shortcut: keys("alt", "mod", "b"), disabled: fixed, onSelect: detach },
+    ];
+  };
   const nodeMenu = (id: string | null, at?: { x: number; y: number }): MenuEntry[] => {
+    // What it acts on: a right click on a layer not selected selects it first — the menu is built for that selection, not the one before.
+    const selected = id && !latest.current.selected.includes(id) ? [id] : latest.current.selected;
     const node = id && !id.includes("/") ? getNode(nodes, id) : null;
     const pasteHere = { label: "Paste here", disabled: !clipboard.current.length, onSelect: () => (at ? pasteAt(at.x, at.y, id) : paste()) };
+    // A layer inside an instance: what Figma offers of it — its changes reset, its likes selected.
+    if (id && id.includes("/")) return instanceActions(id);
     if (!node) {
       return [
         pasteHere,
@@ -1280,14 +1599,11 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
         ...(found?.parent && found.parent.layoutMode !== "none" ? ["-" as const, { label: "Absolute position", checked: Boolean(node.absolute), onSelect: () => patch(node.id, { absolute: node.absolute ? undefined : true }) }] : []),
       ] },
       ...(node.type === "frame" ? [{ label: "Create component", shortcut: keys("alt", "mod", "k"), disabled: fixed, onSelect: createComponent }] : []),
+      ...(selected.length > 1 && node.type !== "component" && node.type !== "componentSet" ? [{ label: "Create multiple components", onSelect: createMultipleComponents }] : []),
       ...(node.type === "component" || node.type === "componentSet" ? [{ label: "Add variant", onSelect: () => addVariant(node.id) }] : []),
       ...(node.type === "component" && selected.length > 1 ? [{ label: "Combine as variants", onSelect: combineAsVariants }] : []),
-      ...(node.type === "instance" ? [
-        { label: "Go to main component", onSelect: ops.goToMain },
-        { label: "Reset all changes", disabled: !node.overrides, onSelect: ops.resetOverrides },
-        { label: "Detach instance", shortcut: keys("alt", "mod", "b"), disabled: fixed, onSelect: detach },
-      ] : []),
-      ...(top && frame && node.type !== "componentSet" ? [{ label: "Set as site page", hint: doc.pageId === node.id ? "current" : "shown on the site", disabled: doc.pageId === node.id, onSelect: () => onDoc((d) => withSitePage(d, node.id)) }] : []),
+      ...(node.type === "instance" ? instanceActions(node.id) : []),
+      ...(top && node.type === "frame" ? [{ label: "Set as site page", hint: doc.pageId === node.id ? "current" : "shown on the site", disabled: doc.pageId === node.id, onSelect: () => onDoc((d) => withSitePage(d, node.id)) }] : []),
       "-",
       { label: node.visible === false ? "Show" : "Hide", shortcut: keys("shift", "mod", "h"), disabled: alwaysShown, onSelect: () => patch(node.id, { visible: node.visible === false ? undefined : false }) },
       { label: node.locked ? "Unlock" : "Lock", shortcut: keys("shift", "mod", "l"), onSelect: () => patch(node.id, { locked: node.locked ? undefined : true }) },
@@ -1298,14 +1614,19 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     ];
   };
   const shellMenu = (): MenuEntry[] => [
-    { label: "Back to projects", onSelect: () => router.push("/admin/projects") },
+    { label: "Back to projects", onSelect: () => { if (session.confirmLeave()) router.push("/admin/projects"); } },
+    "-",
+    { label: "Save", shortcut: keys("mod", "s"), onSelect: () => void session.save() },
+    { label: session.meta?.published ? (session.meta.changedSincePublish || session.dirty ? "Update the site" : "Publish again") : "Publish", onSelect: () => void session.publish() },
+    ...(session.meta?.published ? [{ label: "Unpublish", hint: "the draft stays", onSelect: () => { if (window.confirm("Take this project off the site? Its draft stays here.")) void session.unpublish(); } }] : []),
+    { label: "Version history…", onSelect: () => setVersionsOpen(true) },
     "-",
     { label: "Undo", shortcut: keys("mod", "z"), onSelect: undo },
     { label: "Redo", shortcut: keys("shift", "mod", "z"), onSelect: redo },
     "-",
     { label: "View on site", disabled: !isPublished, onSelect: () => window.open(`/projects/${slug}`, "_blank") },
-    { label: "Present", onSelect: () => setPreviewing(previewTarget()) },
-    ...(onRebuildPage ? ["-" as const, { label: "Rebuild page from old editor", hint: "replaces the page", onSelect: () => { if (isolation) endIsolation(); setSelectionState([]); setEditing(null); if (file.currentPage) switchPage(""); onRebuildPage(); } }] : []),
+    { label: "Preview the saved draft", hint: session.dirty ? "save first" : undefined, onSelect: () => window.open(`/admin/projects/${slug}/preview`, "_blank") },
+    { label: "Present", onSelect: () => startPreview() },
     "-",
     { label: "Settings…", shortcut: keys("mod", ","), onSelect: () => setSettingsOpen(true) },
     { label: theme === "dark" ? "Light theme" : "Dark theme", onSelect: toggleTheme },
@@ -1317,8 +1638,8 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     { label: "Scroll to top", shortcut: keys("shift", "1"), onSelect: () => zoomActions.current?.fitAll() },
     { label: "Scroll to selection", shortcut: keys("shift", "2"), disabled: !selected.length, onSelect: () => zoomActions.current?.fitSelection() },
   ] : [
-    { label: "Zoom in", shortcut: keys("mod", "+"), onSelect: () => zoomActions.current?.zoomTo(view.zoom * 2) },
-    { label: "Zoom out", shortcut: keys("mod", "-"), onSelect: () => zoomActions.current?.zoomTo(view.zoom / 2) },
+    { label: "Zoom in", shortcut: keys("mod", "+"), onSelect: () => zoomActions.current?.zoomTo(viewNow().zoom * 2) },
+    { label: "Zoom out", shortcut: keys("mod", "-"), onSelect: () => zoomActions.current?.zoomTo(viewNow().zoom / 2) },
     "-",
     { label: "Zoom to fit", shortcut: keys("shift", "1"), onSelect: () => zoomActions.current?.fitAll() },
     { label: "Zoom to selection", shortcut: keys("shift", "2"), disabled: !selected.length, onSelect: () => zoomActions.current?.fitSelection() },
@@ -1341,6 +1662,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     if (!clipboard.current.length) return;
     const canvasEl = document.querySelector<HTMLElement>("[data-figma-canvas]");
     const base = canvasEl?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    const view = viewNow();
     const at = { x: (clientX - base.left - view.x) / view.zoom, y: (clientY - base.top - view.y) / view.zoom };
     const target = targetId ? findNode(nodes, targetId) : null;
     const into = target && (target.node.type === "frame" || target.node.type === "component") ? target.node.id : target?.parent?.id ?? insertRoot;
@@ -1348,7 +1670,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const or = originEl?.getBoundingClientRect();
     const origin = or ? { x: (or.left - base.left - view.x) / view.zoom, y: (or.top - base.top - view.y) / view.zoom } : { x: 0, y: 0 };
     const first = clipboard.current[0];
-    const copies = clipboard.current.map((n) => ({ ...cloneNode(n), x: Math.round(at.x - origin.x + (n.x - first.x)), y: Math.round(at.y - origin.y + (n.y - first.y)) }));
+    const copies = clipboard.current.map((n) => ({ ...copyOf(n), x: Math.round(at.x - origin.x + (n.x - first.x)), y: Math.round(at.y - origin.y + (n.y - first.y)) }));
     if (createsCycle(into, copies)) return;
     setNodes((list) => copies.reduce((acc, c) => insertNode(acc, into, c), list));
     setSelection(copies.map((c) => c.id));
@@ -1379,7 +1701,10 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       return navigator.clipboard.writeText(text);
     }
     const el = document.querySelector<HTMLElement>(`[data-figma-canvas] [data-node-id="${CSS.escape(id)}"]`);
-    if (el) await copyElementAs(el, kind).catch((err) => console.warn("Could not copy:", err));
+    if (!el) return setNotice("Nothing to copy: the layer isn't drawn on this page.");
+    await copyElementAs(el, kind)
+      .then((missing) => missing.length && setNotice(`Copied — ${missing.length} picture${missing.length === 1 ? "" : "s"} ${kind === "svg" ? "linked by address, not inside it" : "left blank"} (see cors.json).`))
+      .catch((err) => setNotice(`Couldn't copy: ${(err as Error).message}`));
   };
   /** Move to page: the layers taken out of this page and put on another, at their places. */
   const moveToPage = (pageId: string) => {
@@ -1452,6 +1777,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const w = Math.round((img.naturalWidth || 400) * scale);
     const h = Math.round((img.naturalHeight || 300) * scale);
     const canvas = document.querySelector<HTMLElement>("[data-figma-canvas]");
+    const view = viewNow();
     const cx = ((canvas?.clientWidth ?? 800) / 2 - view.x) / view.zoom;
     const cy = ((canvas?.clientHeight ?? 600) / 2 - view.y) / view.zoom;
     const shape = makeShape("rectangle", name || "Image", insertRoot ? 0 : cx - w / 2, insertRoot ? 0 : cy - h / 2, w, h);
@@ -1459,18 +1785,31 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     setNodes((list) => insertNode(list, insertRoot, shape));
     setSelection([shape.id]);
   };
+  /** A picture from the disk (or the clipboard): uploaded, then placed — where things are once it is up (the editor may have moved on meanwhile). */
+  const placeFile = async (f: File) => {
+    try {
+      setNotice(`Uploading “${f.name || "picture"}”…`);
+      const url = await uploadMedia(f);
+      setNotice(null);
+      await placeRef.current(url, (f.name || "Image").replace(/\.[^.]+$/, ""));
+    } catch (err) {
+      setNotice(`Couldn't upload the picture: ${(err as Error).message}`);
+    }
+  };
   const placeImage = () => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    input.onchange = async () => {
+    input.onchange = () => {
       const f = input.files?.[0];
-      if (!f) return;
-      const url = await uploadFile(f, uploadPath(slug, f));
-      await placeImageUrl(url, f.name.replace(/\.[^.]+$/, ""));
+      if (f) void placeFile(f);
     };
     input.click();
   };
+  const placeRef = useRef(placeImageUrl);
+  useEffect(() => {
+    placeRef.current = placeImageUrl;
+  });
   /**
    * An image of the bucket put to use (the Images panel): the picture of the
    * selected layers' fills — their image fill's, or a new one on top; inside
@@ -1532,26 +1871,70 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     }));
   };
   const [rulers, setRulers] = useState(true);
-  const actions = useRef({ deleteSelection, duplicateSelection, copySelection, paste, groupSelection, ungroup, createComponent, detach, reorder, ops, undo, redo, copyProperties, pasteProperties, placeImage, pasteToReplace, flip, maskWith, autoLayout, endIsolation });
+  const save = session.save;
+  const actions = useRef({ deleteSelection, duplicateSelection, copySelection, paste, pasteFrom, groupSelection, ungroup, createComponent, detach, reorder, ops, undo, redo, save, copyProperties, pasteProperties, placeImage, pasteToReplace, flip, maskWith, autoLayout, endIsolation });
   useEffect(() => {
-    actions.current = { deleteSelection, duplicateSelection, copySelection, paste, groupSelection, ungroup, createComponent, detach, reorder, ops, undo, redo, copyProperties, pasteProperties, placeImage, pasteToReplace, flip, maskWith, autoLayout, endIsolation };
+    actions.current = { deleteSelection, duplicateSelection, copySelection, paste, pasteFrom, groupSelection, ungroup, createComponent, detach, reorder, ops, undo, redo, save, copyProperties, pasteProperties, placeImage, pasteToReplace, flip, maskWith, autoLayout, endIsolation };
   });
+  // ⌘C / ⌘X / ⌘V, as the browser's own copy, cut and paste: the system's clipboard holds the layers (another tab pastes them), and a
+  // picture or words copied anywhere paste in as layers. Not while a field is typed in (its own text is copied), nor over a window.
+  useEffect(() => {
+    const ours = () => !isTyping() && !latest.current.previewing && !document.querySelector("[role=dialog], [role=menu]") && !window.getSelection()?.toString();
+    const onCopy = (e: ClipboardEvent) => {
+      if (ours() && actions.current.copySelection(e.clipboardData)) e.preventDefault();
+    };
+    const onCut = (e: ClipboardEvent) => {
+      if (!ours() || !actions.current.copySelection(e.clipboardData)) return;
+      e.preventDefault();
+      actions.current.deleteSelection();
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      if (!ours() || !e.clipboardData || latest.current.mode === "code") return;
+      e.preventDefault();
+      actions.current.pasteFrom(e.clipboardData);
+    };
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("cut", onCut);
+    document.addEventListener("paste", onPaste);
+    return () => {
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("cut", onCut);
+      document.removeEventListener("paste", onPaste);
+    };
+  }, []);
+  // ⌘S saves wherever the focus is — a field being typed in first gives up what it holds (its blur keeps it) — and never opens the browser's own Save.
+  useEffect(() => {
+    const onSave = (e: KeyboardEvent) => {
+      if (!((IS_MAC ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === "KeyS")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active !== document.body) active.blur();
+      window.setTimeout(() => void actions.current.save(), 0);
+    };
+    window.addEventListener("keydown", onSave, true);
+    return () => window.removeEventListener("keydown", onSave, true);
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // The prototype's window has its own keys (Esc closes it).
+      // The prototype's window has its own keys (Esc closes it); a menu its own.
       if (isTyping() || latest.current.previewing || document.querySelector("[role=menu]")) return;
+      const mod = IS_MAC ? e.metaKey : e.ctrlKey;
       const { selected: sel, nodes: list, tool: current, mode: shownMode, pageRoot: root } = latest.current;
+      // Undo and redo work everywhere — in a window over the editor too (the variables').
+      if (mod && e.code === "KeyZ") { e.preventDefault(); return e.shiftKey ? actions.current.redo() : actions.current.undo(); }
+      if (mod && e.code === "KeyY") { e.preventDefault(); return actions.current.redo(); }
+      // The browser's own keys that would leave the editor (reload, back, forward) never do.
+      if (mod && !e.shiftKey && ["KeyR", "BracketLeft", "BracketRight", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+      if (e.altKey && !mod && ["ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+      // A window open over the editor (the variables, the settings, the versions): the rest of the keys are its.
+      if (document.querySelector("[role=dialog]")) return;
       // The code's view has nothing to pick or draw: only the UI's own key.
       if (shownMode === "code") {
-        const mod = e.metaKey || e.ctrlKey;
         if (mod && e.code === "Backslash") { e.preventDefault(); setMinimized((m) => !m); }
-        // (Its panels still edit: their changes undo as anywhere.)
-        else if (mod && e.code === "KeyZ") { e.preventDefault(); if (e.shiftKey) actions.current.redo(); else actions.current.undo(); }
-        else if (mod && e.code === "KeyY") { e.preventDefault(); actions.current.redo(); }
         return;
       }
       const a = actions.current;
-      const mod = e.metaKey || e.ctrlKey;
       const { shiftKey: shift, altKey: alt, code } = e;
       const first = sel[0];
       const own = sel.filter((id) => !id.includes("/"));
@@ -1604,17 +1987,18 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       }
       if (is("Backspace", "Delete") && !mod) { handled(); return a.deleteSelection(); }
       if (e.key.startsWith("Arrow") && !mod) {
+        // (Arrows never scroll the editor's window, whatever is selected.)
+        handled();
         const step = shift ? 10 : 1;
         const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
         const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-        const tops = topmost(list, own).filter((t) => t.node.id !== root);
+        const tops = topmost(list, own).filter((t) => t.node.id !== root && !t.node.locked);
         if (!tops.length) return;
-        handled();
         return setNodes((ns) => updateNodes(ns, tops.map((t) => t.node.id), (n) => ({ ...n, x: n.x + dx, y: n.y + dy })));
       }
 
       // ── The view ──
-      if (mod && !alt && is("Equal", "NumpadAdd", "Minus", "NumpadSubtract")) { handled(); return zoomActions.current?.zoomTo(is("Minus", "NumpadSubtract") ? view.zoom / 2 : view.zoom * 2); }
+      if (mod && !alt && is("Equal", "NumpadAdd", "Minus", "NumpadSubtract")) { handled(); const z = latest.current.viewStore.get().zoom; return zoomActions.current?.zoomTo(is("Minus", "NumpadSubtract") ? z / 2 : z * 2); }
       if (shift && !mod && !alt && is("Digit0", "Digit1", "Digit2")) {
         handled();
         if (is("Digit0")) zoomActions.current?.zoomTo(1);
@@ -1625,15 +2009,11 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       if (mod && is("Backslash")) { handled(); return setMinimized((m) => !m); }
       if (shift && !mod && !alt && is("KeyR")) { handled(); return setRulers((r) => !r); }
 
-      // ── Undo, the clipboard ──
-      if (mod && is("KeyZ")) { handled(); return shift ? a.redo() : a.undo(); }
-      if (mod && is("KeyY")) { handled(); return a.redo(); }
+      // ── The clipboard ──
       if (mod && !shift && !alt && is("KeyD")) { handled(); return a.duplicateSelection(); }
       if (mod && alt && is("KeyC")) { handled(); return a.copyProperties(); }
       if (mod && alt && is("KeyV")) { handled(); return a.pasteProperties(); }
-      if (mod && !shift && is("KeyC") && !window.getSelection()?.toString()) { handled(); return a.copySelection(); }
-      if (mod && !shift && is("KeyX")) { handled(); a.copySelection(); return a.deleteSelection(); }
-      if (mod && !shift && is("KeyV")) { handled(); return a.paste(); }
+      // ⌘C / ⌘X / ⌘V: the browser's copy, cut and paste events do it (see below) — they reach the system's clipboard.
       // ⌘,: the settings.
       if (mod && !shift && !alt && is("Comma")) { handled(); return setSettingsOpen((o) => !o); }
       // ⌘F: Find, in the file's tab.
@@ -1655,12 +2035,14 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       if (mod && shift && is("KeyG")) { handled(); return a.ungroup(); }
       if (mod && !shift && is("KeyG")) { handled(); return a.groupSelection("group"); }
       if (mod && alt && is("KeyK")) { handled(); return a.createComponent(); }
+      if (mod && alt && !shift && is("KeyA")) { handled(); return a.ops.selectMatching(); }
       if (mod && shift && is("KeyK")) { handled(); return a.placeImage(); }
       if (mod && shift && is("KeyR")) { handled(); return a.pasteToReplace(); }
       if (mod && !shift && !alt && is("Backspace")) { handled(); return a.ungroup(); }
-      if (e.ctrlKey && e.metaKey && is("KeyM") && first) { handled(); return a.maskWith(first.split("/")[0]); }
-      // Figma's ^⌥T / ^⌥V / ^⌥H: tidy up, distribute vertical / horizontal spacing.
-      if (e.ctrlKey && alt && !mod && is("KeyT", "KeyV", "KeyH") && own.length > 1) { handled(); return is("KeyT") ? a.ops.tidy() : a.ops.distribute(is("KeyV") ? "v" : "h"); }
+      // Use as mask: ^⌘M on a Mac, Ctrl+Alt+M elsewhere (Figma's).
+      if ((IS_MAC ? e.ctrlKey && e.metaKey : e.ctrlKey && alt) && is("KeyM") && first) { handled(); return a.maskWith(first.split("/")[0]); }
+      // Figma's ^⌥T / ^⌥V / ^⌥H on a Mac: tidy up, distribute vertical / horizontal spacing.
+      if (IS_MAC && e.ctrlKey && alt && !e.metaKey && is("KeyT", "KeyV", "KeyH") && own.length > 1) { handled(); return is("KeyT") ? a.ops.tidy() : a.ops.distribute(is("KeyV") ? "v" : "h"); }
       if (!mod && !alt && is("BracketRight", "BracketLeft")) { handled(); return a.reorder(is("BracketRight") ? "front" : "back"); }
       if (!mod && shift && !alt && is("KeyH", "KeyV") && own.length) { handled(); return a.flip(is("KeyH") ? "H" : "V"); }
       if (mod && alt && is("KeyB")) { handled(); return a.detach(); }
@@ -1697,7 +2079,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [view.zoom, patch, setNodes, setSelection, byId]);
+  }, [patch, setNodes, setSelection, byId]);
 
   // ── Assets: the file's components, an instance put on the canvas with a click ──
   const components = useMemo(() => allComponents(library), [library]);
@@ -1705,6 +2087,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const canvas = document.querySelector<HTMLElement>("[data-figma-canvas]");
     const w = canvas?.clientWidth ?? 800;
     const h = canvas?.clientHeight ?? 600;
+    const view = viewNow();
     const cx = (w / 2 - view.x) / view.zoom;
     const cy = (h / 2 - view.y) / view.zoom;
     const instance = makeInstance(component, Math.round(cx - component.width / 2), Math.round(cy - component.height / 2));
@@ -1719,8 +2102,41 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     const page = !file.currentPage ? getNode(nodes, doc.pageId) : null;
     const into = page && isFrameLike(page) && page.id !== component.id ? page : null;
     if (createsCycle(into?.id ?? null, [instance])) return;
-    setNodes((list) => insertNode(list, into?.id ?? null, into ? { ...instance, x: 0, y: 0 } : instance));
+    // In the page frame: in the site's column, as the page's other sections.
+    setNodes((list) => insertNode(list, into?.id ?? null, into ? inPageColumn({ ...instance, x: 0, y: 0 }) : instance));
     setSelection([instance.id]);
+  };
+
+  /** What the site's code draws (see Embed) put in, as an instance is: a frame holding it, as wide as the column, as tall as it is drawn. */
+  const insertEmbed = (kind: EmbedKind) => {
+    const frame = makeFrame(EMBED_LABEL[kind], 0, 0, 672, 400);
+    frame.fills = [];
+    frame.clipsContent = false;
+    frame.layoutMode = "vertical";
+    frame.sizingH = "fill";
+    frame.sizingV = "hug";
+    frame.embed = {
+      kind,
+      ...(kind === "compare" ? { entries: [{ id: nid("e"), label: "Önce", labelEn: "Before" }, { id: nid("e"), label: "Sonra", labelEn: "After" }] } : {}),
+      ...(kind === "devices" ? { variant: "phone" as const, entries: [{ id: nid("e") }, { id: nid("e") }, { id: nid("e") }] } : {}),
+      ...(kind === "code" ? { language: "javascript", content: "// code" } : {}),
+    };
+    if (iso) {
+      if (!insertRoot) return;
+      setNodes((list) => insertNode(list, insertRoot, frame));
+      setSelection([frame.id]);
+      return;
+    }
+    const page = !file.currentPage ? getNode(nodes, doc.pageId) : null;
+    if (page && isFrameLike(page)) setNodes((list) => insertNode(list, page.id, inPageColumn(frame)));
+    else {
+      const canvas = document.querySelector<HTMLElement>("[data-figma-canvas]");
+      const view = viewNow();
+      const cx = ((canvas?.clientWidth ?? 800) / 2 - view.x) / view.zoom;
+      const cy = ((canvas?.clientHeight ?? 600) / 2 - view.y) / view.zoom;
+      setNodes((list) => insertNode(list, null, { ...frame, x: Math.round(cx - 336), y: Math.round(cy - 200), sizingH: undefined }));
+    }
+    setSelection([frame.id]);
   };
 
   // The layers listed: the open page's — in the Page Editor, the page frame's own tree (what sits beside it on the canvas isn't drawn there).
@@ -1735,7 +2151,6 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
     return { id, name: isolatedNode?.name ?? pages.find((pg) => pg.id === id)?.name ?? "", nodes: doc.nodes };
   }, [iso, isolatedNode, file.currentPage, pages, doc.nodes]);
   const previewNode = previewing ? getNode(nodes, previewing) : null;
-  const previewCtx = useMemo<RenderContext>(() => ({ nodes: library, byId, lang, play: true }), [library, byId, lang]);
 
   return (
     <div className="relative flex h-full min-h-0 text-[11px] leading-4 text-[var(--text-title)]" style={{ ...FIGMA_TOKENS[theme], fontFamily: "var(--font-inter), Inter, ui-sans-serif, system-ui, sans-serif" }}>
@@ -1747,9 +2162,10 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
             <span className="flex items-center">{fi("24.figma", 20)}<span className="-ml-1 text-[var(--f-icon-secondary)]">{fi("16.chevron.down", 12)}</span></span>
           </button>
           <span className="w-6 h-px my-1 bg-[var(--f-border)]" />
-          <NavTab icon={fi("24.page", 20)} label="File" active={leftTab === "file"} onClick={() => openTab("file")} />
-          <NavTab icon={fi("24.library", 20)} label="Assets" active={leftTab === "assets"} onClick={() => openTab("assets")} />
-          <NavTab icon={fi("24.image", 20)} label="Images" active={leftTab === "images"} onClick={() => openTab("images")} />
+          <NavTab icon={fi("24.page", 20)} label="File" active={tab === "file"} onClick={() => openTab("file")} />
+          <NavTab icon={fi("16.component", 20)} label="Components" active={tab === "components"} onClick={() => openTab("components")} />
+          <NavTab icon={fi("24.library", 20)} label="Assets" active={tab === "assets"} onClick={() => openTab("assets")} />
+          <NavTab icon={fi("24.image", 20)} label="Images" active={tab === "images"} onClick={() => openTab("images")} />
           <NavTab icon={fi("variable.small", 20)} label="Variables" active={variablesOpen} onClick={() => setVariablesOpen(true)} />
         </nav>
       )}
@@ -1768,7 +2184,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
             </div>
             <IconButton label="Hide UI (⌘\\)" icon={fi("24.sidebar.closed")} onClick={() => setMinimized(true)} />
           </div>
-          {leftTab === "file" && query !== null && (
+          {(tab === "file" || tab === "components") && query !== null && (
             <FindPanel
               query={query}
               onQuery={setQuery}
@@ -1782,9 +2198,15 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
               openMenu={(el, entries) => openMenuUnder(el, entries, "right")}
             />
           )}
-          {leftTab === "file" && query === null && (
+          {(tab === "file" || tab === "components") && query === null && (
             <>
-              {iso && isolatedNode ? (
+              {tab === "components" ? (
+                // The site's library: every project's components, on the canvas — edited here, in place.
+                <CollapseHeader
+                  label="Components"
+                  icons={<IconButton label="Find" icon={fi("24.search.small")} active={query !== null} onClick={() => setQuery((q) => (q === null ? "" : null))} />}
+                />
+              ) : iso && isolatedNode ? (
                 // A component edited on its own: what it is, the way back to the file.
                 <div className="f-tip-start shrink-0 flex items-center gap-1 h-10 pl-2 pr-3 border-b border-[var(--f-border)]">
                   <IconButton label="Back to the file (Esc)" icon={fi("16.chevron.right", undefined, "rotate-180")} onClick={endIsolation} />
@@ -1852,12 +2274,13 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
                   onSelectMany={(ids) => setSelection(ids)}
                   onClear={() => setSelection([])}
                   onLocate={(id) => { setSelection([id]); window.setTimeout(() => zoomActions.current?.fitSelection(), 60); }}
-                  onRename={(id, name) => patch(id, { name })}
+                  onRename={renameLayer}
                   onToggleHidden={(id) => {
                     if (id.includes("/")) {
-                      // Inside an instance: the instance's override of the layer.
+                      // Inside an instance: the instance's override of the layer — shown or hidden in so many words (a layer the
+                      // component hides can be shown in one instance).
                       const l = layerAt(library, id);
-                      if (l) override(id, { visible: l.node.visible === false ? undefined : false });
+                      if (l) override(id, { visible: l.node.visible === false });
                       return;
                     }
                     const n = getNode(nodes, id);
@@ -1870,38 +2293,49 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
               </ScrollArea>
             </>
           )}
-          {leftTab === "assets" && (
+          {tab === "assets" && (
             <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full overflow-x-hidden flex flex-col pb-3" inset={8} edge={2}>
               <CollapseHeader label="Local components" />
               {components.length === 0 && <p className="px-4 py-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">No components yet. Select a frame and press ⌥⌘K.</p>}
-              {components.map(({ component, set }) => (
+              {/* As Figma's Assets: a set once — its default (first) variant is what a click puts in. */}
+              {components.filter(({ component, set }) => !set || variantsOf(set)[0]?.id === component.id).map(({ component, set }) => (
                 <div key={component.id} className="px-2 py-0.5">
                   {/* A click puts an instance on the page; the right click edits the component on its own. */}
                   <button
                     type="button"
                     onClick={() => insertInstance(component)}
                     onContextMenu={(e) => openMenu(e, [
-                      { label: "Edit component", onSelect: () => editComponent(component.id) },
+                      { label: "Edit component", onSelect: () => editComponent(set?.id ?? component.id) },
                       { label: "Insert instance", onSelect: () => insertInstance(component) },
                       "-",
-                      { label: "Delete component", disabled: stays.has(component.id), onSelect: () => deleteComponent(component.id) },
+                      { label: "Delete component", disabled: stays.has(component.id) || Boolean(set && stays.has(set.id)), onSelect: () => deleteComponent(set?.id ?? component.id) },
                     ])}
                     className={cn("flex items-center gap-2 w-full h-8 px-2 rounded-[5px] text-left hover:bg-[var(--f-bg-hover)] cursor-pointer", iso && (iso.id === component.id || iso.id === set?.id) && "bg-[var(--f-bg-row-selected)]")}
                   >
                     <span className="flex shrink-0 text-[var(--f-text-component)]"><FigmaIcon name="16.component" /></span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">{set ? `${set.name} / ${(component.variant ?? []).map((v) => v.value).join(", ")}` : component.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">{set ? set.name : component.name}</span>
+                  </button>
+                </div>
+              ))}
+              <CollapseHeader label="Embeds" />
+              <p className="px-4 pb-1 text-[11px] leading-4 text-[var(--f-text-secondary)]">What the site&apos;s code draws: a video playing, code, a Figma file, a page… Set it up in the Embed section.</p>
+              {EMBED_KINDS.map((kind) => (
+                <div key={kind} className="px-2 py-0.5">
+                  <button type="button" onClick={() => insertEmbed(kind)} className="flex items-center gap-2 w-full h-8 px-2 rounded-[5px] text-left hover:bg-[var(--f-bg-hover)] cursor-pointer">
+                    <span className="flex shrink-0 text-[var(--f-icon-secondary)]"><FigmaIcon name="16.frame" /></span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--f-text)]">{EMBED_LABEL[kind]}</span>
                   </button>
                 </div>
               ))}
             </ScrollArea>
           )}
           {imagesOpened && (
-            <div className={cn("flex flex-col flex-1 min-h-0", leftTab !== "images" && "hidden")}>
+            <div className={cn("flex flex-col flex-1 min-h-0", tab !== "images" && "hidden")}>
               <ImagesPanel
                 slug={slug}
-                file={leftTab === "images" ? file : null}
-                active={leftTab === "images"}
-                canFill={leftTab === "images" && selected.some((id) => { const n = id.includes("/") ? layerAt(library, id)?.node : getNode(nodes, id); return Boolean(n && n.type !== "text"); })}
+                file={tab === "images" ? file : null}
+                active={tab === "images"}
+                canFill={tab === "images" && selected.some((id) => { const n = id.includes("/") ? layerAt(library, id)?.node : getNode(nodes, id); return Boolean(n && n.type !== "text"); })}
                 onUse={onUseImage}
               />
             </div>
@@ -1929,28 +2363,39 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
             <div className="absolute top-3 right-3 z-30 flex items-center gap-2 h-12 pl-2 pr-2 rounded-[13px] bg-[var(--f-bg)] shadow-[0_0_0.5px_rgba(0,0,0,0.3),0_1px_3px_rgba(0,0,0,0.15)] select-none">
               {mode !== "code" && (
                 <button type="button" aria-haspopup="menu" onClick={(e) => openMenuUnder(e.currentTarget, zoomMenu(), "right")} className="flex items-center h-8 px-2 rounded-[5px] text-[11px] text-[var(--f-text)] tabular-nums hover:bg-[var(--f-bg-hover)] cursor-pointer">
-                  {Math.round(view.zoom * 100)}%<span className="text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span>
+                  <ZoomPercent store={viewStore} /><span className="text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span>
                 </button>
               )}
-              <button type="button" aria-label="Present" onClick={() => setPreviewing(previewTarget())} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] cursor-pointer">{fi("24.play")}</button>
-              <SaveButton />
+              <button type="button" aria-label="Present" onClick={() => startPreview()} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] hover:bg-[var(--f-bg-hover)] cursor-pointer">{fi("24.play")}</button>
+              <SaveButton session={session} />
             </div>
           </>
         )}
+        <SaveProblem session={session} />
+        {notice && (
+          <div role="status" className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 max-w-[520px] px-3 py-2 rounded-[9px] bg-[var(--f-bg-menu)] text-white text-[11px] leading-4 shadow-[0_2px_12px_rgba(0,0,0,0.25)]" style={{ marginLeft: hiddenShift }}>
+            {notice}
+          </div>
+        )}
         {/* The canvas stays under the code's view: the panels' edits that measure layers as drawn (grouping, ungrouping, removing an auto layout) still can. */}
-        <Canvas
+        <ViewedCanvas
           // Each view its own canvas: nothing of a drag or a hover is carried from one to the other.
           key={paged ? "page" : "canvas"}
           doc={doc}
           render={render}
           selection={selected}
           onSelect={setSelection}
-          view={view}
-          onView={setView}
+          store={viewStore}
           tool={tool}
           onTool={setTool}
           onMove={onMove}
           onReparent={onReparent}
+          onAddVariant={addVariant}
+          prototyping={rightTab === "prototype"}
+          onConnect={connect}
+          onRetarget={retarget}
+          onOpenReaction={openConnection}
+          onPlayFlow={(id) => startPreview(id)}
           onReorder={onReorder}
           onResize={onResize}
           onDraw={onDraw}
@@ -1962,6 +2407,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
           rulers={rulers}
           background={doc.background}
           pageId={pageRoot}
+          previewWidth={paged ? previewWidth : null}
           rightMousePan={settings.rightMousePan}
           horizontalScrollZoom={settings.horizontalScrollZoom}
           horizontalScrollZoomReversed={settings.horizontalScrollZoomReversed}
@@ -1990,8 +2436,19 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
             <Tool icon={<FigmaIcon name="24.text" />} label="Text" shortcut="T" active={tool === "text"} onClick={() => setTool("text")} />
             <span aria-hidden className="w-px h-12 -my-2 bg-[var(--f-border)]" />
             <Tool icon={<FigmaIcon name="24.component" />} label="Create component" shortcut="⌥⌘K" onClick={createComponent} />
-            <Tool icon={<FigmaIcon name="24.prototyping" />} label="Present" onClick={() => setPreviewing(previewTarget())} />
+            <Tool icon={<FigmaIcon name="24.prototyping" />} label="Present" onClick={() => startPreview()} />
           </div>
+          {/* The Page Editor's widths: the page as a tablet or a phone shows it (the site's narrow-screen rules). */}
+          {paged && (
+            <>
+              <span aria-hidden className="w-px h-12 -my-2 bg-[var(--f-border)]" />
+              <div role="tablist" aria-label="Preview width" className="flex items-center gap-1">
+                {PREVIEW_WIDTHS.map((p) => (
+                  <ModeTab key={p.label} label={p.label} active={previewWidth === p.width} onClick={() => { setPreviewWidth(p.width); requestAnimationFrame(() => zoomActions.current?.fitAll()); }} />
+                ))}
+              </div>
+            </>
+          )}
           {/* The editor's views, at the toolbar's end. */}
           <span aria-hidden className="w-px h-12 -my-2 bg-[var(--f-border)]" />
           <div role="tablist" aria-label="Editor" className="flex items-center gap-1">
@@ -2008,18 +2465,24 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
           <div role="separator" aria-orientation="vertical" aria-label="Resize panel" onPointerDown={resizePanel("right")} className="absolute top-0 bottom-0 -left-[3px] w-[6px] z-30 cursor-col-resize hover:bg-[var(--f-border-selected)]/40 active:bg-[var(--f-border-selected)]/40" />
           <div className="shrink-0 flex flex-col gap-2 p-2 border-b border-[var(--f-border)]">
             <div className="flex items-center justify-between pl-1">
-              <AccountButton account={account} onClick={(el) => openMenuUnder(el, [{ label: account.name ?? "Not signed in", disabled: true }, "-", { label: "Settings…", shortcut: keys("mod", ","), onSelect: () => setSettingsOpen(true) }])} />
+              <AccountButton account={account} onClick={(el) => openMenuUnder(el, [{ label: account.name ?? account.email ?? "Not signed in", hint: account.name ? account.email ?? undefined : undefined, disabled: true }, "-", { label: "Settings…", shortcut: keys("mod", ","), onSelect: () => setSettingsOpen(true) }, ...(account.signOut ? ["-" as const, { label: "Sign out", onSelect: () => { if (session.confirmLeave()) account.signOut?.(); } }] : [])])} />
               <div className="flex items-center gap-2">
                 <div className="flex items-center rounded-[5px] hover:bg-[var(--f-bg-hover)]">
                   <button type="button" aria-label="View on site" title={isPublished ? "View on site" : "Save first"} disabled={!isPublished} onClick={() => window.open(`/projects/${slug}`, "_blank")} className="flex items-center justify-center w-8 h-8 rounded-[5px] text-[var(--f-icon)] cursor-pointer disabled:opacity-40 disabled:cursor-default">
                     {fi("24.play")}
                   </button>
-                  <button type="button" aria-label="Present options" onClick={(e) => openMenuUnder(e.currentTarget, [{ label: "View on site", disabled: !isPublished, onSelect: () => window.open(`/projects/${slug}`, "_blank") }, { label: "Present", onSelect: () => setPreviewing(previewTarget()) }], "right")} className="flex items-center justify-center w-4 h-8 text-[var(--f-icon-secondary)] cursor-pointer">
+                  <button type="button" aria-label="Present options" onClick={(e) => openMenuUnder(e.currentTarget, [{ label: "View on site", disabled: !isPublished, onSelect: () => window.open(`/projects/${slug}`, "_blank") }, { label: "Present", onSelect: () => startPreview() }], "right")} className="flex items-center justify-center w-4 h-8 text-[var(--f-icon-secondary)] cursor-pointer">
                     {fi("16.chevron.down")}
                   </button>
                 </div>
-                <SaveButton />
+                <SaveButton session={session} />
               </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 pl-1 -mt-1">
+              <span className="min-w-0 truncate text-[11px] leading-4 text-[var(--f-text-secondary)]" title={session.meta?.published ? (session.meta.changedSincePublish ? "The site shows an older version" : "The site shows this version") : "Not on the site"}>
+                {session.meta?.published ? (session.meta.changedSincePublish || session.dirty ? "Published · changed since" : "Published") : "Draft"}
+              </span>
+              <PublishButton session={session} />
             </div>
             <div role="tablist" className="flex items-center justify-between">
               <div className="flex items-center gap-1">
@@ -2029,7 +2492,7 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
               {/* (The code's view has no canvas to zoom.) */}
               {mode !== "code" && (
                 <button type="button" aria-haspopup="menu" onClick={(e) => openMenuUnder(e.currentTarget, zoomMenu(), "right")} className="flex items-center justify-end w-[60px] h-6 pl-1 rounded-[5px] text-[11px] leading-4 text-[var(--f-text)] tabular-nums hover:bg-[var(--f-bg-hover)] cursor-pointer">
-                  {Math.round(view.zoom * 100)}%
+                  <ZoomPercent store={viewStore} />
                   <span className="text-[var(--f-icon-secondary)]">{fi("16.chevron.down")}</span>
                 </button>
               )}
@@ -2045,47 +2508,20 @@ export function FigmaEditor({ doc: file, onDoc, title, slug, system, isPublished
       {menu && <ContextMenu at={menu} entries={menu.entries} onClose={() => setMenu(null)} />}
 
       {variablesOpen && <VariablesTable system={system} onClose={() => setVariablesOpen(false)} />}
+      {versionsOpen && <VersionsWindow session={session} onClose={() => setVersionsOpen(false)} />}
       {settingsOpen && <SettingsWindow settings={settings} onChange={changeSetting} onClose={() => setSettingsOpen(false)} />}
 
       {previewNode && isFrameLike(previewNode) && (
-        <Preview node={previewNode} render={previewCtx} onClose={() => setPreviewing(null)} />
+        <Player file={file} pageNodes={iso ? (iso.page ? file.pages?.find((x) => x.id === iso.page)?.nodes ?? [] : file.nodes) : nodes} start={previewNode.id} variables={variables} lang={lang} onClose={() => setPreviewing(null)} />
       )}
     </div>
   );
 }
 
-/** Figma's prototype preview: the frame, its prototypes playing, in a window over the editor. */
-function Preview({ node, render, onClose }: { node: FrameNode; render: RenderContext; onClose: () => void }) {
-  const [run, setRun] = useState(0);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  const scale = Math.min(1, (window.innerWidth - 120) / node.width, (window.innerHeight - 140) / Math.max(1, node.height));
-  return (
-    <div role="dialog" aria-label="Prototype" className="fixed inset-0 z-50 flex flex-col bg-[#1e1e1e]" onClick={onClose}>
-      <div className="shrink-0 flex items-center justify-between h-12 px-4 text-[11px] text-white" onClick={(e) => e.stopPropagation()}>
-        <span className="font-semibold">{node.name} — Prototype</span>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setRun((r) => r + 1)} className="h-7 px-2.5 rounded-[5px] bg-white/10 hover:bg-white/20 cursor-pointer">Restart</button>
-          <button type="button" onClick={onClose} className="h-7 px-2.5 rounded-[5px] bg-white/10 hover:bg-white/20 cursor-pointer">Close (Esc)</button>
-        </div>
-      </div>
-      {/* A link clicked in the prototype goes nowhere (leaving the editor would lose what isn't saved). */}
-      <div className="flex-1 min-h-0 overflow-auto flex items-start justify-center p-8" onClick={(e) => e.stopPropagation()} onClickCapture={(e) => { if ((e.target as Element).closest("a[href]")) e.preventDefault(); }}>
-        <div data-design-scope="" style={{ width: node.width * scale, height: (node.sizingV === "hug" ? undefined : node.height * scale) }}>
-          <DesignSystemStyle />
-          <MotionStyle />
-          <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: node.width }}>
-            <RenderProvider value={render}>
-              <NodeView key={run} node={{ ...node, x: 0, y: 0 }} parentLayout="none" />
-            </RenderProvider>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+/** The canvas, drawn again with its view (see ViewStore) — the editor around it isn't. */
+function ViewedCanvas({ store, ...props }: Omit<React.ComponentProps<typeof Canvas>, "view" | "onView"> & { store: ViewStore }) {
+  const view = useView(store);
+  return <Canvas {...props} view={view} onView={store.set} />;
 }
 
 export { layerIcon };

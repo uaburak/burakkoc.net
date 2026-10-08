@@ -1,0 +1,32 @@
+rules_version = '2';
+
+// burakkoc.net — who may read and write what (deploy: firebase deploy --only firestore:rules).
+// The admin is the Google account below (the same list as ADMIN_EMAILS in src/lib/auth.ts).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['design.burakkoc@gmail.com'];
+    }
+
+    // What the site shows: anyone reads it, only the admin publishes.
+    match /published/{slug} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /publishedIndex/{slug} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /cv/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Everything else — the drafts, their versions, the design system: the admin's alone.
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
