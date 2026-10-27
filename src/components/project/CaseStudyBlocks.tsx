@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AspectRatio, Block, BlockEntry, BlockType, LinkIconType } from "@/types/project";
 import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
@@ -633,22 +633,144 @@ function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entr
     );
   }
 
-  const phone = variant === "phone";
+  if (variant === "phone") {
+    return <IPhoneFrame src={entry.src} alt={entry.alt} preview={preview} className="flex-1 min-w-[96px] max-w-[272px]" />;
+  }
+
   return (
-    <div className={cn(
-      // ring: keeps the dark frame's edge visible on the dark theme
-      "relative flex-1 min-w-0 bg-[#0d0d0d] ring-1 ring-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.18)]",
-      phone ? "max-w-[220px] rounded-[36px] p-[7px]" : "max-w-[460px] rounded-[28px] p-[10px]"
-    )}>
-      <div
-        className={cn("relative w-full overflow-hidden bg-[var(--bg-2)]", phone ? "rounded-[29px]" : "rounded-[18px]")}
-        style={{ aspectRatio: phone ? "9 / 19.5" : "4 / 3" }}
-      >
+    <div className="relative flex-1 min-w-0 max-w-[460px] rounded-[28px] p-[10px] bg-[#0d0d0d] ring-1 ring-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+      <div className="relative w-full overflow-hidden rounded-[18px] bg-[var(--bg-2)]" style={{ aspectRatio: "4 / 3" }}>
         {screen}
-        {phone && (
-          <span aria-hidden className="absolute top-2 left-1/2 -translate-x-1/2 w-[30%] h-[18px] rounded-full bg-[#0d0d0d] z-10 pointer-events-none" />
-        )}
       </div>
+    </div>
+  );
+}
+
+/*
+ * iPhone 17 Pro, drawn to scale. Every length is in cqw of the phone's own width
+ * (100cqw = 71.9 mm body), so the frame stays crisp and proportional at any size:
+ * band 0.9 mm, black border 1.75 mm, screen 66.6 × 144.8 mm (1206 × 2622 px),
+ * display corner 9.1 mm, Dynamic Island 126 × 37 pt, 11 pt from the top.
+ * Theme tones and hover live in a plain stylesheet (not a Tailwind variant, see Turbopack note).
+ * The device reacts to hover as one piece: the global `img:hover` zoom is switched off inside it.
+ */
+const IPHONE_CSS = `
+.iphone{--iph-band:linear-gradient(135deg,#f4f4f6 0%,#b7b8bd 16%,#e9e9ec 34%,#9a9ba1 54%,#d9dade 76%,#8b8c92 100%);--iph-btn:linear-gradient(90deg,#8e8f94,#d9dadd 45%,#a2a3a8);--iph-rim:rgba(255,255,255,.65);--iph-shadow:0 1px 2px rgba(0,0,0,.08),0 10px 20px -6px rgba(0,0,0,.14),0 32px 56px -16px rgba(0,0,0,.26)}
+[data-theme="dark"] .iphone{--iph-band:linear-gradient(135deg,#6a6b71 0%,#2b2c30 18%,#55565c 36%,#222327 56%,#4a4b51 78%,#2c2d31 100%);--iph-btn:linear-gradient(90deg,#2a2b2f,#5d5e64 45%,#323337);--iph-rim:rgba(255,255,255,.14);--iph-shadow:0 0 0 1px rgba(255,255,255,.03),0 12px 24px -8px rgba(0,0,0,.7),0 36px 64px -16px rgba(0,0,0,.9)}
+.iphone img,.iphone img:hover{transform:none!important}
+.iphone-band{transition:box-shadow .6s cubic-bezier(.16,1,.3,1)}
+.iphone-lift{transition:transform .6s cubic-bezier(.16,1,.3,1)}
+.iphone-lift:hover{transform:translateY(-6px) scale(1.015);--iph-shadow:0 2px 4px rgba(0,0,0,.08),0 16px 28px -8px rgba(0,0,0,.18),0 48px 72px -20px rgba(0,0,0,.32)}
+[data-theme="dark"] .iphone-lift.iphone:hover{--iph-shadow:0 0 0 1px rgba(255,255,255,.04),0 16px 32px -8px rgba(0,0,0,.8),0 52px 80px -20px rgba(0,0,0,.95)}
+`;
+
+/** Side controls: [side, top % of body height, length % of body height, kind]. */
+const IPHONE_BUTTONS: [side: "left" | "right", top: number, len: number, kind: "button" | "camera"][] = [
+  ["left", 19.5, 4.6, "button"], // Action button
+  ["left", 27.5, 7.2, "button"], // Volume up
+  ["left", 36.2, 7.2, "button"], // Volume down
+  ["right", 28, 11, "button"], // Side button
+  ["right", 59, 12.5, "camera"], // Camera Control
+];
+
+const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+/** The device itself (band, buttons, screen, island). Fills its parent's width. */
+function IPhoneDevice({ screen }: { screen: ReactNode }) {
+  return (
+    <div className="iphone relative w-full" style={{ containerType: "inline-size" }}>
+      <style href="iphone-frame" precedence="default">{IPHONE_CSS}</style>
+      <div className="relative w-full">
+        {IPHONE_BUTTONS.map(([side, top, len, kind], i) => (
+          <span
+            key={i}
+            aria-hidden
+            className="absolute"
+            style={{
+              top: `${top}%`,
+              height: `${len}%`,
+              width: kind === "camera" ? "max(1.5px, 0.6cqw)" : "max(2px, 0.9cqw)",
+              [side === "left" ? "right" : "left"]: "calc(100% - 0.2cqw)",
+              borderRadius: side === "left" ? "1cqw 0 0 1cqw" : "0 1cqw 1cqw 0",
+              background: kind === "camera" ? "linear-gradient(90deg,#1c1c1e,#3a3a3d)" : "var(--iph-btn)",
+            }}
+          />
+        ))}
+        <div
+          className="iphone-band relative"
+          style={{ padding: "1.25cqw", borderRadius: "16.4cqw", background: "var(--iph-band)", boxShadow: "var(--iph-shadow)" }}
+        >
+          <div
+            className="relative bg-black"
+            style={{ padding: "2.43cqw", borderRadius: "15.2cqw", boxShadow: "inset 0 0 0 0.35px var(--iph-rim), 0 0 0 0.5px rgba(0,0,0,.35)" }}
+          >
+            <div
+              className="relative w-full overflow-hidden bg-[var(--bg-2)]"
+              style={{ aspectRatio: "1206 / 2622", borderRadius: "12.7cqw" }}
+            >
+              {screen}
+              <span
+                aria-hidden
+                className="absolute left-1/2 -translate-x-1/2 rounded-full bg-black z-10 pointer-events-none"
+                style={{ top: "2.53cqw", width: "29.1cqw", height: "8.6cqw" }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A phone on the page. Hover lifts the whole device; a click opens the site's lightbox
+ * (ZoomableImage) with the framed device, not the bare screenshot.
+ */
+function IPhoneFrame({ src, alt: altText, preview, className }: { src?: string; alt?: string; preview: boolean; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [zoomed, setZoomed] = useState(false);
+  const getRect = useCallback(() => ref.current?.getBoundingClientRect() ?? null, []);
+  const alt = altText ?? "";
+
+  const screen = src ? (
+    <ZoomableImage
+      src={src}
+      alt={alt}
+      data-iphone-screen=""
+      className="w-full h-full object-cover object-top"
+      getStartRect={getRect}
+      onZoomChange={setZoomed}
+      zoomContent={
+        <IPhoneDevice
+          /* eslint-disable-next-line @next/next/no-img-element */
+          screen={<img src={src} alt={alt} className="w-full h-full object-cover object-top select-none pointer-events-none" />}
+        />
+      }
+    />
+  ) : (
+    <MediaPlaceholder label={altText} preview={preview} />
+  );
+
+  return (
+    <div
+      ref={ref}
+      className={cn("relative", className, src && "iphone iphone-lift")}
+      style={{ visibility: zoomed ? "hidden" : undefined }}
+    >
+      <IPhoneDevice screen={screen} />
+      {src && (
+        // Covers frame and screen so the whole device is one target. The transparent <img>
+        // makes CustomCursor show its "image-hovered" state over the frame too.
+        <button
+          type="button"
+          aria-label={alt ? `${alt} — büyüt` : "Ekranı büyüt"}
+          className="absolute inset-0 z-20 cursor-zoom-in"
+          onClick={() => ref.current?.querySelector<HTMLImageElement>("img[data-iphone-screen]")?.click()}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={TRANSPARENT_PIXEL} alt="" aria-hidden className="w-full h-full cursor-zoom-in" draggable={false} />
+        </button>
+      )}
     </div>
   );
 }
@@ -659,14 +781,21 @@ function MockupBlock({ block, preview }: RenderProps) {
   const variant: MockupVariant = block.variant === "browser" || block.variant === "tablet" ? block.variant : "phone";
   return (
     <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
-      <div className={cn(
-        "flex w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-4)] overflow-hidden",
-        variant === "browser"
-          ? "flex-col gap-6 p-5 sm:p-10"
-          : "items-center justify-center gap-3 sm:gap-6 px-4 py-8 sm:px-10 sm:py-12"
-      )}>
-        {entries.map((e) => <DeviceFrame key={e.id} variant={variant} entry={e} preview={preview} />)}
-      </div>
+      {variant === "phone" ? (
+        // No card: the phones stand on the page; px-1 leaves room for the side buttons.
+        <div className="flex flex-wrap items-start justify-center w-full px-1 gap-x-3 gap-y-8 sm:gap-x-8 lg:gap-x-12">
+          {entries.map((e) => <DeviceFrame key={e.id} variant={variant} entry={e} preview={preview} />)}
+        </div>
+      ) : (
+        <div className={cn(
+          "flex w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-4)] overflow-hidden",
+          variant === "browser"
+            ? "flex-col gap-6 p-5 sm:p-10"
+            : "items-center justify-center gap-3 sm:gap-6 px-4 py-8 sm:px-10 sm:py-12"
+        )}>
+          {entries.map((e) => <DeviceFrame key={e.id} variant={variant} entry={e} preview={preview} />)}
+        </div>
+      )}
       <Caption text={block.caption} />
     </div>
   );
@@ -679,16 +808,23 @@ function SplitBlock({ block, preview }: RenderProps) {
   const imageRight = block.variant === "right";
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 items-center w-full py-6">
-      <div
-        className={cn("relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden", imageRight && "sm:order-2")}
-        style={aspectStyle(block.aspectRatio, "4/3")}
-      >
-        {block.src ? (
-          <ZoomableImage src={block.src} alt={block.alt ?? ""} className="w-full h-full object-cover" />
-        ) : (
-          <MediaPlaceholder label={block.alt} preview={preview} />
-        )}
-      </div>
+      {block.device === "phone" ? (
+        // Framed phone straight on the page (no card), like the mockup block; px-1 leaves room for the side buttons.
+        <div className={cn("flex justify-center px-1 py-2", imageRight && "sm:order-2")}>
+          <IPhoneFrame src={block.src} alt={block.alt} preview={preview} className="w-full max-w-[220px] sm:max-w-[280px]" />
+        </div>
+      ) : (
+        <div
+          className={cn("relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden", imageRight && "sm:order-2")}
+          style={aspectStyle(block.aspectRatio, "4/3")}
+        >
+          {block.src ? (
+            <ZoomableImage src={block.src} alt={block.alt ?? ""} className="w-full h-full object-cover" />
+          ) : (
+            <MediaPlaceholder label={block.alt} preview={preview} />
+          )}
+        </div>
+      )}
       <div className="flex flex-col gap-2 min-w-0">
         <h3 className="text-base font-medium leading-6 text-[var(--text-title)]">
           {block.title || (preview ? <Hint>Başlık</Hint> : null)}

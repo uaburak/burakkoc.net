@@ -94,6 +94,11 @@ const MOCKUP_VARIANTS: { value: BlockVariant; label: string }[] = [
   { value: "tablet",  label: "Tablet" },
 ];
 
+const SPLIT_DEVICES: { value: "image" | "phone"; label: string }[] = [
+  { value: "image", label: "Görsel" },
+  { value: "phone", label: "iPhone" },
+];
+
 const SPLIT_SIDES: { value: BlockVariant; label: string }[] = [
   { value: "left",  label: "Görsel solda" },
   { value: "right", label: "Görsel sağda" },
@@ -346,8 +351,16 @@ export function CaseStudyBlockEditor({ block, onChange, lang, projectSlug }: Cas
     return (
       <div className="flex flex-col gap-2">
         <LabeledSegmented label="Yerleşim" value={block.variant ?? "left"} onChange={(v) => onChange({ variant: v })} options={SPLIT_SIDES} />
-        <LabeledSegmented label="Oran" value={block.aspectRatio ?? "4/3"} onChange={(v) => onChange({ aspectRatio: v })} options={ASPECTS} />
-        {blockImage("Görsel URL — https://…")}
+        <LabeledSegmented<"image" | "phone">
+          label="Çerçeve"
+          value={block.device === "phone" ? "phone" : "image"}
+          onChange={(v) => onChange({ device: v === "phone" ? "phone" : undefined })}
+          options={SPLIT_DEVICES}
+        />
+        {block.device !== "phone" && (
+          <LabeledSegmented label="Oran" value={block.aspectRatio ?? "4/3"} onChange={(v) => onChange({ aspectRatio: v })} options={ASPECTS} />
+        )}
+        {blockImage(block.device === "phone" ? "Ekran görüntüsü URL (dikey, 1206×2622) — https://…" : "Görsel URL — https://…")}
         {blockInput("alt", "Alt metin")}
         {blockInput("title", "Başlık")}
         <AutoTextarea value={blockText("content")} onChange={(v) => setBlockText("content", v)} placeholder="Görseli destekleyen kısa metin…" />

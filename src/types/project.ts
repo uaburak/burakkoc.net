@@ -137,6 +137,8 @@ export interface Block {
   title?: string;
   titleEn?: string;
   variant?: BlockVariant;
+  /** Split block: "phone" shows `src` (a portrait screenshot, ≈1206×2622) inside the iPhone frame; aspectRatio is ignored */
+  device?: "phone";
   /** Table block */
   tableRows?: TableRow[];
   /** First table row is rendered as the header (default true) */

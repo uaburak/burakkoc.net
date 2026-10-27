@@ -12,6 +12,11 @@ type ZoomableImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
   activeTab?: string;
   onTabChange?: (tab: string) => void;
   getStartRect?: () => DOMRect | null;
+  /** Shown in the lightbox instead of the bare image (e.g. a device frame around it).
+   *  It is sized from getStartRect's box, without the lightbox's own border and radius. */
+  zoomContent?: React.ReactNode;
+  /** Lets the caller hide its own wrapper while the zoomed copy is open. */
+  onZoomChange?: (zoomed: boolean) => void;
 };
 
 function getEmbedUrl(src: string): string | null {
@@ -68,7 +73,7 @@ function ZoomTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   return null;
 }
 
-export function ZoomableImage({ src, alt, className, style, badges, activeTab, onTabChange, getStartRect, ...props }: ZoomableImageProps) {
+export function ZoomableImage({ src, alt, className, style, badges, activeTab, onTabChange, getStartRect, zoomContent, onZoomChange, ...props }: ZoomableImageProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [originalRect, setOriginalRect] = useState<DOMRect | null>(null);
@@ -152,9 +157,12 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     setOriginalBorderRadius(borderRadius || "0px");
     setLocalActiveTab(activeTab || tab1Label);
 
-    const target = calculateTargetRect(img.naturalWidth || rect.width, img.naturalHeight || rect.height);
+    const target = zoomContent
+      ? calculateTargetRect(rect.width, rect.height)
+      : calculateTargetRect(img.naturalWidth || rect.width, img.naturalHeight || rect.height);
     setTargetRect(target);
     setIsZoomed(true);
+    onZoomChange?.(true);
   };
 
   const handleClose = useCallback(() => {
@@ -165,7 +173,8 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
     }
 
     // Recalculate original position in case it shifted slightly (e.g. dynamic layout shifts)
-    const currentRect = originalImgRef.current.getBoundingClientRect();
+    const customRect = zoomContent ? getStartRect?.() : null;
+    const currentRect = customRect && customRect.width > 0 ? customRect : originalImgRef.current.getBoundingClientRect();
     setOriginalRect(currentRect);
 
     setIsExpanded(false);
@@ -176,9 +185,10 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
       setOriginalRect(null);
       setTargetRect(null);
       onTabChange?.(localActiveTab);
+      onZoomChange?.(false);
       closeTimeoutRef.current = null;
     }, 400);
-  }, [isZoomed, localActiveTab, onTabChange]);
+  }, [isZoomed, localActiveTab, onTabChange, onZoomChange, zoomContent, getStartRect]);
 
   // Lock background scrolling while zoomed without modifying body layout/padding
   useEffect(() => {
@@ -249,7 +259,10 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
 
     const handleResize = () => {
       const img = originalImgRef.current;
-      if (img) {
+      const customRect = zoomContent ? getStartRect?.() : null;
+      if (customRect && customRect.width > 0) {
+        setTargetRect(calculateTargetRect(customRect.width, customRect.height));
+      } else if (img) {
         const target = calculateTargetRect(img.naturalWidth || img.clientWidth, img.naturalHeight || img.clientHeight);
         setTargetRect(target);
       }
@@ -257,7 +270,7 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [isZoomed, calculateTargetRect]);
+  }, [isZoomed, calculateTargetRect, zoomContent, getStartRect]);
 
   return (
     <>
@@ -319,9 +332,9 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                 top: isExpanded ? `${targetRect.top}px` : `${originalRect.top}px`,
                 width: isExpanded ? `${targetRect.width}px` : `${originalRect.width}px`,
                 height: isExpanded ? `${targetRect.height}px` : `${originalRect.height}px`,
-                borderRadius: isExpanded ? "32px" : originalBorderRadius,
-                border: "1px solid var(--border)",
-                overflow: "hidden",
+                borderRadius: zoomContent ? undefined : isExpanded ? "32px" : originalBorderRadius,
+                border: zoomContent ? undefined : "1px solid var(--border)",
+                overflow: zoomContent ? "visible" : "hidden",
                 transition: "all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)",
               }}
               onClick={isTab2 ? (e) => e.stopPropagation() : handleClose}
@@ -330,6 +343,8 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
                 <div className="w-full h-full bg-[var(--bg-2)] overflow-auto" onClick={(e) => e.stopPropagation()}>
                   <ZoomTabContent tab2={tab2} />
                 </div>
+              ) : zoomContent ? (
+                zoomContent
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
