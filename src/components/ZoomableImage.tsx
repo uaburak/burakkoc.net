@@ -325,7 +325,9 @@ export function ZoomableImage({ src, alt, className, style, badges, activeTab, o
 
             {/* Cloned container and image performing the FLIP zoom animation */}
             <div
-              data-lenis-prevent
+              // Only the second tab's code/text scrolls inside the box; over a picture or a
+              // framed device the wheel must stay locked like everywhere else.
+              data-lenis-prevent={isTab2 ? "" : undefined}
               className={cn("fixed z-[9999] select-text overscroll-contain", isTab2 ? "cursor-default" : "cursor-zoom-out")}
               style={{
                 left: isExpanded ? `${targetRect.left}px` : `${originalRect.left}px`,

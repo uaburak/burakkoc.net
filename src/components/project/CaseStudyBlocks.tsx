@@ -647,77 +647,41 @@ function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entr
 }
 
 /*
- * iPhone 17 Pro, drawn to scale. Every length is in cqw of the phone's own width
- * (100cqw = 71.9 mm body), so the frame stays crisp and proportional at any size:
- * band 0.9 mm, black border 1.75 mm, screen 66.6 × 144.8 mm (1206 × 2622 px),
- * display corner 9.1 mm, Dynamic Island 126 × 37 pt, 11 pt from the top.
- * Theme tones and hover live in a plain stylesheet (not a Tailwind variant, see Turbopack note).
- * The device reacts to hover as one piece: the global `img:hover` zoom is switched off inside it.
+ * iPhone frame from the owner's images (public/frames, 450 × 920): silver in the light theme,
+ * black in the dark one. Outside the phone and the screen are transparent in both. The screen
+ * sits under the frame at x 24, y 23, 402 × 874 px (1206 × 2622 ratio), corner ≈ 64 px; the
+ * Dynamic Island is part of the frame. Theme and hover live in a plain stylesheet (not a
+ * Tailwind variant, see Turbopack note); the global `img:hover` zoom is off inside the device.
  */
 const IPHONE_CSS = `
-.iphone{--iph-band:linear-gradient(135deg,#f4f4f6 0%,#b7b8bd 16%,#e9e9ec 34%,#9a9ba1 54%,#d9dade 76%,#8b8c92 100%);--iph-btn:linear-gradient(90deg,#8e8f94,#d9dadd 45%,#a2a3a8);--iph-rim:rgba(255,255,255,.65);--iph-shadow:0 1px 2px rgba(0,0,0,.08),0 10px 20px -6px rgba(0,0,0,.14),0 32px 56px -16px rgba(0,0,0,.26)}
-[data-theme="dark"] .iphone{--iph-band:linear-gradient(135deg,#6a6b71 0%,#2b2c30 18%,#55565c 36%,#222327 56%,#4a4b51 78%,#2c2d31 100%);--iph-btn:linear-gradient(90deg,#2a2b2f,#5d5e64 45%,#323337);--iph-rim:rgba(255,255,255,.14);--iph-shadow:0 0 0 1px rgba(255,255,255,.03),0 12px 24px -8px rgba(0,0,0,.7),0 36px 64px -16px rgba(0,0,0,.9)}
-.iphone img,.iphone img:hover{transform:none!important}
-.iphone-band{transition:box-shadow .6s cubic-bezier(.16,1,.3,1)}
-.iphone-lift{transition:transform .6s cubic-bezier(.16,1,.3,1)}
-.iphone-lift:hover{transform:translateY(-6px) scale(1.015);--iph-shadow:0 2px 4px rgba(0,0,0,.08),0 16px 28px -8px rgba(0,0,0,.18),0 48px 72px -20px rgba(0,0,0,.32)}
-[data-theme="dark"] .iphone-lift.iphone:hover{--iph-shadow:0 0 0 1px rgba(255,255,255,.04),0 16px 32px -8px rgba(0,0,0,.8),0 52px 80px -20px rgba(0,0,0,.95)}
+.iphone img,.iphone img:hover{transform:none!important;transition:none!important}
+.iphone-frame-dark{display:none}
+[data-theme="dark"] .iphone-frame-dark{display:block}
+[data-theme="dark"] .iphone-frame-light{display:none}
+.iphone-lift{transform-origin:center;will-change:transform,filter;backface-visibility:hidden;transition:transform .6s cubic-bezier(.16,1,.3,1),filter .6s cubic-bezier(.16,1,.3,1);filter:drop-shadow(0 10px 18px rgba(0,0,0,0)) drop-shadow(0 28px 40px rgba(0,0,0,0))}
+.iphone-lift:hover{transform:scale(1.04);filter:drop-shadow(0 10px 18px rgba(0,0,0,.14)) drop-shadow(0 28px 40px rgba(0,0,0,.16))}
+[data-theme="dark"] .iphone-lift:hover{filter:drop-shadow(0 12px 22px rgba(0,0,0,.6)) drop-shadow(0 32px 48px rgba(0,0,0,.7))}
 `;
-
-/** Side controls: [side, top % of body height, length % of body height, kind]. */
-const IPHONE_BUTTONS: [side: "left" | "right", top: number, len: number, kind: "button" | "camera"][] = [
-  ["left", 19.5, 4.6, "button"], // Action button
-  ["left", 27.5, 7.2, "button"], // Volume up
-  ["left", 36.2, 7.2, "button"], // Volume down
-  ["right", 28, 11, "button"], // Side button
-  ["right", 59, 12.5, "camera"], // Camera Control
-];
 
 const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
-/** The device itself (band, buttons, screen, island). Fills its parent's width. */
+/** The device itself (screen under the frame image). Fills its parent's width. */
 function IPhoneDevice({ screen }: { screen: ReactNode }) {
   return (
-    <div className="iphone relative w-full" style={{ containerType: "inline-size" }}>
+    <div className="iphone relative w-full" style={{ aspectRatio: "450 / 920" }}>
       <style href="iphone-frame" precedence="default">{IPHONE_CSS}</style>
-      <div className="relative w-full">
-        {IPHONE_BUTTONS.map(([side, top, len, kind], i) => (
-          <span
-            key={i}
-            aria-hidden
-            className="absolute"
-            style={{
-              top: `${top}%`,
-              height: `${len}%`,
-              width: kind === "camera" ? "max(1.5px, 0.6cqw)" : "max(2px, 0.9cqw)",
-              [side === "left" ? "right" : "left"]: "calc(100% - 0.2cqw)",
-              borderRadius: side === "left" ? "1cqw 0 0 1cqw" : "0 1cqw 1cqw 0",
-              background: kind === "camera" ? "linear-gradient(90deg,#1c1c1e,#3a3a3d)" : "var(--iph-btn)",
-            }}
-          />
-        ))}
-        <div
-          className="iphone-band relative"
-          style={{ padding: "1.25cqw", borderRadius: "16.4cqw", background: "var(--iph-band)", boxShadow: "var(--iph-shadow)" }}
-        >
-          <div
-            className="relative bg-black"
-            style={{ padding: "2.43cqw", borderRadius: "15.2cqw", boxShadow: "inset 0 0 0 0.35px var(--iph-rim), 0 0 0 0.5px rgba(0,0,0,.35)" }}
-          >
-            <div
-              className="relative w-full overflow-hidden bg-[var(--bg-2)]"
-              style={{ aspectRatio: "1206 / 2622", borderRadius: "12.7cqw" }}
-            >
-              {screen}
-              <span
-                aria-hidden
-                className="absolute left-1/2 -translate-x-1/2 rounded-full bg-black z-10 pointer-events-none"
-                style={{ top: "2.53cqw", width: "29.1cqw", height: "8.6cqw" }}
-              />
-            </div>
-          </div>
-        </div>
+      {/* The screen runs 2 px (of 450) under the frame's black border on every side, so a
+          sub-pixel gap while scaling (Firefox snaps the two layers apart) stays hidden. */}
+      <div
+        className="absolute overflow-hidden bg-black"
+        style={{ left: "4.889%", top: "2.283%", width: "90.222%", height: "95.435%", borderRadius: "16.3% / 7.5%" }}
+      >
+        {screen}
       </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/frames/iphone-silver.png" alt="" aria-hidden draggable={false} decoding="sync" className="iphone-frame-light absolute inset-0 w-full h-full pointer-events-none select-none" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/frames/iphone-black.png" alt="" aria-hidden draggable={false} decoding="sync" className="iphone-frame-dark absolute inset-0 w-full h-full pointer-events-none select-none" />
     </div>
   );
 }
@@ -742,8 +706,10 @@ function IPhoneFrame({ src, alt: altText, preview, className }: { src?: string; 
       onZoomChange={setZoomed}
       zoomContent={
         <IPhoneDevice
+          // decoding="sync": the picture is already in memory from the page, so paint it on the
+          // first frame instead of showing the black screen while it decodes again.
           /* eslint-disable-next-line @next/next/no-img-element */
-          screen={<img src={src} alt={alt} className="w-full h-full object-cover object-top select-none pointer-events-none" />}
+          screen={<img src={src} alt={alt} decoding="sync" className="w-full h-full object-cover object-top select-none pointer-events-none" />}
         />
       }
     />
