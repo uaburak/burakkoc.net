@@ -3,9 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { TopBar } from "@/components/TopBar";
-import { ArrowLeftIcon, ChevronRight, ExternalSmall, Spinner } from "@/components/icons";
-import { PillButton } from "@/components/Button";
+import { ArrowLeftIcon, ExternalSmall, Spinner } from "@/components/icons";
 import { listProjects, saveProject, deleteProject } from "@/lib/firestore";
 import { deleteProjectFolder } from "@/lib/storage";
 import { ProjectData } from "@/types/project";

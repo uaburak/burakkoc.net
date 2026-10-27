@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import gsap from "gsap";
-import { TopBar } from "@/components/TopBar";
 import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
 import { ProjectData } from "@/types/project";
 import PageEntrance from "@/components/PageEntrance";

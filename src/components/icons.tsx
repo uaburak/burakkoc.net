@@ -8,14 +8,6 @@ export function ArrowLeftIcon({ className }: { className?: string }) {
   );
 }
 
-export function ChevronLeftSmall() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M9 2.5L4 7l5 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 export function ChevronRight() {
   return (
     <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none">

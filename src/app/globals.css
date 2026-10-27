@@ -62,23 +62,6 @@
 
 /* ── Tailwind Custom Theme ─────────────────────────────────── */
 @theme inline {
-  --color-bg-1:      var(--bg-1);
-  --color-bg-2:      var(--bg-2);
-  --color-bg-3:      var(--bg-3);
-  --color-bg-4:      var(--bg-4);
-  --color-bg-5:      var(--bg-5);
-  --color-bg-code:   var(--bg-code);
-
-  --color-text-title:    var(--text-title);
-  --color-text-p:        var(--text-p);
-  --color-text-subtitle: var(--text-subtitle);
-
-  --color-border:       var(--border);
-  --color-border-hover: var(--border-hover);
-
-  --color-progress-track: var(--progress-track);
-  --color-progress-fill:  var(--progress-fill);
-
   --font-matter: "Matter", var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -445,17 +428,13 @@ pre[class*="language-"] {
   color: #fb923c;
 }
 /* ── Hide native scrollbar for custom scrollbar replacement ── */
-.hide-native-scrollbar,
-.no-scrollbar {
+.hide-native-scrollbar {
   -ms-overflow-style: none !important;
   scrollbar-width: none !important;
 }
 .hide-native-scrollbar::-webkit-scrollbar,
-.no-scrollbar::-webkit-scrollbar,
 .hide-native-scrollbar::-webkit-scrollbar-thumb,
-.no-scrollbar::-webkit-scrollbar-thumb,
-.hide-native-scrollbar::-webkit-scrollbar-track,
-.no-scrollbar::-webkit-scrollbar-track {
+.hide-native-scrollbar::-webkit-scrollbar-track {
   width: 0 !important;
   height: 0 !important;
   display: none !important;

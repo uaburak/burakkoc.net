@@ -251,7 +251,7 @@ export function CVAdminClient() {
   const [cvData, setCvData] = useState<CVData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const { saveStatus, setSaveStatus, registerSave } = useEditorContext();
+  const { setSaveStatus, registerSave } = useEditorContext();
 
   useEffect(() => {
     getCVData()

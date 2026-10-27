@@ -15,7 +15,6 @@ import { ZoomableFigma } from "@/components/ZoomableFigma";
 import { ZoomableIframe } from "@/components/ZoomableIframe";
 import { IconButton } from "@/components/Button";
 import PageEntrance from "@/components/PageEntrance";
-import { TopBar } from "@/components/TopBar";
 import { CodeHighlight } from "@/components/CodeHighlight";
 import { ComponentRenderer } from "@/components/demos/ComponentRegistry";
 import { CaseStudyBlock } from "@/components/project/CaseStudyBlocks";
@@ -316,7 +315,6 @@ function DetailCode({ block }: { block: Block }) {
   const [activeTab, setActiveTab] = useState<string>("");
 
   const segBadge = block.badges?.find((b) => b.icon === "segmented");
-  const tab1Label = segBadge?.tab1Label ?? "Project";
   const tab2Label = segBadge?.tab2Label ?? "Code";
   const isTab2 = segBadge && activeTab === tab2Label;
 
@@ -809,9 +807,6 @@ export function ProjectDetailClient({
   const showNavigation = projects.length > 1 && currentIndex !== -1;
   const prevProject = showNavigation ? projects[(currentIndex - 1 + projects.length) % projects.length] : null;
   const nextProject = showNavigation ? projects[(currentIndex + 1) % projects.length] : null;
-
-  const prevImg = getProjectCoverImage(prevProject);
-  const nextImg = getProjectCoverImage(nextProject);
 
   return (
     <PageEntrance className="min-h-screen bg-[var(--bg-1)] transition-colors duration-200 relative">

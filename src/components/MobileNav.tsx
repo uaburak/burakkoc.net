@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -93,8 +93,6 @@ const MobileNavContext = createContext<MobileNavContextType>({
   toggleMenu: () => {},
   closeMenu: () => {},
 });
-
-export const useMobileNav = () => useContext(MobileNavContext);
 
 // ── Main Provider Component ───────────────────────────────────────────────────
 
@@ -232,8 +230,4 @@ export function MobileNavProvider({ children }: { children: React.ReactNode }) {
       </div>
     </MobileNavContext.Provider>
   );
-}
-
-export function MobileNav() {
-  return null;
 }

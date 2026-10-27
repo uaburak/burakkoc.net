@@ -197,7 +197,6 @@ function PreviewImage({ block }: { block: Block }) {
   const aspectValue = aspectMap[ratio] ?? "940/518";
 
   const segBadge = block.badges?.find((b) => b.icon === "segmented");
-  const tab1Label = segBadge?.tab1Label ?? "Project";
   const tab2 = segBadge?.tab2;
   const isTab2 = segBadge && activeTab === (segBadge.tab2Label ?? "Code");
 
@@ -294,7 +293,6 @@ function PreviewCode({ block }: { block: Block }) {
   const [activeTab, setActiveTab] = useState<string>("");
 
   const segBadge = block.badges?.find((b) => b.icon === "segmented");
-  const tab1Label = segBadge?.tab1Label ?? "Project";
   const tab2Label = segBadge?.tab2Label ?? "Code";
   const isTab2 = segBadge && activeTab === tab2Label;
 

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { TopBar } from "@/components/TopBar";
 import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
 
 export const metadata = {

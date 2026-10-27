@@ -2,14 +2,12 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import gsap from "gsap";
-import { ArrowLeftIcon, ChevronRight } from "@/components/icons";
+import { ArrowLeftIcon } from "@/components/icons";
 import TextScrollingEffect from "@/components/TextScrollingEffect";
 import ScrollReveal from "@/components/ScrollReveal";
 import PageEntrance from "@/components/PageEntrance";
-import { TopBar } from "@/components/TopBar";
-import { listProjects, getCVData, DEFAULT_CV_DATA } from "@/lib/firestore";
+import { listProjects, DEFAULT_CV_DATA } from "@/lib/firestore";
 import { ProjectData } from "@/types/project";
 import { CVData } from "@/types/cv";
 import { ZoomableImage } from "@/components/ZoomableImage";
@@ -178,16 +176,6 @@ function TimelineRow({
         </div>
       </div>
     </ScrollReveal>
-  );
-}
-
-// ── Skill tag ─────────────────────────────────────────────────────────────────
-
-function SkillTag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center px-3 py-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-sm font-light text-[var(--text-p)] transition-colors duration-200 hover:border-[var(--border-hover)]">
-      {children}
-    </span>
   );
 }
 
@@ -459,34 +447,6 @@ export function CVClient({
       })
       .catch((err) => console.error("Failed to fetch projects for CV footer:", err));
   }, []);
-
-  const handleMouseEnterHome = () => {
-    if (footerCardRef.current) {
-      gsap.to(footerCardRef.current, {
-        left: "0%",
-        opacity: 0,
-        scale: 0.95,
-        duration: 0.35,
-        ease: "power2.out",
-        overwrite: "auto",
-      });
-    }
-  };
-
-  const handleMouseMoveHome = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (!footerCardRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relX = (e.clientX - rect.left) / rect.width - 0.5;
-
-    gsap.to(footerCardRef.current, {
-      left: "0%",
-      x: relX * 20,
-      rotation: relX * 6,
-      duration: 0.3,
-      ease: "power2.out",
-      overwrite: "auto",
-    });
-  };
 
   const handleMouseEnterProjects = () => {
     let img = featuredProject?.coverImage || null;

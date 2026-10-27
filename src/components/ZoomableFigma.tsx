@@ -72,7 +72,7 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
     };
   }, []);
 
-  const handleZoom = (e: React.MouseEvent) => {
+  const handleZoom = () => {
     const activeUrl = src || figmaWorkspace;
     if (isZoomed || !activeUrl) return;
 
@@ -163,25 +163,6 @@ export function ZoomableFigma({ src, figmaWorkspace, figmaCover, figmaWorkspaceC
   const hasAnyLink = Boolean(src || figmaWorkspace);
 
   const activeCover = activeTabIndex === 1 ? (figmaWorkspaceCover || figmaCover) : figmaCover;
-
-  let playLabel = "";
-  if (lang === "en") {
-    if (hasSegmented) {
-      playLabel = activeTabIndex === 0 ? "Load Interactive Prototype" : "Load Interactive Pages";
-    } else if (src) {
-      playLabel = "Load Interactive Prototype";
-    } else {
-      playLabel = "Load Interactive Pages";
-    }
-  } else {
-    if (hasSegmented) {
-      playLabel = activeTabIndex === 0 ? "Etkileşimli Prototipi Yükle" : "Etkileşimli Pages Yükle";
-    } else if (src) {
-      playLabel = "Etkileşimli Prototipi Yükle";
-    } else {
-      playLabel = "Etkileşimli Pages Yükle";
-    }
-  }
 
   if (!hasAnyLink) {
     return (

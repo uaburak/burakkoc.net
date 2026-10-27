@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Block, BlockType, ListStyle, PageItem, PageSection, PageDivider, ProjectData, Section } from "@/types/project";
+import { Block, BlockType, ListStyle, PageSection, PageDivider, ProjectData, Section } from "@/types/project";
 import { TextBlockEditor }  from "@/components/admin/TextBlockEditor";
 import { ImageBlockEditor } from "@/components/admin/ImageBlockEditor";
 import { VideoBlockEditor } from "@/components/admin/VideoBlockEditor";
@@ -401,46 +401,10 @@ function BlockTypeList({ onPick, onPickList }: { onPick: (type: BlockType) => vo
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 
-function TrashIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M2 3.5h10M5.5 3.5V2h3v1.5M4 3.5l.5 8h5l.5-8" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function ChevronUpIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M3 9L7 5l4 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function ChevronDownIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-      <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 function PlusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-function SaveIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M3 2h8l3 3v9a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1.25" />
-      <path d="M5 2v4h6V2M5 9h6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-    </svg>
-  );
-}
-function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-      <path d="M3 8l3.5 3.5L13 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -1116,7 +1080,7 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   const [project, setProject] = useState<ProjectData>({ ...EMPTY_PROJECT, slug });
 
   // ── Pull shared state from EditorContext (set by EditorNavControls in the top nav) ──
-  const { editLang, saveStatus, setSaveStatus, registerSave } = useEditorContext();
+  const { editLang, setSaveStatus, registerSave } = useEditorContext();
 
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [loadingFromDB, setLoadingFromDB] = useState(true);
@@ -1196,7 +1160,6 @@ export function AdminEditorClient({ slug }: { slug: string }) {
         } catch { /* keep empty state */ }
       })
       .finally(() => setLoadingFromDB(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   // ── Mirror to localStorage for offline / fast-reload ──
@@ -1303,7 +1266,6 @@ export function AdminEditorClient({ slug }: { slug: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, slug]);
 
-  const sectionCount = project.items.filter((i) => i.kind === "section").length;
   let sectionIndex = 0;
 
   if (loadingFromDB) {
