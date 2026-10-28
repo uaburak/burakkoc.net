@@ -24,7 +24,8 @@ function getEmbedUrl(src: string): string | null {
   if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`;
   const vimeoMatch = src.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
-  if (src.endsWith(".mp4") || src.endsWith(".webm")) return src;
+  // Storage links (Firebase) end in "?alt=media&token=…", so judge the path.
+  if (/\.(mp4|webm)$/i.test(src.split(/[?#]/)[0])) return src;
   return null;
 }
 
@@ -41,7 +42,7 @@ function ZoomTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
   }
   if (tab2.type === "video") {
     const url = tab2.src ? getEmbedUrl(tab2.src) : null;
-    const isRaw = tab2.src?.endsWith(".mp4") || tab2.src?.endsWith(".webm");
+    const isRaw = /\.(mp4|webm)$/i.test(tab2.src?.split(/[?#]/)[0] ?? "");
     return url ? (
       isRaw ? (
         <video src={url} controls className="w-full h-full object-cover" />

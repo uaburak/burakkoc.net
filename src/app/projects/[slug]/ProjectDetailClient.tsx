@@ -13,6 +13,7 @@ import ScrollReveal from "@/components/ScrollReveal";
 import { ZoomableImage } from "@/components/ZoomableImage";
 import { ZoomableFigma } from "@/components/ZoomableFigma";
 import { ZoomableIframe } from "@/components/ZoomableIframe";
+import { ZoomableVideo } from "@/components/ZoomableVideo";
 import { IconButton } from "@/components/Button";
 import PageEntrance from "@/components/PageEntrance";
 import { CodeHighlight } from "@/components/CodeHighlight";
@@ -275,7 +276,7 @@ function DetailVideo({ block }: { block: Block }) {
   const isTab2 = segBadge && activeTab === (segBadge.tab2Label ?? "Code");
 
   const embedUrl = block.src ? getEmbedUrl(block.src) : null;
-  const isRaw = block.src?.endsWith(".mp4") || block.src?.endsWith(".webm");
+  const isRaw = block.src ? isRawVideo(block.src) : false;
 
   return (
     <ScrollReveal>
@@ -287,7 +288,7 @@ function DetailVideo({ block }: { block: Block }) {
                 block.videoLoop ? (
                   <video src={embedUrl} autoPlay muted loop playsInline className="w-full h-full object-cover" />
                 ) : (
-                  <video src={embedUrl} controls className="w-full h-full object-cover" />
+                  <ZoomableVideo src={embedUrl} caption={block.caption} />
                 )
               ) : (
                 <iframe src={embedUrl} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={block.caption ?? "Video"} />
@@ -525,8 +526,14 @@ function getEmbedUrl(src: string): string | null {
   if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`;
   const vimeoMatch = src.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
-  if (src.endsWith(".mp4") || src.endsWith(".webm")) return src;
+  if (isRawVideo(src)) return src;
   return null;
+}
+
+// A video file, judged by its path: storage links (Firebase) end in "?alt=media&token=…".
+function isRawVideo(src: string): boolean {
+  const path = src.split(/[?#]/)[0].toLowerCase();
+  return path.endsWith(".mp4") || path.endsWith(".webm");
 }
 
 // ── Skeleton Loader Component ─────────────────────────────────────────────────

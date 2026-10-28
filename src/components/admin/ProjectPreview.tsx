@@ -1,5 +1,6 @@
 "use client";
 
+import { ZoomableVideo } from "@/components/ZoomableVideo";
 import { useState } from "react";
 import { ProjectData, Block, Section, BadgeItem, BadgePosition, PageItem, ListStyle } from "@/types/project";
 import { Segmented } from "@/components/Segmented";
@@ -255,7 +256,7 @@ function PreviewVideo({ block }: { block: Block }) {
   const isTab2 = segBadge && activeTab === (segBadge.tab2Label ?? "Code");
 
   const embedUrl = block.src ? getEmbedUrl(block.src) : null;
-  const isRaw = block.src?.endsWith(".mp4") || block.src?.endsWith(".webm");
+  const isRaw = /\.(mp4|webm)$/i.test(block.src?.split(/[?#]/)[0] ?? "");
 
   return (
     <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
@@ -266,7 +267,7 @@ function PreviewVideo({ block }: { block: Block }) {
               block.videoLoop ? (
                 <video src={embedUrl} autoPlay muted loop playsInline className="w-full h-full object-cover" />
               ) : (
-                <video src={embedUrl} controls className="w-full h-full object-cover" />
+                <ZoomableVideo src={embedUrl} caption={block.caption} />
               )
             ) : (
               <iframe src={embedUrl} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen title={block.caption ?? "Video"} />
@@ -602,6 +603,7 @@ function getEmbedUrl(src: string): string | null {
   if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`;
   const vimeoMatch = src.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
-  if (src.endsWith(".mp4") || src.endsWith(".webm")) return src;
+  // Storage links (Firebase) end in "?alt=media&token=…", so judge the path.
+  if (/\.(mp4|webm)$/i.test(src.split(/[?#]/)[0])) return src;
   return null;
 }
