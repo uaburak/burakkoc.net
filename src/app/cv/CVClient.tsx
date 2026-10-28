@@ -574,6 +574,13 @@ export function CVClient({
       {/* ── Main content ── */}
       <main className={`flex flex-col items-start w-full max-w-[720px] mx-auto ${isPreview ? "px-4 pt-6 pb-12" : "px-5 pt-10 pb-[60px] xl:px-6 xl:pt-[160px] xl:pb-[60px]"}`}>
 
+        {/* ─── Phone cover: the profile photo leads the page, like a project's cover ─── */}
+        {cvData?.profileImage && !isPreview && (
+          <div className="md:hidden relative rounded-[40px] border border-[var(--border)] bg-[var(--bg-4)] overflow-hidden w-[calc(100%+24px)] project-cover-mobile -mx-3 -mt-8 mb-12 aspect-[7/9]">
+            <ZoomableImage src={cvData.profileImage} alt={cvData?.myname || "Profile"} className="w-full h-full object-cover" />
+          </div>
+        )}
+
         {/* ─── Header ─── */}
         <section className="flex flex-col items-start w-full pt-[10px] pb-10 border-b border-[var(--border)]">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-4">
@@ -583,7 +590,7 @@ export function CVClient({
                   onMouseEnter={handleMouseEnterProfile}
                   onMouseLeave={handleMouseLeaveProfile}
                   onClick={handleMouseLeaveProfile}
-                  className="w-[72px] h-[72px] rounded-[14px] bg-[var(--bg-4)] overflow-hidden shrink-0 flex items-center justify-center cursor-pointer"
+                  className={`${isPreview ? "flex" : "hidden md:flex"} w-[72px] h-[72px] rounded-[14px] bg-[var(--bg-4)] overflow-hidden shrink-0 items-center justify-center cursor-pointer`}
                 >
                   <ZoomableImage
                     src={cvData.profileImage}
