@@ -3,7 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/context/ThemeContext";
 import SmoothScroll from "@/components/SmoothScroll";
-import CustomCursor from "@/components/CustomCursor";
+import Squircles from "@/components/Squircles";
 import { MobileNavProvider } from "@/components/MobileNav";
 
 // Self-hosted (build sırasında indirilir) → render-blocking Google Fonts isteği yok.
@@ -50,7 +50,7 @@ export default function RootLayout({
             <SmoothScroll>
               {children}
             </SmoothScroll>
-            <CustomCursor />
+            <Squircles />
           </MobileNavProvider>
         </ThemeProvider>
       </body>

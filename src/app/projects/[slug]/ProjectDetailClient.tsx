@@ -413,8 +413,21 @@ function SecondTabContent({ tab2 }: { tab2: NonNullable<BadgeItem["tab2"]> }) {
 
 // DetailFigma removed in favor of ZoomableFigma
 
+// The cover; its iOS-style corners come from the site-wide Squircles.
+function ProjectCover({ src, alt }: { src: string; alt: string }) {
+  return (
+    <div className="relative rounded-[40px] md:rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden order-first w-[calc(100%+24px)] project-cover-mobile -mx-3 -mt-8 mb-12 aspect-[7/9] md:order-none md:w-full md:mx-0 md:mt-12 md:mb-6 md:aspect-[940/518]">
+      <ZoomableImage src={src} alt={alt} className="w-full h-full object-cover" />
+    </div>
+  );
+}
+
 function DetailDivider() {
-  return <div className="w-full h-px bg-[var(--border)] my-2" />;
+  return (
+    <ScrollReveal className="w-full">
+      <div className="w-full h-px bg-[var(--border)] my-2" />
+    </ScrollReveal>
+  );
 }
 
 function DetailList({ block }: { block: Block }) {
@@ -653,7 +666,9 @@ function ProjectDetailFooterNav({ prevProject, nextProject }: ProjectDetailFoote
       className="flex flex-col gap-12 items-start pt-16 w-full"
       onMouseLeave={handleMouseLeaveFooter}
     >
-      <div className="w-full h-px bg-[var(--border)]" />
+      <ScrollReveal className="w-full">
+        <div className="w-full h-px bg-[var(--border)]" />
+      </ScrollReveal>
       <div className="relative grid grid-cols-2 gap-2 sm:gap-0 w-full">
         {/* Single Shared Footer Preview Card - Accelerated via GPU xPercent & transform */}
         <div
@@ -859,18 +874,9 @@ export function ProjectDetailClient({
             </div>
           )}
 
-          {/* Cover Image (Resim) */}
+          {/* Cover Image (Resim) — on phones it leads the page as a tall 350 × 450 card */}
           {project.coverImage && (
-            <div
-              className="relative w-full rounded-[32px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden mt-12 mb-6"
-              style={{ aspectRatio: "940/518" }}
-            >
-              <ZoomableImage
-                src={project.coverImage}
-                alt={project.title || project.slug}
-                className="w-full h-full object-cover"
-              />
-            </div>
+            <ProjectCover src={project.coverImage} alt={project.title || project.slug} />
           )}
         </section>
 

@@ -121,7 +121,7 @@ function InfoBlock({ block, preview }: RenderProps) {
   return (
     <dl className="grid grid-cols-2 gap-2.5 w-full">
       {entries.map((e) => (
-        <div key={e.id} className="flex flex-col gap-0.5 px-4 py-3 rounded-[22px] bg-[var(--bg-4)] min-w-0">
+        <div key={e.id} data-reveal className="flex flex-col gap-0.5 px-4 py-3 rounded-[22px] bg-[var(--bg-4)] min-w-0">
           <dt className="text-sm font-normal leading-5 text-[var(--text-subtitle)]">
             {e.label || (preview ? <Hint>Etiket</Hint> : null)}
           </dt>
@@ -143,7 +143,7 @@ function StatsBlock({ block, preview }: RenderProps) {
   return (
     <div className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}>
       {entries.map((e) => (
-        <div key={e.id} className="flex flex-col gap-1 px-5 py-5 rounded-[22px] bg-[var(--bg-4)] min-w-0">
+        <div key={e.id} data-reveal className="flex flex-col gap-1 px-5 py-5 rounded-[22px] bg-[var(--bg-4)] min-w-0">
           <span className="text-[28px] font-medium leading-9 tracking-[-0.02em] text-[var(--text-title)] tabular-nums break-words">
             {e.value || (preview ? <Hint>%00</Hint> : null)}
           </span>
@@ -165,7 +165,7 @@ function CardsBlock({ block, preview }: RenderProps) {
   return (
     <div className={cn("grid grid-cols-1 gap-2.5 w-full", GRID_SM_COLS[cols])}>
       {entries.map((e) => (
-        <div key={e.id} className="flex flex-col gap-2 p-5 rounded-[22px] bg-[var(--bg-4)] min-w-0">
+        <div key={e.id} data-reveal className="flex flex-col gap-2 p-5 rounded-[22px] bg-[var(--bg-4)] min-w-0">
           {e.eyebrow && (
             <span className="text-sm font-normal leading-5 text-[var(--text-subtitle)] tabular-nums">
               {e.eyebrow}
@@ -193,7 +193,7 @@ function StepsBlock({ block, preview }: RenderProps) {
   return (
     <ol className="flex flex-col w-full">
       {entries.map((e, i) => (
-        <li key={e.id} className="relative flex gap-4 pb-8 last:pb-0">
+        <li key={e.id} data-reveal className="relative flex gap-4 pb-8 last:pb-0">
           {i < entries.length - 1 && (
             <span aria-hidden className="absolute left-4 top-10 bottom-2 w-px bg-[var(--border-hover)]" />
           )}
@@ -258,7 +258,7 @@ function GalleryBlock({ block, preview }: RenderProps) {
     <div className="flex flex-col gap-6 items-center pt-12 pb-9 w-full">
       <div className={cn("grid gap-3 w-full", portrait ? "grid-cols-2" : "grid-cols-1", GRID_SM_COLS[cols])}>
         {entries.map((e) => (
-          <figure key={e.id} className="flex flex-col gap-3 min-w-0">
+          <figure key={e.id} data-reveal className="flex flex-col gap-3 min-w-0">
             <div
               className="relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden"
               style={aspectStyle(block.aspectRatio, "4/3")}
@@ -431,10 +431,11 @@ function LinksBlock({ block, preview }: RenderProps) {
       {entries.map((e) => (
         <a
           key={e.id}
+          data-reveal
           href={e.href && isSafeHref(e.href) ? e.href : undefined}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 h-10 px-4 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-[14px] font-medium leading-5 text-[var(--text-title)] transition-all duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-[0.97]"
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-full border border-[var(--border)] bg-[var(--bg-2)] text-[14px] font-medium leading-5 text-[var(--text-title)] transition-[background-color,border-color,scale] duration-200 hover:bg-[var(--bg-4)] hover:border-[var(--border-hover)] active:scale-[0.97]"
         >
           <LinkIcon icon={e.icon} />
           {e.label || e.href || <Hint>Bağlantı</Hint>}
@@ -454,6 +455,7 @@ function TagsBlock({ block, preview }: RenderProps) {
       {entries.map((e) => (
         <li
           key={e.id}
+          data-reveal
           className="inline-flex items-center h-8 px-3.5 rounded-full bg-[var(--bg-4)] text-[13px] font-medium leading-5 text-[var(--text-p)]"
         >
           {e.label || <Hint>Etiket</Hint>}
@@ -568,7 +570,7 @@ function AccordionBlock({ block, preview }: RenderProps) {
         const isOpen = openId === e.id;
         const panelId = `${baseId}-${e.id}`;
         return (
-          <div key={e.id} className="rounded-[22px] bg-[var(--bg-4)]">
+          <div key={e.id} data-reveal className="rounded-[22px] bg-[var(--bg-4)]">
             <button
               type="button"
               aria-expanded={isOpen}
@@ -616,7 +618,7 @@ function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entr
 
   if (variant === "browser") {
     return (
-      <div className="w-full rounded-[16px] border border-[var(--border-hover)] bg-[var(--bg-1)] overflow-hidden shadow-[0_12px_32px_rgba(0,0,0,0.08)]">
+      <div data-reveal className="w-full rounded-[16px] border border-[var(--border-hover)] bg-[var(--bg-1)] overflow-hidden shadow-[0_12px_32px_rgba(0,0,0,0.08)]">
         <div className="flex items-center gap-3 h-9 px-3.5 border-b border-[var(--border)]">
           <div className="flex gap-1.5 w-[42px]">
             {[0, 1, 2].map((i) => <span key={i} className="w-2.5 h-2.5 rounded-full bg-[var(--bg-5)]" />)}
@@ -634,11 +636,16 @@ function DeviceFrame({ variant, entry, preview }: { variant: MockupVariant; entr
   }
 
   if (variant === "phone") {
-    return <IPhoneFrame src={entry.src} alt={entry.alt} preview={preview} className="flex-1 min-w-[96px] max-w-[272px]" />;
+    // The frame has its own hover transform, so the reveal moves a wrapper around it.
+    return (
+      <div data-reveal className="flex-1 min-w-[96px] max-w-[272px]">
+        <IPhoneFrame src={entry.src} alt={entry.alt} preview={preview} className="w-full" />
+      </div>
+    );
   }
 
   return (
-    <div className="relative flex-1 min-w-0 max-w-[460px] rounded-[28px] p-[10px] bg-[#0d0d0d] ring-1 ring-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+    <div data-reveal className="relative flex-1 min-w-0 max-w-[460px] rounded-[28px] p-[10px] bg-[#0d0d0d] ring-1 ring-white/10 shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
       <div className="relative w-full overflow-hidden rounded-[18px] bg-[var(--bg-2)]" style={{ aspectRatio: "4 / 3" }}>
         {screen}
       </div>
@@ -663,7 +670,6 @@ const IPHONE_CSS = `
 [data-theme="dark"] .iphone-lift:hover{filter:drop-shadow(0 12px 22px rgba(0,0,0,.6)) drop-shadow(0 32px 48px rgba(0,0,0,.7))}
 `;
 
-const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
 /** The device itself (screen under the frame image). Fills its parent's width. */
 function IPhoneDevice({ screen }: { screen: ReactNode }) {
@@ -725,17 +731,13 @@ function IPhoneFrame({ src, alt: altText, preview, className }: { src?: string; 
     >
       <IPhoneDevice screen={screen} />
       {src && (
-        // Covers frame and screen so the whole device is one target. The transparent <img>
-        // makes CustomCursor show its "image-hovered" state over the frame too.
+        // Covers frame and screen so the whole device is one target.
         <button
           type="button"
           aria-label={alt ? `${alt} — büyüt` : "Ekranı büyüt"}
           className="absolute inset-0 z-20 cursor-zoom-in"
           onClick={() => ref.current?.querySelector<HTMLImageElement>("img[data-iphone-screen]")?.click()}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={TRANSPARENT_PIXEL} alt="" aria-hidden className="w-full h-full cursor-zoom-in" draggable={false} />
-        </button>
+        />
       )}
     </div>
   );
@@ -776,11 +778,12 @@ function SplitBlock({ block, preview }: RenderProps) {
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 items-center w-full py-6">
       {block.device === "phone" ? (
         // Framed phone straight on the page (no card), like the mockup block; px-1 leaves room for the side buttons.
-        <div className={cn("flex justify-center px-1 py-2", imageRight && "sm:order-2")}>
+        <div data-reveal className={cn("flex justify-center px-1 py-2", imageRight && "sm:order-2")}>
           <IPhoneFrame src={block.src} alt={block.alt} preview={preview} className="w-full max-w-[220px] sm:max-w-[280px]" />
         </div>
       ) : (
         <div
+          data-reveal
           className={cn("relative w-full rounded-[24px] border border-[var(--border)] bg-[var(--bg-2)] overflow-hidden", imageRight && "sm:order-2")}
           style={aspectStyle(block.aspectRatio, "4/3")}
         >
@@ -791,7 +794,7 @@ function SplitBlock({ block, preview }: RenderProps) {
           )}
         </div>
       )}
-      <div className="flex flex-col gap-2 min-w-0">
+      <div data-reveal className="flex flex-col gap-2 min-w-0">
         <h3 className="text-base font-medium leading-6 text-[var(--text-title)]">
           {block.title || (preview ? <Hint>Başlık</Hint> : null)}
         </h3>
@@ -998,12 +1001,12 @@ function TeamBlock({ block, preview }: RenderProps) {
         );
         const cls = "flex items-center gap-3 p-3 pr-4 rounded-[22px] bg-[var(--bg-4)] min-w-0";
         return e.href && isSafeHref(e.href) ? (
-          <a key={e.id} href={e.href} target="_blank" rel="noopener noreferrer"
+          <a key={e.id} data-reveal href={e.href} target="_blank" rel="noopener noreferrer"
             className={cn(cls, "transition-colors duration-200 hover:bg-[var(--bg-5)]")}>
             {inner}
           </a>
         ) : (
-          <div key={e.id} className={cls}>{inner}</div>
+          <div key={e.id} data-reveal className={cls}>{inner}</div>
         );
       })}
     </div>
@@ -1019,7 +1022,7 @@ function PaletteBlock({ block, preview }: RenderProps) {
   return (
     <div className={cn("grid grid-cols-2 gap-2.5 w-full", cols !== 2 && GRID_SM_COLS[cols])}>
       {entries.map((e) => (
-        <div key={e.id} className="flex flex-col rounded-[22px] bg-[var(--bg-4)] overflow-hidden min-w-0">
+        <div key={e.id} data-reveal className="flex flex-col rounded-[22px] bg-[var(--bg-4)] overflow-hidden min-w-0">
           <div
             className="h-24 shadow-[inset_0_-1px_0_var(--border)]"
             style={{ backgroundColor: e.value || "transparent" }}
